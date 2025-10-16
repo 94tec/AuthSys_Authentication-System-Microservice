@@ -69,7 +69,7 @@ The application uses the `default` Spring profile. Configuration is primarily do
 * **Redis:** Defaults to connecting at `localhost:6379`. Modify details in `application.properties` or `RedisConfig.java`.
 * **Email/SMS:**
     * Configure **Brevo API Key** (loaded successfully).
-    * Set **Sender Email** (`fixtone94tec@8956917.brevosend.com`) and **Sender Name** (`Fixtone Kaloki`) in the respective service configurations.
+    * Set **Sender Email**  and **Sender Name** in the respective service configurations.
 
 ---
 
@@ -79,8 +79,6 @@ The application uses the `default` Spring profile. Configuration is primarily do
 
 * **Application Name:** `AuthSysApplication`
 * **Default Context:** `[authSys]`
-* **Startup Time:** $\approx 8.184$ seconds
-* **Environment:** User `tech` on `/home/tech/warmUP/ng'aduProjects/authSys`
 
 ### Scheduled Tasks
 
