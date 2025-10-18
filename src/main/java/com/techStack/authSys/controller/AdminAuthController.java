@@ -252,8 +252,7 @@ public class AdminAuthController {
                     auditLogService.logAudit(
                             superAdmin,
                             ActionType.SUPER_ADMIN_CREATED,
-                            STR."Bootstrap super admin created: \{superAdmin.getEmail()}",
-                            null
+                            STR."Super admin created: \{superAdmin.getEmail()}", null
                     );
 
                     auditLogService.logAudit(
@@ -269,6 +268,7 @@ public class AdminAuthController {
                 .thenReturn(ResponseEntity.ok("Super admin created successfully."));
     }
 
+    //SUPER ADMIN - REGISTER ADMIN ROUTE
     @PostMapping("/register-admin")
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("hasRole('SUPER_ADMIN')")

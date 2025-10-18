@@ -13,11 +13,9 @@ public interface AuthServiceController {
     @EventListener
     void handleAccountLockedEvent(AccountLockedEvent event);
 
-    Mono<AuthResult> authenticate(String userId, String email, String password, String ipAddress,
-                                  String deviceFingerprint, String userAgent, String issuedAt);
+    Mono<AuthResult> authenticate(String userId, String email, String password, String ipAddress, String deviceFingerprint, String userAgent, String issuedAt);
 
-    Mono<AuthResult> performAuthentication(String email, String password,
-                                           String ipAddress, String deviceFingerprint, String issuedAt);
+    Mono<AuthResult> performAuthentication(String email, String password, String ipAddress, String deviceFingerprint, String issuedAt);
 
     Mono<AuthResult> performAuthentication(String email, String password, String issuedAt, String ipAddress);
 
