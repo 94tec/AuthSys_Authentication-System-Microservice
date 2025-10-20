@@ -39,7 +39,6 @@ import reactor.core.publisher.Mono;
 @Slf4j
 public class AdminAuthController {
     private static final Logger logger = LoggerFactory.getLogger(AdminAuthController.class);
-    private static final Pattern E164_PATTERN = Pattern.compile("^\\+\\d{10,15}$");
 
     private final SuperAdminService superAdminService;
     private final DeviceVerificationService deviceVerificationService;
@@ -53,6 +52,20 @@ public class AdminAuthController {
     private final FirebaseServiceAuth firebaseServiceAuth;
     private final RoleAssignmentService roleAssignmentService;
     private final EmailServiceInstance1 emailService;
+
+    @PostMapping("/register")
+    @ResponseStatus(HttpStatus.CREATED)
+    public Mono<ResponseEntity<String>> registerSuperAdmin(
+            @RequestParam String email,
+            @RequestParam String phone
+    ) {
+        return superAdminService.registerSuperAdmin(email, phone)
+                .map(message -> ResponseEntity.ok(message))
+                .onErrorResume(e -> {
+                    log.error("❌ Super admin registration failed: {}", e.getMessage(), e);
+                    return Mono.just(ResponseEntity.badRequest().body(e.getMessage()));
+                });
+    }
 
     @PostMapping("/login")
     public Mono<ResponseEntity<AuthResponse>> authenticateUser(
@@ -136,136 +149,6 @@ public class AdminAuthController {
 
         return superAdminService.logout(userId, sessionId, ipAddress)
                 .thenReturn(ResponseEntity.ok("Logout successful"));
-    }
-
-    private String normalizePhone(String phone) {
-        if (!StringUtils.hasText(phone)) return null;
-
-        phone = phone.trim().replaceAll("\\s+", "");
-
-        if (phone.startsWith("0")) {
-            // Convert local Kenyan format to E.164
-            return "+254" + phone.substring(1);
-        } else if (phone.startsWith("254")) {
-            return "+" + phone;
-        } else if (!phone.startsWith("+")) {
-            return "+" + phone;
-        }
-
-        return phone;
-    }
-
-    @PostMapping("/register")
-    @ResponseStatus(HttpStatus.CREATED)
-    public Mono<ResponseEntity<String>> registerSuperAdmin(
-            @RequestParam(value = "email", required = true) String email,
-            @RequestParam(value = "phone", required = true) String phone
-    ) {
-        // Validate inputs
-        if (!StringUtils.hasText(email)) {
-            return Mono.just(ResponseEntity.badRequest().body("Email parameter is required and cannot be empty"));
-        }
-
-        if (!StringUtils.hasText(phone)) {
-            return Mono.just(ResponseEntity.badRequest().body("Phone parameter is required and cannot be empty"));
-        }
-        phone = normalizePhone(phone);
-
-        if (!E164_PATTERN.matcher(phone).matches()) {
-            return Mono.just(ResponseEntity.badRequest().body("Invalid phone number. Must be E.164 format, e.g., +254712345678"));
-        }
-
-        String password = PasswordUtils.generateSecurePassword(16);
-        long startTime = System.currentTimeMillis();
-
-        log.info("🔐 Manual Super Admin registration initiated for email: {}", email);
-
-        String finalPhone = phone;
-        return isEmailTaken(email)
-                .flatMap(emailExists -> {
-                    if (emailExists) {
-                        log.warn("⚠️ Super Admin already exists: {}", email);
-                        return Mono.error(new IllegalStateException("Super Admin already exists"));
-                    }
-
-                    return createSuperAdmin(email, finalPhone, password, startTime);
-                })
-                .onErrorResume(error -> {
-                    log.error("❌ Super Admin registration failed: {}", error.getMessage(), error);
-                    return firebaseServiceAuth.rollbackFirebaseUserCreation(email)
-                            .then(Mono.error(error));
-                });
-    }
-    private Mono<Boolean> isEmailTaken(String email) {
-        return redisCacheService.isEmailRegistered(email)
-                .onErrorResume(e -> {
-                    log.warn("⚠️ Redis check failed for {}: {}", email, e.getMessage());
-                    return Mono.just(false);
-                })
-                .flatMap(redisHit -> {
-                    if (redisHit) return Mono.just(true);
-
-                    return firebaseServiceAuth.findByEmail(email)
-                            .map(hit -> {
-                                log.warn("⚠️ Email found in Firestore: {}", email);
-                                return true;
-                            })
-                            .switchIfEmpty(Mono.just(false));
-                });
-    }
-
-    private Mono<ResponseEntity<String>> createSuperAdmin(String email, String phone,
-                                                          String password, long startTime) {
-        User superAdmin = new User();
-        superAdmin.setEmail(email);
-        superAdmin.setPhoneNumber(phone);
-        superAdmin.setPassword(password);
-        superAdmin.setEmailVerified(true);
-        superAdmin.setStatus(User.Status.ACTIVE);
-        superAdmin.setEnabled(true);
-        superAdmin.setForcePasswordChange(true);
-
-        return firebaseServiceAuth.createSuperAdmin(superAdmin, password)
-                .flatMap(firebaseUser -> Mono.zip(
-                        roleAssignmentService.assignRoleAndPermissions(superAdmin, Roles.ADMIN),
-                        roleAssignmentService.assignRoleAndPermissions(superAdmin, Roles.SUPER_ADMIN),
-                        firebaseServiceAuth.saveUserPermissions(firebaseUser),
-                        firebaseServiceAuth.saveUser(superAdmin, "127.0.0.1", "SYSTEM")
-                ))
-                .then(bootstrapFlagService.markBootstrapComplete())
-                .then(Mono.fromRunnable(() -> {
-                    redisCacheService.cacheRegisteredEmail(email);
-                    // Chain email sending FIRST
-                    emailService.sendEmail(email, "Your Super Admin Account", STR."Welcome! Your temporary password is: \{password}")
-                            .doOnError(e -> logger.error("Failed to send welcome email", e))
-                            .onErrorResume(e -> {
-                                // Critical: Log audit failure
-                                auditLogService.logAudit(
-                                        superAdmin,
-                                        ActionType.EMAIL_FAILURE,
-                                        STR."Failed to send welcome email to \{email}",
-                                        e.getMessage()
-                                );
-                                return Mono.empty(); // Continue chain
-                            })
-                            .subscribe(); // Explicit subscription
-                    auditLogService.logAudit(
-                            superAdmin,
-                            ActionType.SUPER_ADMIN_CREATED,
-                            STR."Super admin created: \{superAdmin.getEmail()}", null
-                    );
-
-                    auditLogService.logAudit(
-                            superAdmin,
-                            ActionType.SUPER_ADMIN_CREATED,
-                            "Manually created super admin",
-                            "internal"
-                    );
-
-                    metricsService.incrementCounter("user.registration.success");
-                    metricsService.recordTimer("user.registration.time", Duration.ofMillis(System.currentTimeMillis() - startTime));
-                }))
-                .thenReturn(ResponseEntity.ok("Super admin created successfully."));
     }
 
     //SUPER ADMIN - REGISTER ADMIN ROUTE

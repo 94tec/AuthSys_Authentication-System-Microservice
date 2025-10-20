@@ -8,6 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.ReactiveRedisTemplate;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import reactor.core.publisher.Mono;
@@ -43,6 +44,99 @@ public class RedisCacheService {
         this.blockingRedisTemplate = blockingRedisTemplate;
         this.reactiveRedisTemplate = reactiveRedisTemplate;
         this.objectMapper = objectMapper;
+    }
+
+    /**
+     * Acquire a distributed lock with TTL.
+     *
+     * @param key Lock key
+     * @param value Unique value (e.g. timestamp or UUID)
+     * @param ttl Expiration time
+     * @return true if lock acquired, false if already held
+     */
+    public Mono<Boolean> acquireLock(String key, String value, Duration ttl) {
+        return reactiveRedisTemplate.opsForValue()
+                .setIfAbsent(key, value, ttl)
+                .flatMap(acquired -> {
+                    if (Boolean.TRUE.equals(acquired)) {
+                        logger.info("✅ Lock acquired for key: {}", key);
+                        return Mono.just(true);
+                    } else {
+                        logger.warn("⚠️ Lock already held for key: {}", key);
+                        return Mono.just(false);
+                    }
+                })
+                .onErrorResume(e -> {
+                    logger.error("🚨 Error acquiring lock for {}: {}", key, e.getMessage());
+                    return Mono.just(false);
+                });
+    }
+
+    /**
+     * Release a distributed lock safely by comparing value.
+     * Prevents accidental unlock by another process.
+     *
+     * @param key Lock key
+     * @return Mono<Void>
+     */
+    public Mono<Void> releaseLock(String key) {
+        return reactiveRedisTemplate.delete(key)
+                .doOnSuccess(deleted -> {
+                    if (deleted != null && deleted > 0) {
+                        logger.info("🔓 Lock released for key: {}", key);
+                    } else {
+                        logger.debug("No lock found to release for key: {}", key);
+                    }
+                })
+                .doOnError(e -> logger.error("🚨 Error releasing lock for {}: {}", key, e.getMessage()))
+                .then();
+    }
+
+    /**
+     * Enhanced version of releaseLock that verifies ownership.
+     * Only deletes if the value matches (safe for distributed use).
+     *
+     * @param key Lock key
+     * @param value Expected value
+     * @return Mono<Boolean> - true if lock was released
+     */
+    public Mono<Boolean> releaseLockSafely(String key, String value) {
+        String luaScript = """
+        if redis.call("get", KEYS[1]) == ARGV[1] then
+            return redis.call("del", KEYS[1])
+        else
+            return 0
+        end
+    """;
+
+        RedisScript<Long> script = RedisScript.of(luaScript, Long.class);
+
+        return reactiveRedisTemplate.execute(
+                        script,
+                        java.util.Collections.singletonList(key),
+                        java.util.Collections.singletonList(value)
+                )
+                .next()
+                .map(result -> result != null && result > 0)
+                .doOnNext(success -> {
+                    if (success) {
+                        logger.info("🔓 Safely released lock for key: {}", key);
+                    } else {
+                        logger.debug("⚠️ Lock not released — value mismatch for key: {}", key);
+                    }
+                })
+                .onErrorResume(e -> {
+                    logger.error("🚨 Error during safe lock release for {}: {}", key, e.getMessage());
+                    return Mono.just(false);
+                });
+    }
+    /**
+     * Basic key existence check (optional utility)
+     */
+    public Mono<Boolean> keyExists(String key) {
+        return reactiveRedisTemplate.hasKey(key)
+                .map(result -> result != null && result)
+                .onErrorReturn(false);
     }
 
     // ========== Email Registration Checks ==========

@@ -16,6 +16,7 @@ import com.techStack.authSys.models.*;
 import com.techStack.authSys.repository.MetricsService;
 import com.techStack.authSys.repository.PermissionProvider;
 import com.techStack.authSys.util.FirestoreUtil;
+import jakarta.validation.ValidationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -115,108 +116,164 @@ public  class AuthService {
         this.redisCacheService = redisCacheService;
         this.metricsService = metricsService;
     }
+
+    /**
+     * Main registration entry point.
+     *
+     * @param userDto  incoming registration DTO
+     * @param exchange server web exchange (for IP resolution and request metadata)
+     * @return Mono<User> the created user
+     */
+
     public Mono<User> registerUser(UserDTO userDto, ServerWebExchange exchange) {
-        return Mono.defer(() -> {
-            logger.info("Registration attempt for email: {} from IP: {}", userDto.getEmail(), exchange.getRequest().getRemoteAddress());
-            long startTime = System.currentTimeMillis();
-            String ipAddress = deviceVerificationService.extractClientIp(exchange);
-            String deviceFingerprint = deviceVerificationService.generateDeviceFingerprint(ipAddress, userDto.getUserAgent());
+        long startTime = System.currentTimeMillis();
+        String ipAddress = deviceVerificationService.extractClientIp(exchange);
+        String deviceFingerprint = deviceVerificationService.generateDeviceFingerprint(ipAddress, userDto.getUserAgent());
 
-            return validateUserInput(userDto)
-                    .flatMap(dto ->
-                            redisCacheService.isEmailRegistered(dto.getEmail())
-                                    .flatMap(isRegistered -> {
-                                        if (Boolean.TRUE.equals(isRegistered)) {
-                                            logger.warn("Duplicate registration attempt for email: {}", dto.getEmail());
-                                            return Mono.error(new EmailAlreadyExistsException());
-                                        }
+        logger.info("Registration attempt for email: {} from IP: {}", userDto.getEmail(), ipAddress);
 
-                                        return firebaseServiceAuth.checkEmailAvailability(dto.getEmail())
-                                                .flatMap(existsInFirestore -> {
-                                                    if (Boolean.TRUE.equals(existsInFirestore)) {
-                                                        logger.warn("Email already exists in Firestore: {}", dto.getEmail());
-                                                        return Mono.error(new EmailAlreadyExistsException());
-                                                    }
-                                                    return checkRegistrationPatterns(dto, ipAddress).thenReturn(dto);
-                                                });
-                                    })
-                    )
-                    .flatMap(dto -> domainValidationService.validateActiveDomain(dto).thenReturn(dto))
-                    .flatMap(dto -> passwordPolicyService.validatePassword(dto).thenReturn(dto))
-                    .flatMap(dto -> {
-                        if (StringUtils.hasText(dto.getHoneypot())) {
-                            return Mono.error(new CustomException(HttpStatus.BAD_REQUEST, "Invalid form submission"));
-                        }
-                        return firebaseServiceAuth.createFirebaseUser(dto, ipAddress, deviceFingerprint);
+        return Mono.just(userDto)
+                // 1. Validate incoming DTO fields (non-null, email format, etc.)
+                .flatMap(this::validateUserInput)
 
-                    })
-                    .flatMap(user -> {
-                        user.setDeviceFingerprint(deviceFingerprint);
-                        return deviceVerificationService.saveUserFingerprint(user.getId(), deviceFingerprint)
-                                .then(saveRegistrationMetadata(user, ipAddress))
-                                .then(sendVerificationEmail(user, ipAddress)
-                                        .timeout(Duration.ofSeconds(30))
-                                        .onErrorResume(e -> {
-                                            logger.warn("Email sending failed, proceeding with user creation", e);
-                                            return Mono.just(user);
-                                        }))
-                                .thenReturn(user);
-                    })
-                    .doOnSuccess(user -> {
-                        long duration = System.currentTimeMillis() - startTime;
-                        logger.info("Registration completed for {} in {} ms", user.getEmail(), duration);
-                        auditLogService.logAudit(
-                                user,
-                                ActionType.REGISTRATION,
-                                STR."User registered successfully. Device: \{user.getDeviceFingerprint()}",
-                                ipAddress
-                        );
-                        redisCacheService.cacheRegisteredEmail(user.getEmail());
-                        eventPublisher.publishEvent(new UserRegisteredEvent(user, ipAddress));
-                        metricsService.incrementCounter("user.registration.success");
-                        metricsService.recordTimer("user.registration.time", Duration.ofMillis(duration));
-                    })
-                    .doOnError(e -> {
-                        long duration = System.currentTimeMillis() - startTime;
-                        logger.error("Registration failed for {} after {} ms: {}", userDto.getEmail(), duration, e.getMessage());
-                        metricsService.incrementCounter("user.registration.failure");
+                // 2. Duplicate checks (Redis cache + Firestore)
+                .flatMap(this::checkDuplicateEmail)
 
-                        if (e instanceof FirebaseAuthException && "EMAIL_EXISTS".equals(((FirebaseAuthException) e).getErrorCode())) {
-                            firebaseServiceAuth.cleanupFailedRegistration(userDto.getEmail()).subscribe();
-                        }
-                    })
-                    .name("userRegistration")
-                    .doOnEach(signal -> {
-                        if (signal.hasError()) {
-                            logger.error("Error during user registration: {}", signal.getThrowable().getMessage());
-                        } else if (signal.hasValue()) {
-                            logger.info("User registration completed successfully");
-                        }
-                    })
-                    .retryWhen(Retry.backoff(3, Duration.ofMillis(100))
-                            .filter(this::isRetryableError)
-                            .doBeforeRetry(retry -> logger.info("Retrying registration attempt #{}", retry.totalRetries() + 1))
-                            .onRetryExhaustedThrow((spec, signal) -> {
-                                logger.error("Registration service unavailable after retries");
-                                return new CustomException(HttpStatus.SERVICE_UNAVAILABLE, "Registration service temporarily unavailable");
-                            }));
-        });
+                // 3. Registration pattern checks: rate limit, geolocation, suspicious activity
+                .flatMap(dto -> checkRegistrationPatterns(dto, ipAddress).thenReturn(dto))
+
+                // 4. Domain & password policy validations
+                .flatMap(dto -> domainValidationService.validateActiveDomain(dto).thenReturn(dto))
+                .flatMap(dto -> passwordPolicyService.validatePassword(dto).thenReturn(dto))
+
+                // 5. Honeypot check
+                .flatMap(dto -> {
+                    if (StringUtils.hasText(dto.getHoneypot())) {
+                        return Mono.error(new CustomException(HttpStatus.BAD_REQUEST, "Invalid form submission"));
+                    }
+                    return Mono.just(dto);
+                })
+
+                // 6. Create Firebase user
+                .flatMap(dto -> firebaseServiceAuth.createFirebaseUser(dto, ipAddress, deviceFingerprint))
+
+                // 7. Save device fingerprint and registration metadata
+                .flatMap(user -> savePostRegistrationData(user, ipAddress, deviceFingerprint))
+
+                // 8. Send verification email (safe - won't break registration on failure)
+                .flatMap(user -> sendVerificationEmailSafe(user, ipAddress))
+
+                // 9. ISSUES: audit, cache, metrics, and event publish
+                .doOnSuccess(user -> {
+                    long duration = System.currentTimeMillis() - startTime;
+                    logger.info("Registration completed for {} in {} ms", user.getEmail(), duration);
+                    eventPublisher.publishEvent(new UserRegisteredEvent(user, ipAddress));
+                    auditAndMetrics(user, startTime, ipAddress, deviceFingerprint, duration);
+                })
+
+                // 10. Error handling
+                .doOnError(e -> {
+                    long duration = System.currentTimeMillis() - startTime;
+                    logger.error("Registration failed for {} after {} ms: {}",
+                            Objects.toString(userDto.getEmail(), "unknown"), duration, e.getMessage());
+                    metricsService.incrementCounter("user.registration.failure");
+                    // If the failure is because Firebase reported EMAIL_EXISTS we attempt cleanup
+                    if (e instanceof FirebaseAuthException && "EMAIL_EXISTS".equals(((FirebaseAuthException) e).getErrorCode())) {
+                        firebaseServiceAuth.cleanupFailedRegistration(userDto.getEmail())
+                                .subscribe(); // one-off cleanup: issues; keep as last-resort
+                    }
+                })
+
+                // 11. Retry policy for retriable errors (network, transient service issues)
+                .retryWhen(Retry.backoff(3, Duration.ofMillis(200))
+                        .filter(this::isRetryableError)
+                        .doBeforeRetry(retrySignal ->
+                                logger.info("Retrying registration attempt #{}", retrySignal.totalRetriesInARow() + 1)
+                        )
+                        .onRetryExhaustedThrow((retrySpec, retrySignal) -> {
+                            logger.error("Registration service unavailable after max retries (3).");
+                            return new CustomException(
+                                    HttpStatus.SERVICE_UNAVAILABLE,
+                                    "Registration service temporarily unavailable"
+                            );
+                        })
+                );
     }
 
     public Mono<UserDTO> validateUserInput(UserDTO userDto) {
         return Mono.fromCallable(() -> {
-            // Basic validation
-            if (userDto.getEmail() == null || userDto.getEmail().isEmpty()) {
-                throw new CustomException(HttpStatus.BAD_REQUEST, "Email is required");
+            if (!StringUtils.hasText(userDto.getEmail())) {
+                throw new ValidationException("Email is required");
             }
-
-            // Additional validation checks
-            if (userDto.getPassword() == null || userDto.getPassword().isEmpty()) {
-                throw new CustomException(HttpStatus.BAD_REQUEST, "Password is required");
+            if (!StringUtils.hasText(userDto.getPassword())) {
+                throw new ValidationException("Password is required");
             }
-
+            if (StringUtils.hasText(userDto.getHoneypot())) {
+                throw new ValidationException("Invalid form submission");
+            }
             return userDto;
         });
+    }
+
+    /**
+     * Check for duplicate email using Redis cache first then Firestore.
+     */
+    private Mono<UserDTO> checkDuplicateEmail(UserDTO userDto) {
+        return redisCacheService.isEmailRegistered(userDto.getEmail())
+                .onErrorResume(e -> {
+                    logger.warn("Redis lookup failed for {}: {} - continuing to Firestore check", userDto.getEmail(), e.getMessage());
+                    return Mono.just(false);
+                })
+                .flatMap(inCache -> {
+                    if (Boolean.TRUE.equals(inCache)) {
+                        logger.warn("Duplicate email found in Redis: {}", userDto.getEmail());
+                        return Mono.error(new EmailAlreadyExistsException());
+                        //return Mono.error(new EmailAlreadyExistsException(userDto.getEmail()));
+                    }
+                    return checkFirestoreForEmail(userDto);
+                });
+    }
+
+    private Mono<UserDTO> checkFirestoreForEmail(UserDTO userDto) {
+        return firebaseServiceAuth.findByEmail(userDto.getEmail())
+                .flatMap(foundUser -> {
+                    logger.warn("Duplicate email found in Firestore: {}", userDto.getEmail());
+                    return Mono.<UserDTO>error(new EmailAlreadyExistsException());
+                    //return Mono.<UserDTO>error(new EmailAlreadyExistsException(userDto.getEmail()));
+                })
+                .switchIfEmpty(Mono.just(userDto));
+    }
+
+    /**
+     * Save device fingerprint, persist user metadata and cache the registered email.
+     */
+    private Mono<User> savePostRegistrationData(User user, String ipAddress, String deviceFingerprint) {
+        // Save fingerprint and user details in sequence
+        return deviceVerificationService.saveUserFingerprint(user.getId(), deviceFingerprint)
+                .then(firebaseServiceAuth.saveUser(user, ipAddress, deviceFingerprint))
+                .then(saveRegistrationMetadata(user, ipAddress))
+                .then(Mono.fromRunnable(() -> {
+                    // cache registered email - non-blocking side effect
+                    try {
+                        redisCacheService.cacheRegisteredEmail(user.getEmail()).subscribe();
+                    } catch (Exception ex) {
+                        logger.warn("Failed to cache registered email for {}: {}", user.getEmail(), ex.getMessage());
+                    }
+                }))
+                .thenReturn(user);
+    }
+
+    /**
+     * Attempt to send verification email but swallow failures (log + audit) so registration can proceed.
+     */
+    private Mono<User> sendVerificationEmailSafe(User user, String ipAddress) {
+        return sendVerificationEmail(user, ipAddress)
+                .thenReturn(user)
+                .onErrorResume(e -> {
+                    logger.warn("Verification email sending failed for {}: {}", user.getEmail(), e.getMessage());
+                    auditLogService.logAudit(user, ActionType.EMAIL_FAILURE, "Verification email failed", e.getMessage());
+                    return Mono.just(user);
+                });
     }
 
     private Mono<User> sendVerificationEmail(User user, String ipAddress) {
@@ -305,12 +362,55 @@ public  class AuthService {
                 })
                 .then();
     }
+    /**
+     * Centralized audit and metric reporting
+     */
+    private void auditAndMetrics(User user, long startTime, String ipAddress, String deviceFingerprint, long durationMs) {
+        // Audit
+        auditLogService.logAudit(user, ActionType.REGISTRATION,
+                String.format("User registered. DeviceFingerprint: %s", deviceFingerprint),
+                ipAddress);
+
+        // Cache the email safely (best-effort)
+        try {
+            redisCacheService.cacheRegisteredEmail(user.getEmail()).subscribe();
+        } catch (Exception e) {
+            logger.warn("Failed to cache registered email for {}: {}", user.getEmail(), e.getMessage());
+        }
+
+        // Metrics
+        metricsService.incrementCounter("user.registration.success");
+        metricsService.recordTimer("user.registration.time", Duration.ofMillis(durationMs));
+
+        // Publish domain event for other systems to consume
+        try {
+            eventPublisher.publishEvent(new UserRegisteredEvent(user, ipAddress));
+        } catch (Exception e) {
+            logger.warn("Failed to publish UserRegisteredEvent for {}: {}", user.getEmail(), e.getMessage());
+        }
+    }
+
     public boolean isRetryableError(Throwable throwable) {
-        return throwable instanceof CustomException &&
-                ((CustomException) throwable).getStatusCode().is5xxServerError() ||
-                throwable instanceof TimeoutException ||
-                throwable instanceof FirebaseAuthException &&
-                        ((FirebaseAuthException) throwable).getHttpResponse().getStatusCode() >= 500;
+        boolean retryable = false;
+
+        if (throwable instanceof CustomException custom) {
+            retryable = custom.getStatusCode().is5xxServerError();
+        } else if (throwable instanceof TimeoutException ||
+                throwable instanceof java.net.ConnectException ||
+                throwable instanceof java.net.SocketTimeoutException ||
+                throwable instanceof org.springframework.web.reactive.function.client.WebClientRequestException) {
+            retryable = true;
+        } else if (throwable instanceof FirebaseAuthException fae) {
+            String errorCode = String.valueOf(fae.getErrorCode());
+            int status = fae.getHttpResponse() != null ? fae.getHttpResponse().getStatusCode() : -1;
+            retryable = (status >= 500) ||
+                    "INTERNAL_ERROR".equalsIgnoreCase(errorCode) ||
+                    "UNAVAILABLE".equalsIgnoreCase(errorCode) ||
+                    "UNKNOWN".equalsIgnoreCase(errorCode);
+        }
+
+        logger.debug("Retry check for {} → {}", throwable.getClass().getSimpleName(), retryable);
+        return retryable;
     }
 
     public Mono<Void> verifyEmail(String token, String ipAddress) {

@@ -55,7 +55,7 @@ public class AdminManagementController {
                     return new UserPermissionsDTO(userId, roles, permissions);
                 });
     }
-    @GetMapping("/admin/users")
+    @GetMapping("/")
     public Flux<User> getUsers(
             @RequestParam Optional<String> role,
             @RequestParam Optional<String> status,
@@ -66,16 +66,16 @@ public class AdminManagementController {
         return adminManagementService.findUsersWithFilters(role, status, email, createdAfter, createdBefore);
     }
 
-    @PutMapping("/admin/users/{userId}/approve")
+    @PutMapping("/users/{userId}/approve")
     public Mono<Void> approveUser(@PathVariable String userId, @PathVariable String performedById) {
         return adminManagementService.approvePendingUser(userId, performedById);
     }
 
-    @PutMapping("/admin/users/{userId}/reject")
+    @PutMapping("/users/{userId}/reject")
     public Mono<Void> rejectUser(@PathVariable String userId, @PathVariable String performedById) {
         return adminManagementService.rejectPendingUser(userId, performedById);
     }
-    @PutMapping("/admin/users/{userId}/suspend")
+    @PutMapping("/users/{userId}/suspend")
     public Mono<Void> suspendUser(@PathVariable String userId, @PathVariable String performedById) {
         return adminManagementService.suspendUser(userId, performedById);
     }
@@ -89,7 +89,7 @@ public class AdminManagementController {
         return adminManagementService.initiateForcedPasswordReset(userId, ipAddress);
     }
 
-    @DeleteMapping("/admin/users/{userId}/sessions")
+    @DeleteMapping("/users/{userId}/sessions")
     public Mono<Void> forceLogout(@PathVariable String userId) {
         return sessionService.invalidateUserSessions(userId);
     }
@@ -119,7 +119,7 @@ public class AdminManagementController {
     }
 
     // Admin endpoint (example of granular access control)
-    @GetMapping("/")
+    @GetMapping("/dashboard")
     public Mono<String> adminDashboard(ServerWebExchange exchange) {
         String token = extractToken(exchange);
 

@@ -29,6 +29,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
@@ -37,6 +38,7 @@ import reactor.util.retry.Retry;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
+import java.util.regex.Pattern;
 
 @Service
 @Slf4j
@@ -65,6 +67,122 @@ public class SuperAdminService {
     private final MetricsService metricsService;
     private final DeviceVerificationService deviceVerificationService;
     private final EmailServiceInstance1 emailService;
+
+    private final RoleAssignmentService roleAssignmentService;
+    private final BootstrapFlagService bootstrapFlagService;
+
+    private static final Pattern E164_PATTERN = Pattern.compile("^\\+?[1-9]\\d{1,14}$");
+
+    public Mono<String> registerSuperAdmin(String email, String phone) {
+        if (!StringUtils.hasText(email)) {
+            return Mono.error(new IllegalArgumentException("Email parameter is required and cannot be empty"));
+        }
+        if (!StringUtils.hasText(phone)) {
+            return Mono.error(new IllegalArgumentException("Phone parameter is required and cannot be empty"));
+        }
+
+        phone = normalizePhone(phone);
+
+        if (!E164_PATTERN.matcher(phone).matches()) {
+            return Mono.error(new IllegalArgumentException(
+                    "Invalid phone number. Must be E.164 format, e.g., +254712345678"
+            ));
+        }
+
+        String password = PasswordUtils.generateSecurePassword(16);
+        long startTime = System.currentTimeMillis();
+
+        log.info("🔐 Manual Super Admin registration initiated for email: {}", email);
+
+        String finalPhone = phone;
+        return isEmailTaken(email)
+                .flatMap(emailExists -> {
+                    if (emailExists) {
+                        return Mono.error(new IllegalStateException("Super Admin already exists"));
+                    }
+                    return createSuperAdmin(email, finalPhone, password, startTime);
+                });
+    }
+
+    private Mono<Boolean> isEmailTaken(String email) {
+        return redisCacheService.isEmailRegistered(email)
+                .onErrorResume(e -> {
+                    log.warn("⚠️ Redis check failed for {}: {}", email, e.getMessage());
+                    return Mono.just(false);
+                })
+                .flatMap(redisHit -> {
+                    if (redisHit) return Mono.just(true);
+                    return firebaseServiceAuth.findByEmail(email)
+                            .map(user -> true)
+                            .switchIfEmpty(Mono.just(false));
+                });
+    }
+
+    private Mono<String> createSuperAdmin(String email, String phone,
+                                          String password, long startTime) {
+        User superAdmin = new User();
+        superAdmin.setEmail(email);
+        superAdmin.setPhoneNumber(phone);
+        superAdmin.setPassword(password);
+        superAdmin.setEmailVerified(true);
+        superAdmin.setStatus(User.Status.ACTIVE);
+        superAdmin.setEnabled(true);
+        superAdmin.setForcePasswordChange(true);
+
+        return firebaseServiceAuth.createSuperAdmin(superAdmin, password)
+                .flatMap(firebaseUser -> Mono.zip(
+                        roleAssignmentService.assignRoleAndPermissions(superAdmin, Roles.ADMIN),
+                        roleAssignmentService.assignRoleAndPermissions(superAdmin, Roles.SUPER_ADMIN),
+                        firebaseServiceAuth.saveUserPermissions(firebaseUser),
+                        firebaseServiceAuth.saveUser(superAdmin, "127.0.0.1", "SYSTEM")
+                ))
+                .then(bootstrapFlagService.markBootstrapComplete())
+                .then(Mono.defer(() -> {
+                    redisCacheService.cacheRegisteredEmail(email);
+                    return emailService.sendEmail(
+                                    email,
+                                    "Your Super Admin Account",
+                                    STR."Welcome! Your temporary password is: \{password}"
+                            )
+                            .doOnError(e -> log.error("Failed to send welcome email", e))
+                            .onErrorResume(e -> {
+                                auditLogService.logAudit(
+                                        superAdmin,
+                                        ActionType.EMAIL_FAILURE,
+                                        STR."Failed to send welcome email to \{email}",
+                                        e.getMessage()
+                                );
+                                return Mono.empty();
+                            })
+                            .then(Mono.defer(() -> {
+                                auditLogService.logAudit(
+                                        superAdmin,
+                                        ActionType.SUPER_ADMIN_CREATED,
+                                        STR."Super admin created: \{superAdmin.getEmail()}",
+                                        null
+                                );
+
+                                metricsService.incrementCounter("user.registration.success");
+                                metricsService.recordTimer(
+                                        "user.registration.time",
+                                        Duration.ofMillis(System.currentTimeMillis() - startTime)
+                                );
+
+                                return Mono.just("Super admin created successfully.");
+                            }));
+                }));
+    }
+
+    private String normalizePhone(String phone) {
+        if (!StringUtils.hasText(phone)) return null;
+
+        phone = phone.trim().replaceAll("\\s+", "");
+
+        if (phone.startsWith("0")) return "+254" + phone.substring(1);
+        if (phone.startsWith("254")) return "+" + phone;
+        if (!phone.startsWith("+")) return "+" + phone;
+        return phone;
+    }
 
     public Mono<AuthResult> login(String email, String password, String ipAddress,
                                   String deviceFingerprint, String userAgent,
