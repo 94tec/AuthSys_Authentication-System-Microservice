@@ -8,7 +8,6 @@ import com.techStack.authSys.dto.AuditLogDTO;
 import com.techStack.authSys.models.*;
 import com.techStack.authSys.repository.AuditLogRepository;
 import com.techStack.authSys.security.CurrentUserProvider;
-import com.techStack.authSys.util.FirestoreUtil;
 import com.techStack.authSys.util.FirestoreUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,16 +34,14 @@ public class AuditLogService {
     private final Firestore firestore;
     private final Clock clock;
     private final CurrentUserProvider currentUserProvider;
-    private final AuditLogRepository auditLogRepository;
 
     public AuditLogService(Firestore firestore,
                            Clock clock,
-                           CurrentUserProvider currentUserProvider,
-                           AuditLogRepository auditLogRepository) {
+                           CurrentUserProvider currentUserProvider
+                          ) {
         this.firestore = firestore;
         this.clock = clock;
         this.currentUserProvider = currentUserProvider;
-        this.auditLogRepository = auditLogRepository;
     }
     public Mono<Void> logEventLog(AuditEventLog event) {
         try {
@@ -88,21 +85,22 @@ public class AuditLogService {
     }
 
     public Mono<Void> logAudit(User user, ActionType actionType, String details, String ipAddress) {
-        try {
-            Map<String, Object> logData = new HashMap<>();
-            logData.put("userId", user.getId());
-            logData.put("actionType", actionType.name());
-            logData.put("details", details);
-            logData.put("ipAddress", ipAddress);
-            logData.put("createdAt", Timestamp.now());
+        Map<String, Object> logData = new HashMap<>();
+        logData.put("userId", user.getId());
+        logData.put("actionType", actionType.name());
+        logData.put("details", details);
+        logData.put("ipAddress", ipAddress);
+        logData.put("createdAt", Timestamp.now());
 
-            firestore.collection(COLLECTION_NAME).add(logData).get();
-            logger.info("Audit log saved: {} - {}", actionType, details);
-        } catch (Exception e) {
-            logger.error("Error saving audit log for user {}: {}", user.getId(), e.getMessage(), e);
-        }
-        return null;
+        ApiFuture<DocumentReference> future = firestore.collection(COLLECTION_NAME).add(logData);
+
+        return FirestoreUtils.apiFutureToMono(firestore.collection(COLLECTION_NAME).add(logData))
+                .doOnSuccess(docRef -> logger.info("✅ Audit log saved"))
+                .doOnError(e -> logger.error("❌ Error saving audit log", e))
+                .then();
+
     }
+
     public void logAuthFailure(String email, String ipAddress, String errorMessage) {
         if (email == null || email.isBlank()) {
             logger.warn("Attempted to log auth failure with a null or empty email");
