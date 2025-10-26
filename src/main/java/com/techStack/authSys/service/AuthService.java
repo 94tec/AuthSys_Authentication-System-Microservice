@@ -268,41 +268,69 @@ public  class AuthService {
      */
     private Mono<User> sendVerificationEmailSafe(User user, String ipAddress) {
         return sendVerificationEmail(user, ipAddress)
-                .thenReturn(user)
                 .onErrorResume(e -> {
-                    logger.warn("Verification email sending failed for {}: {}", user.getEmail(), e.getMessage());
-                    auditLogService.logAudit(user, ActionType.EMAIL_FAILURE, "Verification email failed", e.getMessage());
+                    logger.warn("Verification email process failed for {}: {}", user.getEmail(), e.getMessage());
+                    logger.debug("Full error details:", e); // Add debug logging for full stack trace
+                    auditLogService.logAudit(user, ActionType.EMAIL_FAILURE,
+                            "Verification email failed", e.getMessage());
+
+                    // Return user to allow registration to proceed
                     return Mono.just(user);
-                });
+                })
+                .doOnSuccess(u -> logger.info("Verification email process completed for user: {}", u.getEmail()));
     }
 
     private Mono<User> sendVerificationEmail(User user, String ipAddress) {
-        return Mono.fromCallable(() -> {
-            // Generate email verification token
-            String token = String.valueOf(jwtService.generateEmailVerificationToken(user.getId(), user.getEmail(), ipAddress));
-            String hashedToken = encryptionService.hashToken(token); // Hash token before storing
+        return jwtService.generateEmailVerificationToken(user.getId(), user.getEmail(), ipAddress)
+                .flatMap(token -> {
+                    String hashedToken = encryptionService.hashToken(token);
 
-            // Create verification link using environment-configured base URL
-            String verificationLink = String.format("%s/api/auth/verify-email?token=%s",
-                    appConfig.getBaseUrl(), token);
+                    // Build verification link
+                    String verificationLink = String.format("%s/api/auth/verify-email?token=%s",
+                            appConfig.getBaseUrl(), token);
 
-            // Send email asynchronously
-            emailServiceInstance1.sendVerificationEmail(user.getEmail(), verificationLink);
+                    // Send email asynchronously (fire and forget)
+                    emailServiceInstance1.sendVerificationEmail(user.getEmail(), verificationLink)
+                            .doOnSuccess(__ -> logger.info("✅ Sent verification email to {}", user.getEmail()))
+                            .doOnError(e -> logger.error("❌ Failed to send verification email to {}: {}", user.getEmail(), e.getMessage()))
+                            .subscribe();
 
-            // Store hashed token and expiration timestamp in Firestore
-            Map<String, Object> updateData = new HashMap<>();
-            updateData.put("verificationTokenHash", hashedToken);
-            updateData.put("verificationTokenExpiresAt", Instant.now().plus(Duration.ofHours(24))); // 24-hour expiry
+                    // Prepare Firestore update data
+                    Map<String, Object> updateData = new HashMap<>();
+                    updateData.put("verificationTokenHash", hashedToken);
+                    updateData.put("verificationTokenExpiresAt", Instant.now().plus(Duration.ofHours(24)));
 
-            // Use a Firestore transaction to ensure atomicity
-            firestore.runTransaction(transaction -> {
-                DocumentReference userDoc = firestore.collection(COLLECTION_USERS).document(user.getId());
-                transaction.update(userDoc, updateData);
-                return null;
-            }).get(); // Ensure transaction completes
+                    DocumentReference userDoc = firestore.collection(COLLECTION_USERS).document(user.getId());
 
-            return user;
-        }).subscribeOn(Schedulers.boundedElastic());
+                    // Firestore transaction wrapped in a reactive Mono
+                    return Mono.fromFuture(() ->
+                                    FirestoreUtil.toCompletableFuture(
+                                            firestore.runTransaction(transaction -> {
+                                                transaction.update(userDoc, updateData);
+                                                return null;
+                                            })
+                                    )
+                            )
+                            .doOnSuccess(__ -> logger.info("✅ Stored verification token for {}", user.getEmail()))
+                            .thenReturn(user);
+                })
+                .onErrorResume(e -> {
+                    logger.warn("⚠️ Failed to send verification email for {}: {}", user.getEmail(), e.getMessage());
+                    return Mono.just(user); // don’t block registration on email failure
+                })
+                .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    private static class EmailVerificationData {
+        final String token;
+        final String hashedToken;
+        final String verificationLink;
+
+        EmailVerificationData(String token, String hashedToken, String verificationLink) {
+            this.token = token;
+            this.hashedToken = hashedToken;
+            this.verificationLink = verificationLink;
+        }
     }
 
     public Mono<Void> checkRegistrationPatterns(UserDTO userDto, String ipAddress) {
@@ -414,13 +442,24 @@ public  class AuthService {
     }
 
     public Mono<Void> verifyEmail(String token, String ipAddress) {
-        return Mono.defer(() -> {
-            TokenClaims claims = jwtService.verifyEmailVerificationToken(token).block();
-
-            return validateIpAddress(claims, ipAddress)
-                    .then(updateUserVerificationStatus(claims.userId()))
-                    .then(logSuccessfulVerification(claims, ipAddress));
-        }).subscribeOn(Schedulers.boundedElastic());
+        return jwtService.verifyEmailVerificationToken(token)
+                .flatMap(claims ->
+                        validateIpAddress(claims, ipAddress)
+                                .then(updateUserVerificationStatus(claims.userId()))
+                                .then(logSuccessfulVerification(claims, ipAddress))
+                )
+                .doOnSuccess(__ -> logger.info("Email verification completed successfully"))
+                .doOnError(e -> {
+                    if (e instanceof CustomException) {
+                        CustomException ce = (CustomException) e;
+                        logger.warn("Email verification failed for IP {}: {} {}",
+                                ipAddress, ce.getStatus().value(), ce.getMessage());
+                    } else {
+                        logger.error("Email verification failed for IP {}: {}", ipAddress, e.getMessage(), e);
+                        // Wrap unexpected errors as 500
+                        throw new CustomException(HttpStatus.INTERNAL_SERVER_ERROR, "Token processing failed");
+                    }
+                });
     }
 
     private Mono<Void> validateIpAddress(TokenClaims claims, String ipAddress) {

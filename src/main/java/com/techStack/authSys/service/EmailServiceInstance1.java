@@ -38,6 +38,7 @@ public class EmailServiceInstance1 {
     // Unified email sending core
     private Mono<Void> sendEmailInternal(String email, String subject, String body) {
         return Mono.fromRunnable(() -> {
+                    logger.info("Attempting to send email to: {}, Subject: {}", email, subject);
                     SimpleMailMessage message = new SimpleMailMessage();
                     message.setTo(email);
                     message.setSubject(subject);

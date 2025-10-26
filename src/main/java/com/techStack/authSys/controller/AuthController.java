@@ -57,47 +57,47 @@ public class AuthController {
             ServerWebExchange exchange) {
 
         String ipAddress = exchange.getRequest().getRemoteAddress() != null
-                ? exchange.getRequest().getRemoteAddress().getAddress().getHostAddress().split("%")[0] // Removes zone index
+                ? exchange.getRequest().getRemoteAddress().getAddress().getHostAddress().split("%")[0]
                 : "unknown";
 
         return authService.registerUser(userDto, exchange)
                 .map(user -> {
-                    logger.info("User registered successfully: {}", user.getEmail());
-                    return ResponseEntity.ok("User registered successfully. Please check your email for verification." + user);
-                })
-                .onErrorResume(CustomException.class, e -> {
-                    logger.warn("User registration failed: {}", e.getMessage());
-                    return Mono.just(ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                            .body("Registration failed: " + e.getMessage()));
-                })
-                .onErrorResume(Exception.class, e -> {
-                    logger.error("Unexpected registration error", e);
-                    return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                            .body("User registration failed due to an unexpected error."));
+                    logger.info("✅ User registered successfully: {}", user.getEmail());
+                    return ResponseEntity.ok("User registered successfully. Please check your email for verification.");
                 });
     }
-
     @GetMapping("/verify-email")
     public Mono<ResponseEntity<String>> verifyEmail(
             @RequestParam("token") String token,
             @RequestHeader(value = "X-Forwarded-For", required = false) String forwardedIp,
             ServerHttpRequest request) {
 
-        // Extract client IP (supports proxies via X-Forwarded-For)
+        // Extract client IP
         String clientIp = Optional.ofNullable(forwardedIp)
-                .map(ip -> ip.split(",")[0].trim()) // First IP in X-Forwarded-For (if proxied)
+                .map(ip -> ip.split(",")[0].trim())
                 .orElseGet(() -> {
                     InetSocketAddress remoteAddress = request.getRemoteAddress();
                     return (remoteAddress != null) ? remoteAddress.getAddress().getHostAddress() : "UNKNOWN";
                 });
 
+        logger.info("Processing email verification for token (first 10 chars): {}...",
+                token.length() > 10 ? token.substring(0, 10) : token);
+
         return authService.verifyEmail(token, clientIp)
-                .thenReturn(ResponseEntity.ok("Email verified successfully. You can now log in."))
-                .onErrorResume(CustomException.class, e ->
-                        Mono.just(ResponseEntity.status(HttpStatus.BAD_REQUEST).body(e.getMessage()))
-                ) // ✅ Corrected missing parenthesis
-                .onErrorResume(Exception.class, e ->
-                        Mono.just(ResponseEntity.internalServerError().build()));
+                .then(Mono.just(ResponseEntity.ok("Email verified successfully. You can now log in.")))
+                .doOnSuccess(__ -> logger.info("Email verification completed successfully"))
+                .onErrorResume(CustomException.class, e -> {
+                    logger.warn("Email verification failed with CustomException: {} - Status: {}",
+                            e.getMessage(), e.getStatus());
+
+                    HttpStatus status = e.getStatus() != null ? e.getStatus() : HttpStatus.BAD_REQUEST;
+                    return Mono.just(ResponseEntity.status(status).body(e.getMessage()));
+                })
+                .onErrorResume(Exception.class, e -> {
+                    logger.error("Email verification failed with unexpected error: {}", e.getMessage(), e);
+                    return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                            .body("Token processing failed. Please try again or request a new verification email."));
+                });
     }
 
     @PostMapping("/logout")

@@ -877,14 +877,26 @@ public class JwtService {
             return Mono.error(new CustomException(HttpStatus.BAD_REQUEST, "Token cannot be empty"));
         }
 
-        return Mono.fromCallable(() -> validateToken(token, "email_verification")) // Changed token type
-                .subscribeOn(Schedulers.boundedElastic())
-                .timeout(Duration.ofSeconds(2))
-                .flatMap(claims -> validateEmailVerificationClaims((Claims) claims)) // Changed to lambda
+        // ✅ validateToken already returns Mono<Claims>
+        return validateToken(token, "email_verification")
+                .flatMap(this::validateEmailVerificationClaims)
                 .map(this::buildTokenClaims)
                 .doOnSuccess(claims -> logger.info("✅ Verified email token for {}", claims.email()))
                 .doOnError(e -> logger.warn("⚠️ Email verification failed: {}", e.getMessage()))
-                .onErrorMap(this::mapToSecurityException);
+                .onErrorResume(e -> {
+                    if (e instanceof ExpiredJwtException) {
+                        return Mono.error(new CustomException(HttpStatus.UNAUTHORIZED, "Token has expired"));
+                    } else if (e instanceof SignatureException) {
+                        return Mono.error(new CustomException(HttpStatus.UNAUTHORIZED, "Invalid token signature"));
+                    } else if (e instanceof MalformedJwtException) {
+                        return Mono.error(new CustomException(HttpStatus.BAD_REQUEST, "Malformed token"));
+                    } else if (e instanceof CustomException ce) {
+                        return Mono.error(ce);
+                    } else {
+                        logger.error("❌ Unexpected token error: {}", e.getMessage(), e);
+                        return Mono.error(new CustomException(HttpStatus.INTERNAL_SERVER_ERROR, "Token processing failed"));
+                    }
+                });
     }
 
     private Mono<Claims> validateEmailVerificationClaims(Claims claims) {

@@ -7,6 +7,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.server.ServerWebExchange;
+import reactor.core.publisher.Mono;
 
 import java.nio.file.AccessDeniedException;
 import java.util.Date;
@@ -16,24 +17,36 @@ import java.util.Map;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
-    private ResponseEntity<ErrorDetails> buildResponseEntity(Exception ex, ServerWebExchange exchange, HttpStatus status) {
+    private Mono<ResponseEntity<ErrorDetails>> buildReactiveResponse(
+            Exception ex, ServerWebExchange exchange, HttpStatus status) {
+
         log.error("{}: {}", ex.getClass().getSimpleName(), ex.getMessage(), ex);
-        ErrorDetails errorDetails = new ErrorDetails(new Date(), ex.getMessage(), exchange.getRequest().getPath().value());
-        return new ResponseEntity<>(errorDetails, status);
+        ErrorDetails details = new ErrorDetails(
+                new Date(),
+                ex.getMessage(),
+                exchange.getRequest().getPath().value()
+        );
+        return Mono.just(ResponseEntity.status(status).body(details));
     }
 
+    // ---- 400 BAD REQUEST ----
     @ExceptionHandler({
             DuplicateUserException.class,
             EmailAlreadyVerifiedException.class,
             InvalidUserDetailsException.class,
             PasswordResetException.class,
             InvalidUserProfileException.class,
-            UserProfileUpdateException.class
+            UserProfileUpdateException.class,
+            InvalidPasswordException.class,
+            TemporaryPasswordExpiredException.class,
+            PasswordMismatchException.class,
+            IllegalArgumentException.class
     })
-    public ResponseEntity<?> handleBadRequestExceptions(Exception ex, ServerWebExchange exchange) {
-        return buildResponseEntity(ex, exchange, HttpStatus.BAD_REQUEST);
+    public Mono<ResponseEntity<ErrorDetails>> handleBadRequest(Exception ex, ServerWebExchange exchange) {
+        return buildReactiveResponse(ex, exchange, HttpStatus.BAD_REQUEST);
     }
 
+    // ---- 401 UNAUTHORIZED ----
     @ExceptionHandler({
             InvalidTokenException.class,
             UnauthorizedException.class,
@@ -41,10 +54,11 @@ public class GlobalExceptionHandler {
             PasswordExpiredException.class,
             PasswordWarningException.class
     })
-    public ResponseEntity<?> handleUnauthorizedExceptions(Exception ex, ServerWebExchange exchange) {
-        return buildResponseEntity(ex, exchange, HttpStatus.UNAUTHORIZED);
+    public Mono<ResponseEntity<ErrorDetails>> handleUnauthorized(Exception ex, ServerWebExchange exchange) {
+        return buildReactiveResponse(ex, exchange, HttpStatus.UNAUTHORIZED);
     }
 
+    // ---- 403 FORBIDDEN ----
     @ExceptionHandler({
             AccessDeniedException.class,
             ForcePasswordResetException.class,
@@ -53,10 +67,11 @@ public class GlobalExceptionHandler {
             AccountLockedException.class,
             EmailSendingException.class
     })
-    public ResponseEntity<?> handleForbiddenExceptions(Exception ex, ServerWebExchange exchange) {
-        return buildResponseEntity(ex, exchange, HttpStatus.FORBIDDEN);
+    public Mono<ResponseEntity<ErrorDetails>> handleForbidden(Exception ex, ServerWebExchange exchange) {
+        return buildReactiveResponse(ex, exchange, HttpStatus.FORBIDDEN);
     }
 
+    // ---- 404 NOT FOUND ----
     @ExceptionHandler({
             ResourceNotFoundException.class,
             UserNotFoundException.class,
@@ -65,60 +80,40 @@ public class GlobalExceptionHandler {
             UserProfileNotFoundException.class,
             AccountNotFoundException.class
     })
-    public ResponseEntity<?> handleNotFoundExceptions(Exception ex, ServerWebExchange exchange) {
-        return buildResponseEntity(ex, exchange, HttpStatus.NOT_FOUND);
+    public Mono<ResponseEntity<ErrorDetails>> handleNotFound(Exception ex, ServerWebExchange exchange) {
+        return buildReactiveResponse(ex, exchange, HttpStatus.NOT_FOUND);
     }
 
-    @ExceptionHandler(ServiceException.class)
-    public ResponseEntity<?> handleServiceException(ServiceException ex, ServerWebExchange exchange) {
-        return buildResponseEntity(ex, exchange, HttpStatus.INTERNAL_SERVER_ERROR);
-    }
-
+    // ---- 500 INTERNAL SERVER ERROR ----
     @ExceptionHandler({
-            InvalidPasswordException.class,
-            TemporaryPasswordExpiredException.class,
-            PasswordMismatchException.class
+            ServiceException.class,
+            SessionException.class,
+            CacheOperationException.class,
+            DeviceVerificationException.class,
+            ThreatDetectionException.class,
+            Exception.class
     })
-    public ResponseEntity<?> handlePasswordExceptions(Exception ex, ServerWebExchange exchange) {
-        return buildResponseEntity(ex, exchange, HttpStatus.BAD_REQUEST);
+    public Mono<ResponseEntity<ErrorDetails>> handleServerError(Exception ex, ServerWebExchange exchange) {
+        String safeMessage = "User registration failed due to an unexpected error.";
+        ErrorDetails details = new ErrorDetails(
+                new Date(),
+                safeMessage,
+                exchange.getRequest().getPath().value()
+        );
+        log.error("Unexpected error: {}", ex.getMessage(), ex);
+        return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(details));
     }
 
-    @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<?> handleIllegalArgumentException(IllegalArgumentException ex, ServerWebExchange exchange) {
-        return buildResponseEntity(ex, exchange, HttpStatus.BAD_REQUEST);
-    }
-
-    @ExceptionHandler(Exception.class)
-    public ResponseEntity<?> handleGlobalException(Exception ex, ServerWebExchange exchange) {
-        return buildResponseEntity(ex, exchange, HttpStatus.INTERNAL_SERVER_ERROR);
-    }
-    @ExceptionHandler(SessionException.class)
-    public ResponseEntity<?> handleSessionException(SessionException ex, ServerWebExchange exchange) {
-        return buildResponseEntity(ex, exchange, HttpStatus.INTERNAL_SERVER_ERROR);
-    }
-    @ExceptionHandler(CacheOperationException.class)
-    public ResponseEntity<String> handleCacheOperationException(CacheOperationException ex) {
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body("Cache operation failed: " + ex.getMessage());
-    }
-    @ExceptionHandler(DeviceVerificationException.class)
-    public ResponseEntity<String> handleDeviceVerificationException(DeviceVerificationException ex) {
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body("Operation failed: " + ex.getMessage());
-    }
-    @ExceptionHandler(ThreatDetectionException.class)
-    public ResponseEntity<?> handleThreatDetectionException(ThreatDetectionException ex, ServerWebExchange exchange) {
-        return buildResponseEntity(ex, exchange, HttpStatus.INTERNAL_SERVER_ERROR);
-    }
+    // ----  Custom AuthException (with status + code) ----
     @ExceptionHandler(AuthException.class)
-    public ResponseEntity<Map<String, Object>> handleAuth(AuthException ex) {
-        return ResponseEntity
+    public Mono<ResponseEntity<Map<String, Object>>> handleAuth(AuthException ex) {
+        return Mono.just(ResponseEntity
                 .status(ex.getStatus())
                 .body(Map.of(
                         "message", ex.getMessage(),
                         "status", ex.getStatus().value(),
                         "errorCode", ex.getErrorCode(),
                         "timestamp", ex.getTimestamp().toString()
-                ));
+                )));
     }
 }
