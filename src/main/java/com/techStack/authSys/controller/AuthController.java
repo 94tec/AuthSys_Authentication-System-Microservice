@@ -51,6 +51,7 @@ public class AuthController {
     private final PermissionProvider permissionProvider;
 
     // Register a new user
+
     @PostMapping("/register")
     public Mono<ResponseEntity<String>> registerUser(
             @RequestBody UserDTO userDto,
@@ -60,11 +61,14 @@ public class AuthController {
                 ? exchange.getRequest().getRemoteAddress().getAddress().getHostAddress().split("%")[0]
                 : "unknown";
 
+        logger.info("📝 Registration request received for email: {} from IP: {}",
+                userDto.getEmail(), ipAddress);
+
+        // Let GlobalExceptionHandler catch all exceptions
         return authService.registerUser(userDto, exchange)
-                .map(user -> {
-                    logger.info("✅ User registered successfully: {}", user.getEmail());
-                    return ResponseEntity.ok("User registered successfully. Please check your email for verification.");
-                });
+                .then(Mono.just(ResponseEntity.ok(
+                        "User registered successfully. Please check your email for verification.")))
+                .doOnSuccess(__ -> logger.info("✅ User registered successfully: {}", userDto.getEmail()));
     }
     @GetMapping("/verify-email")
     public Mono<ResponseEntity<String>> verifyEmail(
@@ -80,24 +84,13 @@ public class AuthController {
                     return (remoteAddress != null) ? remoteAddress.getAddress().getHostAddress() : "UNKNOWN";
                 });
 
-        logger.info("Processing email verification for token (first 10 chars): {}...",
+        logger.info("📧 Processing email verification for token (first 10 chars): {}...",
                 token.length() > 10 ? token.substring(0, 10) : token);
 
+        // Just let exceptions bubble up - GlobalExceptionHandler will catch them
         return authService.verifyEmail(token, clientIp)
                 .then(Mono.just(ResponseEntity.ok("Email verified successfully. You can now log in.")))
-                .doOnSuccess(__ -> logger.info("Email verification completed successfully"))
-                .onErrorResume(CustomException.class, e -> {
-                    logger.warn("Email verification failed with CustomException: {} - Status: {}",
-                            e.getMessage(), e.getStatus());
-
-                    HttpStatus status = e.getStatus() != null ? e.getStatus() : HttpStatus.BAD_REQUEST;
-                    return Mono.just(ResponseEntity.status(status).body(e.getMessage()));
-                })
-                .onErrorResume(Exception.class, e -> {
-                    logger.error("Email verification failed with unexpected error: {}", e.getMessage(), e);
-                    return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                            .body("Token processing failed. Please try again or request a new verification email."));
-                });
+                .doOnSuccess(__ -> logger.info("✅ Email verification completed successfully"));
     }
 
     @PostMapping("/logout")

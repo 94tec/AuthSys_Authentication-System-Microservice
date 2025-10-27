@@ -19,5 +19,4 @@ public class ErrorDetails {
         this.details = details;
     }
 
-    // Getters and Setters
 }

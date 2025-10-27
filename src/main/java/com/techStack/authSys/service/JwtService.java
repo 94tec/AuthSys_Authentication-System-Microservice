@@ -83,8 +83,7 @@ public class JwtService {
                 .map(claims -> claims.getExpiration().toInstant())
                 .onErrorMap(e -> new CustomException(
                         HttpStatus.UNAUTHORIZED,
-                        String.format("Invalid %s token: %s", tokenType, e.getMessage()),
-                        e
+                        String.format("Invalid %s token: %s", tokenType, e.getMessage())
                 ));
     }
 
@@ -230,8 +229,8 @@ public class JwtService {
                 .doOnSuccess(__ -> logger.info("Refresh token stored for user {}", record.getUserId())) // ✅ fixed closing parenthesis
                 .onErrorMap(e -> new CustomException(
                         HttpStatus.INTERNAL_SERVER_ERROR,
-                        "Failed to store refresh token",
-                        e)).then();
+                        "Failed to store refresh token ",
+                        e.getMessage())).then();
     }
 
     public Mono<Claims> validateRefreshToken(String token, String expectedUserId) {

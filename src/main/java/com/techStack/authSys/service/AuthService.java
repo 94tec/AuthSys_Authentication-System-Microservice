@@ -183,7 +183,6 @@ public  class AuthService {
                                 .subscribe(); // one-off cleanup: issues; keep as last-resort
                     }
                 })
-
                 // 11. Retry policy for retriable errors (network, transient service issues)
                 .retryWhen(Retry.backoff(3, Duration.ofMillis(200))
                         .filter(this::isRetryableError)
@@ -191,7 +190,13 @@ public  class AuthService {
                                 logger.info("Retrying registration attempt #{}", retrySignal.totalRetriesInARow() + 1)
                         )
                         .onRetryExhaustedThrow((retrySpec, retrySignal) -> {
-                            logger.error("Registration service unavailable after max retries (3).");
+                            Throwable lastFailure = retrySignal.failure();
+                            logger.error("Registration service unavailable after max retries (3). Last failure: {}", lastFailure.getMessage());
+
+                            // Ensure we return CustomException for GlobalExceptionHandler
+                            if (lastFailure instanceof CustomException) {
+                                return lastFailure;
+                            }
                             return new CustomException(
                                     HttpStatus.SERVICE_UNAVAILABLE,
                                     "Registration service temporarily unavailable"
