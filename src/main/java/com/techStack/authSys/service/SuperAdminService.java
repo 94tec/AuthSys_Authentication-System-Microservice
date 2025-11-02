@@ -305,7 +305,7 @@ public class SuperAdminService {
     }
 
     private void handleFailedAuth(String email, String ipAddress, String deviceFingerprint, Throwable error) {
-        auditLogService.logAuthFailure(email, ipAddress, deviceFingerprint); // Log to audit
+        auditLogService.logAuthFailure(email, ipAddress, deviceFingerprint, error.getMessage()); // Log to audit
 
         // Track failed attempts and decide on account lockout
         rateLimiterService.recordFailedAttempt(email, ipAddress)

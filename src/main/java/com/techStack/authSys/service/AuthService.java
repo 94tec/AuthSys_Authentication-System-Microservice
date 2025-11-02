@@ -64,6 +64,7 @@ public  class AuthService {
     private final AppConfig appConfig;
     private final RedisCacheService redisCacheService;
     private final MetricsService metricsService;
+    private final RoleAssignmentService roleAssignmentService;
 
     // Password policy configuration
     @Value("${security.password.policy.min-length}")
@@ -96,7 +97,7 @@ public  class AuthService {
             EncryptionService encryptionService,
             AppConfig appConfig,
             RedisCacheService redisCacheService,
-            MetricsService metricsService
+            MetricsService metricsService, RoleAssignmentService roleAssignmentService
     ) {
         this.firebaseAuth = firebaseAuth;
         this.firestore = firestore;
@@ -115,6 +116,7 @@ public  class AuthService {
         this.appConfig = appConfig;
         this.redisCacheService = redisCacheService;
         this.metricsService = metricsService;
+        this.roleAssignmentService = roleAssignmentService;
     }
 
     /**
@@ -156,6 +158,12 @@ public  class AuthService {
 
                 // 6. Create Firebase user
                 .flatMap(dto -> firebaseServiceAuth.createFirebaseUser(dto, ipAddress, deviceFingerprint))
+                // 7. Assign roles and permissions based on user role
+                .flatMap(user -> assignRolesAndPermissions(user, userDto))
+
+                // 8. Save user to Firestore with permissions
+                .flatMap(user -> firebaseServiceAuth.saveUser(user, ipAddress, deviceFingerprint)
+                        .thenReturn(user))
 
                 // 7. Save device fingerprint and registration metadata
                 .flatMap(user -> savePostRegistrationData(user, ipAddress, deviceFingerprint))
@@ -174,8 +182,15 @@ public  class AuthService {
                 // 10. Error handling
                 .doOnError(e -> {
                     long duration = System.currentTimeMillis() - startTime;
-                    logger.error("Registration failed for {} after {} ms: {}",
-                            Objects.toString(userDto.getEmail(), "unknown"), duration, e.getMessage());
+                    // Don't log EmailAlreadyExistsException as error - it's expected
+                    if (e instanceof EmailAlreadyExistsException) {
+                        logger.warn("⚠️ Registration attempt with existing email: {} after {} ms",
+                                userDto.getEmail(), duration);
+                    } else {
+                        logger.error("❌ Registration failed for {} after {} ms: {}",
+                                Objects.toString(userDto.getEmail(), "unknown"), duration, e.getMessage());
+                    }
+                    logger.error("Registration failed for {} after {} ms: {}", Objects.toString(userDto.getEmail(), "unknown"), duration, e.getMessage());
                     metricsService.incrementCounter("user.registration.failure");
                     // If the failure is because Firebase reported EMAIL_EXISTS we attempt cleanup
                     if (e instanceof FirebaseAuthException && "EMAIL_EXISTS".equals(((FirebaseAuthException) e).getErrorCode())) {
@@ -249,6 +264,45 @@ public  class AuthService {
                 .switchIfEmpty(Mono.just(userDto));
     }
 
+    private Mono<User> assignRolesAndPermissions(User user, UserDTO userDto) {
+        boolean isPrivileged = userDto.getRoles().stream()
+                .anyMatch(role -> role.equalsIgnoreCase("ADMIN") ||
+                        role.equalsIgnoreCase("SUPER_ADMIN") ||
+                        role.equalsIgnoreCase("MANAGER"));
+
+        if (isPrivileged) {
+            logger.info("🔐 Assigning privileged roles for user: {}", user.getEmail());
+
+            // Convert role names to Roles enum
+            List<Roles> roleEnums = userDto.getRoles().stream()
+                    .map(roleName -> Roles.fromName(roleName)
+                            .orElseThrow(() -> new IllegalArgumentException("Invalid role: " + roleName)))
+                    .collect(Collectors.toList());
+
+            // Assign each role sequentially
+            Mono<User> chain = Mono.just(user);
+
+            for (Roles role : roleEnums) {
+                chain = chain.flatMap(u ->
+                        roleAssignmentService.assignRoleAndPermissions(u, role)
+                                .thenReturn(u)
+                );
+            }
+
+            // After all roles assigned, save permissions
+            return chain
+                    .flatMap(u -> firebaseServiceAuth.saveUserPermissions(u).thenReturn(u))
+                    .doOnSuccess(u -> logger.info("✅ Roles and permissions assigned for: {}", u.getEmail()))
+                    .doOnError(e -> logger.error("❌ Failed to assign roles for: {}", user.getEmail(), e));
+
+        } else {
+            logger.info("⚠️ Regular user registration for: {}. Permissions pending approval.", user.getEmail());
+
+            return firebaseServiceAuth.saveUserPermissions(user)
+                    .thenReturn(user)
+                    .doOnSuccess(u -> logger.info("✅ User created with PENDING_APPROVAL status: {}", u.getEmail()));
+        }
+    }
     /**
      * Save device fingerprint, persist user metadata and cache the registered email.
      */

@@ -53,6 +53,12 @@ public enum Permissions {
         this.description = description;
         this.level = level;
     }
+    /**
+     * Get the permission name (same as name() but explicit)
+     */
+    public String getName() {
+        return this.name();
+    }
 
     public boolean hasAtLeastPrivilegesOf(Permissions other) {
         return this.level >= other.level;

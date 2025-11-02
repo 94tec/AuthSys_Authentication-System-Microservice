@@ -1,24 +1,18 @@
 package com.techStack.authSys.controller;
 
 import java.security.Principal;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
-import java.util.regex.Pattern;
 
 import com.techStack.authSys.dto.AuthResponse;
 import com.techStack.authSys.dto.AuthResult;
 import com.techStack.authSys.dto.LoginRequest;
 import com.techStack.authSys.dto.UserDTO;
 import com.techStack.authSys.exception.CustomException;
-import com.techStack.authSys.models.ActionType;
 import com.techStack.authSys.models.Permissions;
-import com.techStack.authSys.models.Roles;
-import com.techStack.authSys.models.User;
 import com.techStack.authSys.repository.MetricsService;
 import com.techStack.authSys.repository.PermissionProvider;
 import com.techStack.authSys.service.*;
-import com.techStack.authSys.util.PasswordUtils;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -27,7 +21,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.util.StringUtils;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ServerWebExchange;
@@ -100,7 +93,7 @@ public class AdminAuthController {
                 .doOnSuccess(res -> logger.info("✅ Successful login for Administrator User {}", loginRequest.getEmail()))
                 .onErrorResume(CustomException.class, e -> {
                     logger.warn("⚠️ Login failed for Administrator {}: {}", loginRequest.getEmail(), e.getMessage());
-                    auditLogService.logAuthFailure(loginRequest.getEmail(), ipAddress, deviceFingerprint);
+                    auditLogService.logAuthFailure(loginRequest.getEmail(), ipAddress, deviceFingerprint, e.getMessage());
                     return Mono.just(ResponseEntity.status(e.getStatusCode())
                             .body(AuthResponse.builder()
                                     .warning(e.getReason())

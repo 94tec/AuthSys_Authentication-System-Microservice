@@ -6,7 +6,6 @@ import com.google.cloud.firestore.*;
 import com.google.firebase.cloud.FirestoreClient;
 import com.techStack.authSys.dto.AuditLogDTO;
 import com.techStack.authSys.models.*;
-import com.techStack.authSys.repository.AuditLogRepository;
 import com.techStack.authSys.security.CurrentUserProvider;
 import com.techStack.authSys.util.FirestoreUtils;
 import org.slf4j.Logger;
@@ -101,7 +100,7 @@ public class AuditLogService {
 
     }
 
-    public void logAuthFailure(String email, String ipAddress, String errorMessage) {
+    public void logAuthFailure(String email, String ipAddress, String deviceFingerprint, String errorMessage) {
         if (email == null || email.isBlank()) {
             logger.warn("Attempted to log auth failure with a null or empty email");
             return;
@@ -110,24 +109,30 @@ public class AuditLogService {
             logger.warn("Attempted to log auth failure with a null or empty IP address for email: {}", email);
             return;
         }
+        if (deviceFingerprint == null || deviceFingerprint.isBlank()) {
+            logger.warn("Attempted to log auth failure with a null or empty device fingerprint for email: {}", email);
+            deviceFingerprint = "Unknown device";
+        }
         if (errorMessage == null || errorMessage.isBlank()) {
             logger.warn("Attempted to log auth failure with a null or empty error message for email: {}", email);
             errorMessage = "Unknown authentication error";
         }
 
         // Log event details
-        logger.warn("Authentication failure for email: {} from IP: {} - Error: {}", email, ipAddress, errorMessage);
+        logger.warn("Authentication failure for email: {} from IP: {} with device: {} - Error: {}",
+                email, ipAddress, deviceFingerprint, errorMessage);
 
         // Prepare log entry
         Map<String, Object> logEntry = new HashMap<>();
         logEntry.put("eventType", "AUTH_FAILURE");
         logEntry.put("email", email);
         logEntry.put("ipAddress", ipAddress);
+        logEntry.put("deviceFingerprint", deviceFingerprint);
         logEntry.put("errorMessage", errorMessage);
         logEntry.put("timestamp", Instant.now().toString());
 
         try {
-            // Save log entry to Firestore or any other logging system
+            // Save log entry to Firestore
             Firestore firestore = FirestoreClient.getFirestore();
             firestore.collection("audit_logs").add(logEntry).get();
             logger.info("Authentication failure logged successfully for email: {}", email);
@@ -135,6 +140,7 @@ public class AuditLogService {
             logger.error("Failed to log authentication failure for email: {} - Error: {}", email, e.getMessage(), e);
         }
     }
+
     public void logDataOperation(String eventType, String key, String message) {
         try {
             logger.error("Audit Log - Event: {}, Key: {}, Message: {}", eventType, key, message);

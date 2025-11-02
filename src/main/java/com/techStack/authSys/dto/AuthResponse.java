@@ -1,96 +1,107 @@
 package com.techStack.authSys.dto;
 
-import com.google.cloud.Timestamp;
 import com.techStack.authSys.models.Permissions;
+import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 import java.time.Instant;
 import java.util.Date;
 import java.util.List;
 
 /**
- * Represents the response returned after successful authentication
+ * Represents the response returned after authentication attempts
  */
 @Data
 @Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class AuthResponse {
     private String accessToken;
     private String refreshToken;
+
+    @Builder.Default
     private String tokenType = "Bearer";
+
     private Instant accessTokenExpiry;
     private Instant refreshTokenExpiry;
     private UserInfo user;
     private List<Permissions> permissions;
-    private Date timestamp;
-    private String warning; // For password expiry warnings
 
-    public AuthResponse() {
+    @Builder.Default
+    private Date timestamp = new Date();
 
-    }
+    private String warning; // For errors, password expiry warnings, etc.
+    private String message; // Optional success/info message
 
+    /**
+     * Nested UserInfo class for user details
+     */
     @Data
     @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
     public static class UserInfo {
         private String userId;
         private String email;
         private String firstName;
         private String lastName;
-        private Date timestamp;
-        private boolean MfaRequired;
+        private boolean mfaRequired;
         private String profileImageUrl;
+
+        @Builder.Default
+        private Date timestamp = new Date();
     }
 
-    // Builder pattern for easy construction
-    public static AuthResponseBuilder builder() {
-        return new AuthResponseBuilder();
+    /**
+     * Helper method for successful authentication responses
+     */
+    public static AuthResponse success(String accessToken, String refreshToken,
+                                       Instant accessTokenExpiry, Instant refreshTokenExpiry,
+                                       UserInfo user, List<Permissions> permissions) {
+        return AuthResponse.builder()
+                .accessToken(accessToken)
+                .refreshToken(refreshToken)
+                .accessTokenExpiry(accessTokenExpiry)
+                .refreshTokenExpiry(refreshTokenExpiry)
+                .user(user)
+                .permissions(permissions)
+                .message("Authentication successful")
+                .timestamp(new Date())
+                .build();
     }
 
-    public static class AuthResponseBuilder {
-        private final AuthResponse response = new AuthResponse();
+    /**
+     * Helper method for authentication errors
+     */
+    public static AuthResponse error(String warning) {
+        return AuthResponse.builder()
+                .warning(warning)
+                .message("Authentication failed")
+                .timestamp(new Date())
+                .build();
+    }
 
-        public AuthResponseBuilder accessToken(String accessToken) {
-            response.setAccessToken(accessToken);
-            return this;
-        }
+    /**
+     * Helper method for warnings (e.g., email not verified)
+     */
+    public static AuthResponse warning(String warning, String message) {
+        return AuthResponse.builder()
+                .warning(warning)
+                .message(message)
+                .timestamp(new Date())
+                .build();
+    }
 
-        public AuthResponseBuilder refreshToken(String refreshToken) {
-            response.setRefreshToken(refreshToken);
-            return this;
-        }
-
-        public AuthResponseBuilder accessTokenExpiry(Instant expiry) {
-            response.setAccessTokenExpiry(expiry);
-            return this;
-        }
-
-        public AuthResponseBuilder refreshTokenExpiry(Instant expiry) {
-            response.setRefreshTokenExpiry(expiry);
-            return this;
-        }
-
-        public AuthResponseBuilder user(UserInfo user) {
-            response.setUser(user);
-            return this;
-        }
-
-        public AuthResponseBuilder permissions(List<Permissions> permissions) {
-            response.setPermissions(permissions);
-            return this;
-        }
-
-        public AuthResponseBuilder warning(String warning) {
-            response.setWarning(warning);
-            return this;
-        }
-        public AuthResponseBuilder timestamp(Date date) {
-            response.setTimestamp(date);
-            return this;
-        }
-        public AuthResponse build() {
-            return response;
-        }
-
-
+    /**
+     * Helper for email not verified scenario
+     */
+    public static AuthResponse emailNotVerified(String warning) {
+        return AuthResponse.builder()
+                .warning(warning)
+                .message("Email verification required")
+                .timestamp(new Date())
+                .build();
     }
 }

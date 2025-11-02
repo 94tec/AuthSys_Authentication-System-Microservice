@@ -152,7 +152,7 @@ public class RoleAssignmentService {
 
     public Mono<User> assignRoleAndPermissions(User user, Roles role) {
         user.addRole(role);  // Add the role to the user's roles
-        user.setStatus(User.Status.ACTIVE);
+        //user.setStatus(User.Status.ACTIVE);
 
         return permissionProvider.assignRole(user.getId(), role)
                 .then(Mono.fromRunnable(() -> addDefaultAttributes(user, role)))

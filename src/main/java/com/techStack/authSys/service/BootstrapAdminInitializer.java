@@ -165,8 +165,7 @@ public class BootstrapAdminInitializer implements CommandLineRunner {
     private Mono<Void> handleCreationError(String email, Throwable e) {
         logger.error("🚨 Error creating Super Admin [{}]: {}", email, e.getMessage(), e);
         Mono<Void> rollback = firebaseServiceAuth.rollbackFirebaseUserCreation(email);
-        if (e instanceof FirebaseAuthException firebaseError &&
-                "EMAIL_EXISTS".equals(firebaseError.getErrorCode())) {
+        if (e instanceof FirebaseAuthException firebaseError && "EMAIL_EXISTS".equals(firebaseError.getErrorCode())) {
             rollback = bootstrapFlagService.markBootstrapComplete();
         }
         return rollback.then(Mono.error(e));

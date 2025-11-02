@@ -2,17 +2,15 @@ package com.techStack.authSys.service;
 
 import com.google.api.client.util.Value;
 import com.google.cloud.Timestamp;
-import com.google.cloud.firestore.FieldValue;
-import com.google.cloud.firestore.Firestore;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.UserRecord;
 import com.techStack.authSys.dto.AuthResult;
 import com.techStack.authSys.event.AccountLockedEvent;
 import com.techStack.authSys.event.AuthSuccessEvent;
 import com.techStack.authSys.event.FirstLoginEvent;
+import com.techStack.authSys.exception.AuthException;
 import com.techStack.authSys.exception.NetworkException;
 import com.techStack.authSys.exception.TransientAuthenticationException;
-import com.techStack.authSys.models.ActionType;
 import com.techStack.authSys.models.Roles;
 import com.techStack.authSys.repository.AuthServiceController;
 import com.techStack.authSys.security.AccountStatusChecker;
@@ -24,7 +22,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.http.auth.AuthenticationException;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.http.server.reactive.ServerHttpRequest;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
@@ -67,14 +65,13 @@ public class AuthServiceImpl implements AuthServiceController {
         Timer.Sample timer = Timer.start(meterRegistry);
 
         return Mono.defer(() ->
-                        rateLimiterService.checkAuthRateLimit(ipAddress, email) // Rate limit check
-                                .then(firebaseServiceAuth.getUserByEmail(email))
-                                .then(performAuthentication(email, password, issuedAt, ipAddress)) // Core authentication
-                                .timeout(Duration.ofSeconds(20)) // Timeout for network reliability
+                        rateLimiterService.checkAuthRateLimit(ipAddress, email)
+                                .then(performAuthentication(email, password, issuedAt, ipAddress))
+                                .timeout(Duration.ofSeconds(20))
                                 .retryWhen(Retry.backoff(3, Duration.ofMillis(100))
                                         .filter(this::shouldRetry)
                                         .onRetryExhaustedThrow((spec, signal) ->
-                                                new AuthenticationException("Authentication service unavailable", signal.failure()))
+                                                new AuthException("Authentication service unavailable", HttpStatus.SERVICE_UNAVAILABLE))
                                 )
                 )
                 .doOnSuccess(authResult -> {
@@ -85,7 +82,17 @@ public class AuthServiceImpl implements AuthServiceController {
                     timer.stop(meterRegistry.timer("auth.failure"));
                     handleFailedAuth(email, ipAddress, deviceFingerprint, e);
                 })
-                .transform(firebaseServiceAuth::handleAuthErrors);
+                // Ensure all errors are converted to AuthException
+                .onErrorResume(e -> {
+                    if (e instanceof AuthException) {
+                        return Mono.error(e);
+                    }
+                    // Convert any other exception to AuthException
+                    return Mono.error(new AuthException(
+                            "Authentication failed. Please try again.",
+                            HttpStatus.UNAUTHORIZED
+                    ));
+                });
     }
 
     @Override
@@ -117,8 +124,17 @@ public class AuthServiceImpl implements AuthServiceController {
                                         )
                                 )
                 )
-                .onErrorMap(firebaseServiceAuth::translateFirebaseException)
-                .doOnError(e -> firebaseServiceAuth.logAuthFailure(email, e))
+                .onErrorMap(e -> {
+                    if (e instanceof AuthException) {
+                        return e; // Already an AuthException
+                    }
+                    return firebaseServiceAuth.translateFirebaseException(e);
+                })
+                .doOnError(e -> {
+                    if (e instanceof AuthException) {
+                        firebaseServiceAuth.logAuthFailure(email, e);
+                    }
+                })
                 .doOnSuccess(authResult -> firebaseServiceAuth.logAuthSuccess(email));
     }
 
@@ -176,7 +192,7 @@ public class AuthServiceImpl implements AuthServiceController {
     }
 
     private void handleFailedAuth(String email, String ipAddress, String deviceFingerprint, Throwable error) {
-        auditLogService.logAuthFailure(email, ipAddress, deviceFingerprint); // Log to audit
+        auditLogService.logAuthFailure(email, ipAddress, deviceFingerprint, error.getMessage()); // Log to audit
 
         // Track failed attempts and decide on account lockout
         rateLimiterService.recordFailedAttempt(email, ipAddress)

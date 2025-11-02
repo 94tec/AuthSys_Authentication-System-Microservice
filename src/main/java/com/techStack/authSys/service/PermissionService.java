@@ -1,11 +1,15 @@
 package com.techStack.authSys.service;
 
+import com.google.api.core.ApiFuture;
+//import com.google.cloud.firestore.WriteResult;
+import com.google.cloud.firestore.*;
 import com.techStack.authSys.config.PermissionsConfig;
 import com.techStack.authSys.models.Permissions;
 import com.techStack.authSys.models.Roles;
 import com.techStack.authSys.models.User;
 import com.techStack.authSys.repository.AuthRepository;
 import com.techStack.authSys.repository.PermissionProvider;
+import com.techStack.authSys.util.FirestoreUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cache.annotation.Cacheable;
@@ -15,6 +19,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.scheduler.Schedulers;
 
 import javax.annotation.PostConstruct;
+import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
@@ -30,10 +35,12 @@ public class PermissionService implements PermissionProvider {
 
     private final AuthRepository authRepository;
     private final PermissionsConfig permissionsConfig;
+    private final Firestore firestore;
 
-    public PermissionService(AuthRepository authRepository, PermissionsConfig permissionsConfig) {
+    public PermissionService(AuthRepository authRepository, PermissionsConfig permissionsConfig, Firestore firestore) {
         this.authRepository = authRepository;
         this.permissionsConfig = permissionsConfig;
+        this.firestore = firestore;
     }
 
     @PostConstruct
@@ -53,11 +60,43 @@ public class PermissionService implements PermissionProvider {
     }
     @Override
     public Mono<Void> assignRole(String userId, Roles role) {
-        return Mono.fromRunnable(() -> {
-            Set<Permissions> permissions = getPermissionsForRole(role);
-            userPermissions.put(userId, new HashSet<>(permissions));
-            logger.info(STR."Role \{role} assigned to user \{userId}");
-        }).subscribeOn(Schedulers.boundedElastic()).then();
+        return Mono.defer(() -> {
+            try {
+                Set<Permissions> permissions = getPermissionsForRole(role);
+
+                // Store in memory cache
+                userPermissions.put(userId, new HashSet<>(permissions));
+
+                logger.info("✅ Role {} assigned to user {} with {} permissions",
+                        role, userId, permissions.size());
+
+                // Save to Firestore for persistence
+                Map<String, Object> roleData = new HashMap<>();
+                roleData.put("userId", userId);
+                roleData.put("role", role.name());
+                roleData.put("permissions", permissions.stream()
+                        .map(Permissions::getName)
+                        .collect(Collectors.toList()));
+                roleData.put("assignedAt", Instant.now());
+
+                DocumentReference roleRef = firestore
+                        .collection("users")
+                        .document(userId)
+                        .collection("user_roles")
+                        .document(role.name());
+
+                ApiFuture<WriteResult> future = roleRef.set(roleData);
+
+                return Mono.fromFuture(() -> FirestoreUtil.toCompletableFuture(future))
+                        .doOnSuccess(result ->
+                                logger.info("✅ Saved role {} to Firestore for user {}", role.name(), userId))
+                        .then();
+
+            } catch (Exception e) {
+                logger.error("❌ Error assigning role {} to user {}: {}", role, userId, e.getMessage(), e);
+                return Mono.error(e);
+            }
+        }).subscribeOn(Schedulers.boundedElastic());
     }
 
     // --- Permission checking ---
@@ -185,12 +224,31 @@ public class PermissionService implements PermissionProvider {
     public Set<String> resolveEffectivePermission(User user) {
         Set<String> effectivePermissions = new HashSet<>();
 
-        for (String roleName : user.getRoleNames()) {
-            Roles.fromName(roleName).ifPresent(role -> {
-                Set<Permissions> rolePerms = getPermissionsForRole(role);
-                rolePerms.forEach(p -> effectivePermissions.add(p.name())); // ✅ use .name()
-            });
+        if (user.getRoleNames() == null || user.getRoleNames().isEmpty()) {
+            logger.warn("⚠️ No roles found for user {}", user.getEmail());
+            return effectivePermissions;
         }
+
+        for (String roleName : user.getRoleNames()) {
+            Roles role = Roles.fromName(roleName).orElse(null);
+            if (role != null) {
+                // Get permissions from the Roles enum
+                Set<Permissions> rolePermissions = getPermissionsForRole(role);
+
+                // Convert Permissions enum to String names
+                Set<String> permissionNames = rolePermissions.stream()
+                        .map(Permissions::getName)
+                        .collect(Collectors.toSet());
+
+                effectivePermissions.addAll(permissionNames);
+
+                logger.debug("✅ Role {} has {} permissions: {}", roleName, permissionNames.size(), permissionNames);
+            } else {
+                logger.warn("⚠️ Unknown role: {}", roleName);
+            }
+        }
+
+        logger.info("✅ Resolved {} total permissions for user {}: {}", effectivePermissions.size(), user.getEmail(), effectivePermissions);
 
         return effectivePermissions;
     }

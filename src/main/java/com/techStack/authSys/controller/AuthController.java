@@ -141,21 +141,28 @@ public class AuthController {
                 })
                 .doOnSuccess(res -> logger.info("✅ Successful login for {}", loginRequest.getEmail()))
                 .onErrorResume(AuthException.class, e -> {
-                    logger.warn("⚠️ Login failed for {}: {}", loginRequest.getEmail(), e.getMessage());
-                    auditLogService.logAuthFailure(loginRequest.getEmail(), ipAddress, deviceFingerprint);
+                    logger.warn("⚠️ Login failed for {}: {} - Status: {}",
+                            loginRequest.getEmail(), e.getMessage(), e.getStatus());
+
+                    auditLogService.logAuthFailure(loginRequest.getEmail(), ipAddress, deviceFingerprint, e.getMessage());
+
                     return Mono.just(ResponseEntity
                             .status(e.getStatus())
                             .body(AuthResponse.builder()
-                                    .warning(e.getMessage())
-                                    .timestamp(e.getTimestamp().toDate()) // Optional: include timestamp in response
+                                    .message("Authentication failed")
+                                    .warning(e.getMessage()) // This will now be user-friendly
+                                    .timestamp(new Date())
                                     .build()));
                 })
                 .onErrorResume(e -> {
                     logger.error("❌ Unexpected login error for {}: {}", loginRequest.getEmail(), e.getMessage(), e);
+
                     return Mono.just(ResponseEntity
                             .status(HttpStatus.INTERNAL_SERVER_ERROR)
                             .body(AuthResponse.builder()
-                                    .warning(e.getMessage())
+                                    .message("Login error")
+                                    .warning("An unexpected error occurred. Please try again.")
+                                    .timestamp(new Date())
                                     .build()));
                 });
     }
@@ -165,7 +172,7 @@ public class AuthController {
                 .email(authResult.getUser().getEmail())
                 .firstName(authResult.getUser().getFirstName())
                 .lastName(authResult.getUser().getLastName())
-                .MfaRequired(authResult.getUser().isMfaRequired())
+                //.MfaRequired(authResult.getUser().isMfaRequired())
                 .profileImageUrl(authResult.getUser().getProfilePictureUrl())
                 .build();
 

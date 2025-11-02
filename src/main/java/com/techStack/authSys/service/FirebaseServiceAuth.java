@@ -120,35 +120,45 @@ public class FirebaseServiceAuth {
                 })
                 .subscribeOn(Schedulers.boundedElastic()) // Ensure Firebase API calls are non-blocking
                 .flatMap(userRecord -> Mono.fromCallable(() -> encryptionService.encrypt(userDto.getPassword()))
-                        .subscribeOn(Schedulers.boundedElastic()) // Asynchronous encryption
-                        .map(encryptedPassword -> User.builder() // ✅ Using Builder pattern
-                                .id(userRecord.getUid())
-                                .firstName(userDto.getFirstName())
-                                .lastName(userDto.getLastName())
-                                .email(userDto.getEmail())
-                                .username(userDto.getUsername())
-                                .identityNo(userDto.getIdentityNo())
-                                .phoneNumber(userDto.getPhoneNumber())
-                                .roleNames(
-                                        userDto.getRoles().stream()
-                                                .map(role -> Roles.fromName(role)
-                                                        .orElseThrow(() -> new IllegalArgumentException("Invalid role: " + role)))
-                                                .map(Roles::name) // Convert back to String
-                                                .collect(Collectors.toList()) // Use List instead of Set
-                                )
-                                .enabled(false)
-                                .emailVerified(false)
-                                .accountLocked(false)
-                                .password(encryptedPassword) // ❗ Consider encrypting before storing
-                                .lastPasswordChangeDate(LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE))
-                                .deviceFingerprint(deviceFingerprint) // ✅ Store device fingerprint
-                                .build()))
+                        .subscribeOn(Schedulers.boundedElastic())
+                        .map(encryptedPassword -> {
+                            // Determine if user has privileged role
+                            boolean isPrivileged = userDto.getRoles().stream()
+                                    .anyMatch(role -> role.equalsIgnoreCase("ADMIN") ||
+                                            role.equalsIgnoreCase("SUPER_ADMIN") ||
+                                            role.equalsIgnoreCase("MANAGER"));
+
+                            return User.builder()
+                                    .id(userRecord.getUid())
+                                    .firstName(userDto.getFirstName())
+                                    .lastName(userDto.getLastName())
+                                    .email(userDto.getEmail())
+                                    .username(userDto.getUsername())
+                                    .identityNo(userDto.getIdentityNo())
+                                    .phoneNumber(userDto.getPhoneNumber())
+                                    .roleNames(
+                                            userDto.getRoles().stream()
+                                                    .map(role -> Roles.fromName(role)
+                                                            .orElseThrow(() -> new IllegalArgumentException("Invalid role: " + role)))
+                                                    .map(Roles::name)
+                                                    .collect(Collectors.toList())
+                                    )
+                                    .enabled(isPrivileged) // Auto-enable for privileged roles
+                                    .emailVerified(false)
+                                    .accountLocked(false)
+                                    .password(encryptedPassword)
+                                    .lastPasswordChangeDate(LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE))
+                                    .deviceFingerprint(deviceFingerprint)
+                                    .status(isPrivileged ? User.Status.ACTIVE : User.Status.PENDING_APPROVAL)
+                                    .build();
+                        }))
                 .flatMap(user -> saveUserToFirestore(user, ipAddress)
-                        .then(deviceVerificationService.saveUserFingerprint(user.getId(), deviceFingerprint)) // ✅ Save fingerprint
+                        .then(deviceVerificationService.saveUserFingerprint(user.getId(), deviceFingerprint))
+                        //.then(saveUserPermissions(user)) // Save permissions based on role
                         .thenReturn(user))
                 .onErrorResume(e -> {
-                    logger.error("User creation failed: {}", e.getMessage(), e);
-                    return rollbackFirebaseUserCreation(userDto.getEmail()).then(Mono.error(e)); // Cleanup Firebase user
+                    logger.error("❌ User creation failed: {}", e.getMessage(), e);
+                    return rollbackFirebaseUserCreation(userDto.getEmail()).then(Mono.error(e));
                 });
     }
     public Mono<User> saveUser(User user, String ipAddress, String deviceFingerprint) {
@@ -158,161 +168,210 @@ public class FirebaseServiceAuth {
     }
 
     private Mono<User> saveUserToFirestore(User user, String ipAddress) {
-        // Set<String> resolvedPermissions = permissionProvider.resolveEffectivePermissions(user);
-        // List<String> permissionsList = new ArrayList<>(resolvedPermissions);
-        List<String> permissionsList = List.of(); // Default empty
+        return Mono.defer(() -> {
+            try {
+                // Determine status based on role
+                boolean isPrivileged = user.getRoleNames().stream()
+                        .anyMatch(role -> role.equalsIgnoreCase("ADMIN") ||
+                                role.equalsIgnoreCase("SUPER_ADMIN") ||
+                                role.equalsIgnoreCase("MANAGER"));
 
-        if (user.getRoleNames().contains("ADMIN") || user.getRoleNames().contains("SUPER_ADMIN")) {
-            Set<String> resolvedPermissions = permissionProvider.resolveEffectivePermissions(user);
-            permissionsList = new ArrayList<>(resolvedPermissions);
-        }
-        Map<String, Object> userData = new HashMap<>();
-        Set<String> roleSet = new HashSet<>(user.getRoleNames());
+                User.Status status = isPrivileged ? User.Status.ACTIVE : User.Status.PENDING_APPROVAL;
 
-        boolean isAdminOrSupervisor = roleSet.contains("ADMIN") || roleSet.contains("SUPER_ADMIN");
-        User.Status status = isAdminOrSupervisor ? User.Status.ACTIVE : User.Status.PENDING_APPROVAL;
+                // Resolve permissions only for privileged users
+                List<String> permissionsList = Collections.emptyList();
+                if (isPrivileged) {
+                    Set<String> resolvedPermissions = permissionProvider.resolveEffectivePermissions(user);
+                    permissionsList = new ArrayList<>(resolvedPermissions);
+                    logger.info("✅ Resolved {} permissions for privileged user: {}",
+                            permissionsList.size(), user.getEmail());
+                } else {
+                    logger.info("⚠️ User {} registered with PENDING_APPROVAL status. Permissions will be assigned after approval.",
+                            user.getEmail());
+                }
 
-        // Basic Info
-        userData.put("id", user.getId());
-        userData.put("email", user.getEmail());
-        userData.put("firstName", user.getFirstName());
-        userData.put("lastName", user.getLastName());
-        userData.put("username", user.getUsername());
-        userData.put("identityNo", user.getIdentityNo());
-        userData.put("phoneNumber", user.getPhoneNumber());
+                Map<String, Object> userData = new HashMap<>();
 
-        // Roles and Permissions
-        userData.put("roleNames", user.getRoleNames()); // Already a List<String>
-        userData.put("permissions", permissionsList);
-        userData.put("requestedRole", user.getRequestedRole() != null ?
-                user.getRequestedRole().name() : null);
-        userData.put("department", user.getDepartment());
-        userData.put("status", status.name());
+                // Basic Info
+                userData.put("id", user.getId());
+                userData.put("email", user.getEmail());
+                userData.put("firstName", user.getFirstName());
+                userData.put("lastName", user.getLastName());
+                userData.put("username", user.getUsername());
+                userData.put("identityNo", user.getIdentityNo());
+                userData.put("phoneNumber", user.getPhoneNumber());
 
-        // Security Fields
-        userData.put("createdBy", user.getCreatedBy());
-        userData.put("forcePasswordChange", user.isForcePasswordChange());
-        userData.put("otpSecret", user.getOtpSecret());
-        userData.put("mfaRequired", user.isMfaRequired());
-        userData.put("enabled", user.isEnabled());
-        userData.put("accountLocked", user.isAccountLocked());
-        userData.put("emailVerified", user.isEmailVerified());
-        userData.put("loginAttempts", user.getLoginAttempts());
-        userData.put("failedLoginAttempts", user.getFailedLoginAttempts());
+                // Roles and Permissions
+                userData.put("roleNames", user.getRoleNames());
+                userData.put("permissions", permissionsList);
+                userData.put("requestedRole", user.getRequestedRole() != null ?
+                        user.getRequestedRole().name() : null);
+                userData.put("department", user.getDepartment());
+                userData.put("status", status.name());
 
-        // Timestamps
-        userData.put("createdAt", user.getCreatedAt());
-        userData.put("lastLogin", user.getLastLogin());
-        userData.put("lastLoginTimestamp", user.getLastLoginTimestamp());
-        userData.put("lastLoginIp", user.getLastLoginIp());
-        userData.put("lastLoginIpAddress", user.getLastLoginIpAddress());
+                // Security Fields
+                userData.put("createdBy", user.getCreatedBy());
+                userData.put("forcePasswordChange", user.isForcePasswordChange());
+                userData.put("otpSecret", user.getOtpSecret());
+                userData.put("mfaRequired", user.isMfaRequired());
+                userData.put("enabled", isPrivileged); // Auto-enable privileged users
+                userData.put("accountLocked", user.isAccountLocked());
+                userData.put("emailVerified", user.isEmailVerified());
+                userData.put("loginAttempts", user.getLoginAttempts());
+                userData.put("failedLoginAttempts", user.getFailedLoginAttempts());
 
-        // Verification Tokens
-        userData.put("verificationToken", user.getVerificationToken());
-        userData.put("verificationTokenHash", user.getVerificationTokenHash());
-        userData.put("verificationTokenExpiresAt", user.getVerificationTokenExpiresAt());
-        userData.put("passwordResetToken", user.getPasswordResetToken());
-        userData.put("lastPasswordChangeDate", user.getLastPasswordChangeDate());
+                // Timestamps
+                userData.put("createdAt", Instant.now());
+                userData.put("lastLogin", user.getLastLogin());
+                userData.put("lastLoginTimestamp", user.getLastLoginTimestamp());
+                userData.put("lastLoginIp", user.getLastLoginIp());
+                userData.put("lastLoginIpAddress", user.getLastLoginIpAddress());
 
-        // Profile References
-        userData.put("profilePictureUrl", user.getProfilePictureUrl());
-        userData.put("bio", user.getBio());
-        userData.put("userProfileId", user.getUserProfileId());
-        userData.put("deviceFingerprint", user.getDeviceFingerprint());
-        // 1. Build UserProfile and PasswordHistory objects (no repository saves)
-        UserProfile userProfile = UserProfile.builder()
-                .userId(user.getId())
-                .firstName(user.getFirstName())
-                .lastName(user.getLastName())
-                .profilePictureUrl("")
-                .bio("")
-                .isPublic(true)
-                .build();
+                // Verification Tokens
+                userData.put("verificationToken", user.getVerificationToken());
+                userData.put("verificationTokenHash", user.getVerificationTokenHash());
+                userData.put("verificationTokenExpiresAt", user.getVerificationTokenExpiresAt());
+                userData.put("passwordResetToken", user.getPasswordResetToken());
+                userData.put("lastPasswordChangeDate", user.getLastPasswordChangeDate());
 
-        UserPasswordHistory userPasswordHistory;
-        try {
-            userPasswordHistory = UserPasswordHistory.builder()
-                    .password(encryptionService.encrypt(user.getPassword())) // Encrypt password before saving
-                    .userId(user.getId())
-                    .createdAt(Instant.now())
-                    .changedByIp(ipAddress)  // Ensure this field is set
-                    .changedByUserAgent(user.getDeviceFingerprint())  // Use deviceFingerprint or any appropriate value
-                    .build();
-        } catch (Exception e) {
-            logger.error("Encryption error while saving password history for user {}: {}", user.getId(), e.getMessage());
-            return Mono.error(new CustomException(HttpStatus.INTERNAL_SERVER_ERROR, "Password encryption failed"));
-        }
+                // Profile References
+                userData.put("profilePictureUrl", user.getProfilePictureUrl());
+                userData.put("bio", user.getBio());
+                userData.put("userProfileId", user.getUserProfileId());
+                userData.put("deviceFingerprint", user.getDeviceFingerprint());
 
-        // 2. Batch write all documents atomically
-        WriteBatch batch = firestore.batch();
-        DocumentReference userRef = firestore.collection(COLLECTION_USERS).document(user.getId());  // Ensure user ID is used
-        //DocumentReference profileRef = firestore.collection(COLLECTION_USER_PROFILES).document(user.getId());
-        DocumentReference profileRef = firestore
-                .collection(COLLECTION_USERS)
-                .document(user.getId())
-                .collection(COLLECTION_USER_PROFILES)
-                .document();
-        DocumentReference passwordHistoryRef = firestore
-                .collection(COLLECTION_USERS)
-                .document(user.getId())
-                .collection(COLLECTION_USER_PASSWORD_HISTORY)
-                .document();
+                // Build UserProfile
+                UserProfile userProfile = UserProfile.builder()
+                        .userId(user.getId())
+                        .firstName(user.getFirstName())
+                        .lastName(user.getLastName())
+                        .profilePictureUrl("")
+                        .bio("")
+                        .isPublic(true)
+                        .build();
 
-        batch.set(userRef, userData);
-        batch.set(profileRef, userProfile);
-        batch.set(passwordHistoryRef, userPasswordHistory);
+                // Build Password History
+                UserPasswordHistory userPasswordHistory = UserPasswordHistory.builder()
+                        .password(encryptionService.encrypt(user.getPassword()))
+                        .userId(user.getId())
+                        .createdAt(Instant.now())
+                        .changedByIp(ipAddress)
+                        .changedByUserAgent(user.getDeviceFingerprint())
+                        .build();
 
-        // 3. Execute the batch and handle results with retry logic and logging
-        return Mono.fromFuture(() -> FirestoreUtil.toCompletableFuture(batch.commit()))
-                .doOnSuccess(result -> {
-                    logger.info("✅ Firestore batch write successful for user {}", user.getId());
-                    logger.info("✅ UserProfile saved for user: {}", user.getId());
-                    logger.info("✅ Password history saved for user: {}", user.getId());
-                })
-                .doOnError(error -> logger.error("Firestore batch write failed for user {}: {}", user.getId(), error.getMessage()))
-                .retryWhen(Retry.backoff(3, Duration.ofMillis(100)))  // Retry logic for transient errors
-                .thenReturn(user)
-                .subscribeOn(Schedulers.boundedElastic());
+                // Batch write
+                WriteBatch batch = firestore.batch();
+                DocumentReference userRef = firestore.collection(COLLECTION_USERS).document(user.getId());
+                DocumentReference profileRef = firestore
+                        .collection(COLLECTION_USERS)
+                        .document(user.getId())
+                        .collection(COLLECTION_USER_PROFILES)
+                        .document();
+                DocumentReference passwordHistoryRef = firestore
+                        .collection(COLLECTION_USERS)
+                        .document(user.getId())
+                        .collection(COLLECTION_USER_PASSWORD_HISTORY)
+                        .document();
+
+                batch.set(userRef, userData);
+                batch.set(profileRef, userProfile);
+                batch.set(passwordHistoryRef, userPasswordHistory);
+
+                return Mono.fromFuture(() -> FirestoreUtil.toCompletableFuture(batch.commit()))
+                        .doOnSuccess(result -> {
+                            logger.info("✅ Firestore batch write successful for user {}", user.getId());
+                            logger.info("✅ User status: {}", status);
+                        })
+                        .doOnError(error -> logger.error("❌ Firestore batch write failed for user {}: {}",
+                                user.getId(), error.getMessage()))
+                        .retryWhen(Retry.backoff(3, Duration.ofMillis(100)))
+                        .thenReturn(user)
+                        .subscribeOn(Schedulers.boundedElastic());
+
+            } catch (Exception e) {
+                logger.error("❌ Error preparing Firestore data for user {}: {}", user.getEmail(), e.getMessage(), e);
+                return Mono.error(new CustomException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to prepare user data"));
+            }
+        });
     }
 
     public Mono<Void> saveUserPermissions(User user) {
         return Mono.defer(() -> {
             try {
-                // Check user role and handle accordingly
-                if (user.getRoleNames().contains("SUPER_ADMIN") || user.getRoleNames().contains("ADMIN")) {
-                    // For admin/super_admin: save with roles and permissions immediately
+                boolean isPrivileged = user.getRoleNames().stream()
+                        .anyMatch(role -> role.equalsIgnoreCase("ADMIN") ||
+                                role.equalsIgnoreCase("SUPER_ADMIN") ||
+                                role.equalsIgnoreCase("MANAGER"));
+
+                Map<String, Object> UserPermissions = new HashMap<>();
+
+                if (isPrivileged) {
+                    // Privileged users: Full permissions immediately
+                    // Resolve actual permissions from roles
                     Set<String> resolvedPermissions = permissionProvider.resolveEffectivePermission(user);
                     List<String> permissionsList = new ArrayList<>(resolvedPermissions);
                     List<String> roleList = new ArrayList<>(user.getRoleNames());
 
-                    UserPermissions document = UserPermissions.builder()
-                            .userId(user.getId())
-                            .email(user.getEmail())
-                            .roles(roleList)
-                            .permissions(permissionsList)
-                            .status(User.Status.ACTIVE)  // immediate approval for admins
-                            .build();
+                    // Validate we actually got permissions
+                    if (permissionsList.isEmpty()) {
+                        logger.error("❌ No permissions resolved for privileged user: {}", user.getEmail());
+                        logger.error("❌ Roles: {}", user.getRoleNames());
+                        return Mono.error(new RuntimeException("Failed to resolve permissions"));
+                    }
+                        UserPermissions.put("userId", user.getId());
+                        UserPermissions.put("email", user.getEmail());
+                        UserPermissions.put("roles", roleList);
+                        UserPermissions.put("permissions", permissionsList);
+                        UserPermissions.put("status", User.Status.ACTIVE.name());
+                        UserPermissions.put("approvedBy", user.getCreatedBy() != null ? user.getCreatedBy() : "SYSTEM");
+                        UserPermissions.put("approvedAt", Instant.now());
+                        UserPermissions.put("createdAt", Instant.now());
 
-                    return saveToFirestore(user, document);
+                        logger.info("✅ Saving {} permissions for privileged user: {}", permissionsList.size(), user.getEmail());
+                        logger.debug("📋 Permissions: {}", permissionsList);
                 } else {
-                    // For regular users or managers: save without permissions, pending approval
-                    UserPermissions document = UserPermissions.builder()
-                            .userId(user.getId())
-                            .email(user.getEmail())
-                            .roles(new ArrayList<>())  // empty roles
-                            .permissions(new ArrayList<>())  // empty permissions
-                            .status(User.Status.PENDING_APPROVAL)  // requires admin approval
-                            .build();
+                    // Regular users: Empty permissions, pending approval
+                    UserPermissions.put("userId", user.getId());
+                    UserPermissions.put("email", user.getEmail());
+                    UserPermissions.put("roles", Collections.emptyList());
+                    UserPermissions.put("permissions", Collections.emptyList());
+                    UserPermissions.put("status", User.Status.PENDING_APPROVAL.name());
+                    UserPermissions.put("approvedBy", null);
+                    UserPermissions.put("approvedAt", null);
+                    UserPermissions.put("createdAt", Instant.now());
 
-                    return saveToFirestore(user, document)
-                            .doOnSuccess(result ->
-                                    logger.info("⚠️ User {} saved with pending approval status", user.getEmail()));
+                    //logger.info("⚠️ Creating PENDING_APPROVAL permissions for user: {}", user.getEmail());
+                    logger.info("⚠️ Creating PENDING_APPROVAL permissions for user: {}. Awaiting manager approval.", user.getEmail());
+
                 }
+
+                return savePermissionsToFirestore(user, UserPermissions);
+
             } catch (Exception e) {
-                logger.error("❌ Error preparing Firestore permissions for user {}: {}", user.getEmail(), e.getMessage(), e);
-                return Mono.error(new RuntimeException("Failed to prepare permissions for Firestore", e));
+                logger.error("❌ Error preparing permissions for user {}: {}", user.getEmail(), e.getMessage(), e);
+                return Mono.error(new RuntimeException("Failed to prepare permissions", e));
             }
         }).subscribeOn(Schedulers.boundedElastic());
+    }
+
+    private Mono<Void> savePermissionsToFirestore(User user, Map<String, Object> UserPermissions) {
+        DocumentReference docRef = firestore
+                .collection(COLLECTION_USERS)
+                .document(user.getId())
+                .collection(COLLECTION_USER_PERMISSIONS)
+                .document("active_permissions"); // Fixed document name
+
+        ApiFuture<WriteResult> apiFuture = docRef.set(UserPermissions);
+        CompletableFuture<WriteResult> javaFuture = FirestoreUtil.toCompletableFuture(apiFuture);
+
+        return Mono.fromFuture(() -> javaFuture)
+                .doOnSuccess(result ->
+                        logger.info("✅ Permissions saved for {} with status {} at {}",
+                                user.getEmail(), UserPermissions.get("status"), result.getUpdateTime()))
+                .doOnError(error ->
+                        logger.error("❌ Failed to save permissions for {}: {}",
+                                user.getEmail(), error.getMessage(), error))
+                .then();
     }
 
     private Mono<Void> saveToFirestore(User user, UserPermissions document) {
@@ -492,11 +551,17 @@ public class FirebaseServiceAuth {
             logger.warn("FirebaseAuthException occurred: code={}, message={}", errorCode, authEx.getMessage());
 
             return switch (errorCode) {
-                case "user-not-found", "invalid-email" -> new BadCredentialsException("No user found with provided email");
-                case "wrong-password" -> new BadCredentialsException("Incorrect password");
-                case "user-disabled" -> new DisabledException("This account is disabled. Please contact support.");
-                case "too-many-requests" -> new ExcessiveAttemptsException("Too many login attempts. Try again later.");
-                default -> new AuthenticationServiceException("Authentication failed: " + errorCode, authEx);
+                case "USER_NOT_FOUND", "NOT_FOUND", "user-not-found", "invalid-email", "EMAIL_NOT_FOUND", "INVALID_EMAIL" ->
+                        AuthException.accountNotFound();
+                case "WRONG_PASSWORD", "wrong-password", "INVALID_PASSWORD" ->
+                        AuthException.invalidCredentials();
+                case "USER_DISABLED", "user-disabled" ->
+                        AuthException.accountDisabled();
+                case "TOO_MANY_ATTEMPTS_TRY_LATER", "too-many-requests" ->
+                        AuthException.rateLimitExceeded();
+                case "EMAIL_NOT_VERIFIED" ->
+                        AuthException.emailNotVerified();
+                default -> new AuthException("Authentication failed: " + errorCode, HttpStatus.UNAUTHORIZED);
             };
         }
 
@@ -505,19 +570,31 @@ public class FirebaseServiceAuth {
             logger.warn("FirebaseRestAuthException occurred: code={}, message={}", errorCode, restEx.getMessage());
 
             return switch (errorCode) {
-                case "EMAIL_NOT_FOUND", "INVALID_EMAIL" -> new BadCredentialsException("No user found with provided email");
-                case "INVALID_PASSWORD" -> new BadCredentialsException("Incorrect password");
-                case "USER_DISABLED" -> new DisabledException("This account is disabled. Please contact support.");
-                case "TOO_MANY_ATTEMPTS_TRY_LATER" -> new ExcessiveAttemptsException("Too many login attempts. Try again later.");
-                default -> new AuthenticationServiceException("Authentication failed: " + errorCode, restEx);
+                case "EMAIL_NOT_FOUND", "INVALID_EMAIL" -> AuthException.accountNotFound();
+                case "INVALID_PASSWORD" -> AuthException.invalidCredentials();
+                case "USER_DISABLED" -> AuthException.accountDisabled();
+                case "TOO_MANY_ATTEMPTS_TRY_LATER" -> AuthException.rateLimitExceeded();
+                default -> new AuthException("Authentication failed: " + errorCode, HttpStatus.UNAUTHORIZED);
             };
         }
+        // Handle Spring Security exceptions
+        if (actual instanceof BadCredentialsException) {
+            return AuthException.invalidCredentials();
+        }
 
-        // 🚨 Fallback logging
+        if (actual instanceof DisabledException) {
+            return AuthException.accountDisabled();
+        }
+
+        if (actual instanceof AuthenticationServiceException) {
+            return new AuthException("Authentication failed", HttpStatus.UNAUTHORIZED);
+        }
+
+        // For other exceptions, return AuthException
         logger.error("Unhandled auth exception: {} - {}", actual.getClass().getSimpleName(), actual.getMessage(), actual);
-
         return new AuthException("Unexpected error occurred during login", HttpStatus.INTERNAL_SERVER_ERROR);
     }
+
     public void logAuthFailure(String email, Throwable error) {
         firestore.collection("auth_logs").add(Map.of(
                 "email", email,
@@ -534,12 +611,15 @@ public class FirebaseServiceAuth {
                 "timestamp", FieldValue.serverTimestamp()
         ));
     }
-    public  <T> Mono<T> handleAuthErrors(Mono<T> mono) {
-        return mono.onErrorMap(this::translateFirebaseException)
-                .onErrorResume(e -> {
-                    logger.error("Authentication error: {}", e.getMessage(), e);
-                    return Mono.error(e); // Send translated error downstream
-                });
+    public <T> Mono<T> handleAuthErrors(Mono<T> mono) {
+        return mono.onErrorMap(e -> {
+            // If it's already an AuthException, keep it
+            if (e instanceof AuthException) {
+                return e;
+            }
+            // Otherwise translate it
+            return translateFirebaseException(e);
+        });
     }
 
     public void updateLastLogin(String userId, String ipAddress) {

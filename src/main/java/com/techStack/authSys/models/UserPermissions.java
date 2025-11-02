@@ -15,13 +15,14 @@ import java.util.List;
 @AllArgsConstructor
 @Document(collectionName = "users_permissions")
 public class UserPermissions {
+
     private String userId;
     private String email;
-    private User.Status status;
-    private Instant approvedAt;
-    private String approvedBy;
-
-    // Firestore requires Lists (not Sets) and serializable elements
     private List<String> roles;
     private List<String> permissions;
+    private User.Status status; // ACTIVE, PENDING_APPROVAL, REJECTED
+    private String approvedBy; // Manager/Admin who approved
+    private Instant approvedAt;
+    private Instant createdAt;
+    private String rejectionReason; // If rejected
 }

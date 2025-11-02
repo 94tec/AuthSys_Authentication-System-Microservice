@@ -15,6 +15,7 @@ import reactor.core.publisher.Mono;
 import java.nio.file.AccessDeniedException;
 import java.time.LocalDateTime;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.Map;
 
 @Slf4j
@@ -27,23 +28,79 @@ public class GlobalExceptionHandler {
     // ================================================================
 
     /**
-     * Handle CustomException with dynamic status codes
-     * This must be FIRST and NOT in the 404 handler list
+     * Handle CustomException (base custom exception)
      */
     @ExceptionHandler(CustomException.class)
-    public Mono<ResponseEntity<ErrorResponse>> handleCustomException(CustomException e, ServerWebExchange exchange) {
-        log.warn("⚠️ CustomException caught: {} - Status: {} - Path: {}",
-                e.getMessage(), e.getStatus(), exchange.getRequest().getPath().value());
+    public Mono<ResponseEntity<Map<String, Object>>> handleCustomException(
+            CustomException ex,
+            ServerWebExchange exchange) {
 
-        ErrorResponse errorResponse = new ErrorResponse(
-                e.getStatus().value(),
-                e.getMessage(),
-                LocalDateTime.now()
-        );
+        log.warn("⚠️ CustomException caught on path {}: {} - {}",
+                exchange.getRequest().getPath().value(),
+                ex.getStatus(),
+                ex.getMessage());
 
-        return Mono.just(ResponseEntity.status(e.getStatus()).body(errorResponse));
+        Map<String, Object> errorResponse = new HashMap<>();
+        errorResponse.put("status", ex.getStatus().value());
+        errorResponse.put("error", ex.getStatus().getReasonPhrase());
+        errorResponse.put("message", ex.getMessage());
+        errorResponse.put("timestamp", LocalDateTime.now());
+        errorResponse.put("path", exchange.getRequest().getPath().value());
+
+        return Mono.just(ResponseEntity
+                .status(ex.getStatus())
+                .body(errorResponse));
     }
+    /**
+     * Handle EmailAlreadyExistsException
+     */
+    @ExceptionHandler(EmailAlreadyExistsException.class)
+    public Mono<ResponseEntity<Map<String, Object>>> handleEmailAlreadyExists(
+            EmailAlreadyExistsException ex,
+            ServerWebExchange exchange) {
 
+        log.warn("⚠️ Email already exists on path {}: {}",
+                exchange.getRequest().getPath().value(),
+                ex.getMessage());
+
+        Map<String, Object> errorResponse = new HashMap<>();
+        errorResponse.put("status", HttpStatus.CONFLICT.value());
+        errorResponse.put("error", "Conflict");
+        errorResponse.put("message", "Email address is already registered. Please use a different email or try logging in.");
+        errorResponse.put("timestamp", LocalDateTime.now());
+        errorResponse.put("path", exchange.getRequest().getPath().value());
+
+        return Mono.just(ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(errorResponse));
+    }
+    /**
+     * Handle validation errors
+     */
+    @ExceptionHandler(org.springframework.web.bind.support.WebExchangeBindException.class)
+    public Mono<ResponseEntity<Map<String, Object>>> handleValidationException(
+            org.springframework.web.bind.support.WebExchangeBindException ex,
+            ServerWebExchange exchange) {
+
+        log.warn("⚠️ Validation error on path {}", exchange.getRequest().getPath().value());
+
+        Map<String, Object> errorResponse = new HashMap<>();
+        errorResponse.put("status", HttpStatus.BAD_REQUEST.value());
+        errorResponse.put("error", "Validation Failed");
+        errorResponse.put("message", "Invalid input data");
+        errorResponse.put("errors", ex.getFieldErrors().stream()
+                .map(error -> Map.of(
+                        "field", error.getField(),
+                        "message", error.getDefaultMessage()
+                ))
+                .toList());
+        errorResponse.put("timestamp", LocalDateTime.now());
+        errorResponse.put("path", exchange.getRequest().getPath().value());
+
+        return Mono.just(ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(errorResponse));
+    }
     /**
      * Handle AuthException with custom error codes
      */
@@ -80,8 +137,8 @@ public class GlobalExceptionHandler {
             UserProfileUpdateException.class,
             InvalidPasswordException.class,
             TemporaryPasswordExpiredException.class,
-            PasswordMismatchException.class,
-            IllegalArgumentException.class
+            PasswordMismatchException.class
+            //IllegalArgumentException.class
     })
 
     public Mono<ResponseEntity<ErrorDetails>> handleBadRequest(Exception ex, ServerWebExchange exchange) {
@@ -159,20 +216,52 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * Catch-all for any unhandled exceptions
-     * This should be LAST (lowest priority)
+     * Handle IllegalArgumentException
+     */
+    @ExceptionHandler(IllegalArgumentException.class)
+    public Mono<ResponseEntity<Map<String, Object>>> handleIllegalArgument(
+            IllegalArgumentException ex,
+            ServerWebExchange exchange) {
+
+        log.warn("⚠️ Illegal argument on path {}: {}",
+                exchange.getRequest().getPath().value(),
+                ex.getMessage());
+
+        Map<String, Object> errorResponse = new HashMap<>();
+        errorResponse.put("status", HttpStatus.BAD_REQUEST.value());
+        errorResponse.put("error", "Bad Request");
+        errorResponse.put("message", ex.getMessage());
+        errorResponse.put("timestamp", LocalDateTime.now());
+        errorResponse.put("path", exchange.getRequest().getPath().value());
+
+        return Mono.just(ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(errorResponse));
+    }
+
+    /**
+     * Handle all other exceptions (catch-all)
      */
     @ExceptionHandler(Exception.class)
-    public Mono<ResponseEntity<ErrorResponse>> handleGenericException(Exception e, ServerWebExchange exchange) {
-        log.error("❌ Unexpected exception caught on path {}: {}",
-                exchange.getRequest().getPath().value(), e.getMessage(), e);
+    public Mono<ResponseEntity<Map<String, Object>>> handleGenericException(
+            Exception ex,
+            ServerWebExchange exchange) {
 
-        ErrorResponse errorResponse = new ErrorResponse(
-                HttpStatus.INTERNAL_SERVER_ERROR.value(),
-                "An unexpected error occurred. Please try again later.",
-                LocalDateTime.now()
-        );
-        return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse));
+        log.error("❌ Unexpected exception caught on path {}: {}",
+                exchange.getRequest().getPath().value(),
+                ex.getMessage(),
+                ex);
+
+        Map<String, Object> errorResponse = new HashMap<>();
+        errorResponse.put("status", HttpStatus.INTERNAL_SERVER_ERROR.value());
+        errorResponse.put("error", "Internal Server Error");
+        errorResponse.put("message", "An unexpected error occurred. Please try again later.");
+        errorResponse.put("timestamp", LocalDateTime.now());
+        errorResponse.put("path", exchange.getRequest().getPath().value());
+
+        return Mono.just(ResponseEntity
+                .status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(errorResponse));
     }
 
     // ================================================================
