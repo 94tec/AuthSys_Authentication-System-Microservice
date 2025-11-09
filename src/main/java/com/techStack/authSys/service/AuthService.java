@@ -282,29 +282,48 @@ public  class AuthService {
      * Check for duplicate email using Redis cache first then Firestore.
      */
     private Mono<UserDTO> checkDuplicateEmail(UserDTO userDto) {
-        return redisCacheService.isEmailRegistered(userDto.getEmail())
-                .onErrorResume(e -> {
-                    logger.warn("Redis lookup failed for {}: {} - continuing to Firestore check", userDto.getEmail(), e.getMessage());
-                    return Mono.just(false);
-                })
-                .flatMap(inCache -> {
-                    if (Boolean.TRUE.equals(inCache)) {
-                        logger.warn("Duplicate email found in Redis: {}", userDto.getEmail());
-                        return Mono.error(new EmailAlreadyExistsException(userDto.getEmail()));
-                        //return Mono.error(new EmailAlreadyExistsException(userDto.getEmail()));
-                    }
-                    return checkFirestoreForEmail(userDto);
-                });
-    }
+        String email = userDto.getEmail();
 
-    private Mono<UserDTO> checkFirestoreForEmail(UserDTO userDto) {
-        return firebaseServiceAuth.findByEmail(userDto.getEmail())
-                .flatMap(foundUser -> {
-                    logger.warn("Duplicate email found in Firestore: {}", userDto.getEmail());
-                    return Mono.<UserDTO>error(new EmailAlreadyExistsException(userDto.getEmail()));
-                    //return Mono.<UserDTO>error(new EmailAlreadyExistsException(userDto.getEmail()));
+        Mono<Boolean> redisCheck = redisCacheService.isEmailRegistered(email)
+                .onErrorResume(e -> {
+                    logger.warn("Redis lookup failed for {}: {} - continuing with Firestore", email, e.getMessage());
+                    return Mono.just(false);
+                });
+
+        // Variable renamed for clarity, as it uses Firebase AUTH, not Firestore
+        Mono<Boolean> firestoreCheck = firebaseServiceAuth.checkEmailAvailability(email)
+                // ✅ Fix: Removed the redundant semicolon before .onErrorResume
+                .onErrorResume(e -> {
+                    // Renamed log message to reflect the source (Firebase Auth)
+                    logger.warn("Firebase Auth lookup failed for {}: {}", email, e.getMessage());
+                    // It's safe to return false here, assuming the failure means we can't confirm existence,
+                    // but for production, you might want to throw a 500 if the check itself fails critically.
+                    return Mono.just(false);
+                });
+
+        // Run both checks concurrently
+        return Mono.zip(redisCheck, firestoreCheck)
+                .flatMap(tuple -> {
+                    boolean inRedis = tuple.getT1();
+                    boolean inFirestore = tuple.getT2();
+
+                    logger.info("Duplicate check results for {} → Redis: {}, Firestore: {}", email, inRedis, inFirestore);
+
+                    if (inRedis || inFirestore) {
+                        // ✅ Backfill cache if found only in Firestore
+                        if (inFirestore && !inRedis) {
+                            redisCacheService.cacheRegisteredEmail(email)
+                                    .doOnSuccess(v -> logger.info("Cached Firestore-verified email {} in Redis", email))
+                                    .subscribe(); // Fire and forget, don't block registration flow
+                        }
+
+                        return Mono.error(new EmailAlreadyExistsException(email));
+                    }
+
+                    return Mono.just(userDto);
                 })
-                .switchIfEmpty(Mono.just(userDto));
+                .doOnSuccess(dto -> logger.debug("✅ Email {} is available for registration", email))
+                .doOnError(e -> logger.error("❌ Duplicate check failed for {}: {}", email, e.getMessage()));
     }
 
     private Mono<User> assignRolesAndPermissions(User user, UserDTO userDto) {

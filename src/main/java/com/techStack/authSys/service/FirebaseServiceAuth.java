@@ -405,9 +405,12 @@ public class FirebaseServiceAuth {
                 )
         ).onErrorResume(e -> Mono.error(new AuthenticationException("User not found")));
     }
+    //Purpose: To determine if an email address is already registered in the Firebase Authentication system.
+    //Best Used For: Registration flow (to prevent duplicate accounts) or checking availability.
     public Mono<Boolean> checkEmailAvailability(String email) {
         return Mono.defer(() -> {
             try {
+                // The blocking call that needs offloading
                 FirebaseAuth.getInstance().getUserByEmail(email);
                 // User exists
                 return Mono.just(true);
@@ -416,12 +419,14 @@ public class FirebaseServiceAuth {
                     // Email is available
                     return Mono.just(false);
                 }
+                // Propagate unexpected Firebase errors
                 return Mono.error(new CustomException(
                         HttpStatus.INTERNAL_SERVER_ERROR,
-                        "Firebase error: " + e.getMessage()
+                        "Firebase authentication error: " + e.getMessage()
                 ));
             }
-        });
+            // ⭐ FIX: Offload the blocking call to a dedicated thread pool
+        }).subscribeOn(Schedulers.boundedElastic());
     }
     public Mono<Void> signInWithFirebase(String email, String password) {
         String firebaseAuthUrl = "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=" + firebaseConfig.getFirebaseApiKey();
@@ -456,6 +461,8 @@ public class FirebaseServiceAuth {
                 .flatMap(response -> Mono.empty()) // Continue on success
                 .transform(this::handleAuthErrors).then();
     }
+    //Purpose: To retrieve the raw UserRecord object from the Firebase Authentication system.
+    //Best Used For: Authentication/Authorization checks, fetching basic user ID (UID), or triggering Firebase-specific actions (like password reset).
     public Mono<UserRecord> getUserByEmail(String email) {
         return Mono.fromCallable(() -> FirebaseAuth.getInstance().getUserByEmail(email))
                 .subscribeOn(Schedulers.boundedElastic()) // Run blocking call off the main thread
@@ -675,6 +682,8 @@ public class FirebaseServiceAuth {
             }
         }).subscribeOn(Schedulers.boundedElastic()).then();
     }
+    //Purpose: To retrieve the full application-specific User object stored in your Firestore database.
+    //Best Used For: Operations requiring the full user profile data (e.g., retrieving custom metadata, roles, or running business logic).
     public Mono<User> findByEmail(String email) {
         return Mono.fromCallable(() ->
                 firestore.collection(COLLECTION_USERS)

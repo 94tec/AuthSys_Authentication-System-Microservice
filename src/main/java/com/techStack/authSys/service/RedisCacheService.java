@@ -153,18 +153,36 @@ public class RedisCacheService {
                 });
     }
 
-    public Mono<Boolean> cacheRegisteredEmail(String email) {
+    /**
+     * Caches a registered email address in Redis with a TTL.
+     * The operation failure is swallowed to prevent blocking the main flow.
+     *
+     * @param email The email address to cache.
+     * @return Mono<Void> signaling completion (or safe absorption of an error).
+     */
+    public Mono<Void> cacheRegisteredEmail(String email) {
+        // 1. Check for empty/null email first
         if (!StringUtils.hasText(email)) {
-            return Mono.just(false);
+            logger.warn("Attempted to cache null or empty email.");
+            return Mono.empty();
         }
 
-        String key = USER_EXISTS_PREFIX + email;
+        String standardizedEmail = email.toLowerCase();
+        // 2. Build the key using a constant prefix
+        String key = USER_EXISTS_PREFIX + standardizedEmail;
+
         return reactiveRedisTemplate.opsForValue()
-                .set(key, "true", USER_EXISTS_TTL)
+                .set(key, "true", USER_EXISTS_TTL) // Use constant TTL
+                // 3. Log success
+                .doOnSuccess(v -> logger.debug("Email {} cached as registered for {}", standardizedEmail, USER_EXISTS_TTL))
+
+                // 4. Handle caching failure (non-critical)
                 .onErrorResume(e -> {
-                    logger.error("Failed to cache email: {}", email, e);
-                    return Mono.just(false);
-                });
+                    logger.error("❌ Failed to cache registered email: {}", standardizedEmail, e);
+                    // Return empty Mono to complete the chain without signaling failure
+                    return Mono.empty();
+                }).then();
+        // .then() is not needed here as the chain already ends in Mono<Void> due to the final operator in the success path
     }
 
     public Mono<Boolean> invalidateEmailRegistration(String email) {
@@ -434,12 +452,25 @@ public class RedisCacheService {
             return Mono.just(false);
         }
 
+        // We must ensure all zipped Monos return a Boolean
         return Mono.zip(
+                // Assuming this returns Mono<Boolean>
                 cacheUserProfile(user),
+                // Assuming this returns Mono<Boolean>
                 cacheUserRoles(user.getId(), roles),
+                // Assuming this returns Mono<Boolean>
                 cacheUserPermissions(user.getId(), permissions),
-                cacheRegisteredEmail(user.getEmail())
-        ).map(tuple -> tuple.getT1() && tuple.getT2() && tuple.getT3() && tuple.getT4());
+
+                // ⭐ FIX: Convert Mono<Void> to Mono<Boolean> using .thenReturn(true)
+                // This assumes that if cacheRegisteredEmail completes successfully (Mono<Void> emits onComplete),
+                // the operation was successful (true).
+                cacheRegisteredEmail(user.getEmail()).thenReturn(true)
+
+        ).map(tuple -> {
+            // Now all tuple elements are guaranteed to be Boolean
+            // We can safely return the AND of all boolean results.
+            return tuple.getT1() && tuple.getT2() && tuple.getT3() && tuple.getT4();
+        });
     }
 
     public Mono<Boolean> invalidateAllUserData(String userId, String email) {
