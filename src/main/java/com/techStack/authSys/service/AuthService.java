@@ -7,16 +7,15 @@ import com.google.cloud.firestore.Firestore;
 import com.google.cloud.firestore.WriteResult;
 import com.google.firebase.auth.*;
 import com.techStack.authSys.config.AppConfig;
-import com.techStack.authSys.config.PermissionsConfig;
 import com.techStack.authSys.dto.UserDTO;
 import com.techStack.authSys.event.UserRegisteredEvent;
 import com.techStack.authSys.exception.CustomException;
 import com.techStack.authSys.exception.EmailAlreadyExistsException;
+import com.techStack.authSys.exception.ServiceUnavailableException;
 import com.techStack.authSys.models.*;
 import com.techStack.authSys.repository.MetricsService;
-import com.techStack.authSys.repository.PermissionProvider;
 import com.techStack.authSys.util.FirestoreUtil;
-import jakarta.validation.ValidationException;
+import com.techStack.authSys.util.RetryUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,13 +34,15 @@ import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
+
+import java.util.regex.Pattern;
 
 @Service
 public  class AuthService {
-
     private static final Logger logger = LoggerFactory.getLogger(AuthService.class);
+    private static final Pattern EMAIL_PATTERN =
+            Pattern.compile("^[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}$", Pattern.CASE_INSENSITIVE);
 
     private static final String COLLECTION_USERS = "users";
     private static final String COLLECTION_REGISTRATION_METADATA = "registration_metadata";
@@ -65,6 +66,8 @@ public  class AuthService {
     private final RedisCacheService redisCacheService;
     private final MetricsService metricsService;
     private final RoleAssignmentService roleAssignmentService;
+    private final RegistrationErrorHandlerService registrationErrorHandlerService;
+    private final RetryUtils retryUtils;
 
     // Password policy configuration
     @Value("${security.password.policy.min-length}")
@@ -97,7 +100,8 @@ public  class AuthService {
             EncryptionService encryptionService,
             AppConfig appConfig,
             RedisCacheService redisCacheService,
-            MetricsService metricsService, RoleAssignmentService roleAssignmentService
+            MetricsService metricsService,
+            RoleAssignmentService roleAssignmentService, RegistrationErrorHandlerService registrationErrorHandlerService, RetryUtils retryUtils
     ) {
         this.firebaseAuth = firebaseAuth;
         this.firestore = firestore;
@@ -117,6 +121,8 @@ public  class AuthService {
         this.redisCacheService = redisCacheService;
         this.metricsService = metricsService;
         this.roleAssignmentService = roleAssignmentService;
+        this.registrationErrorHandlerService = registrationErrorHandlerService;
+        this.retryUtils = retryUtils;
     }
 
     /**
@@ -171,69 +177,106 @@ public  class AuthService {
                 // 8. Send verification email (safe - won't break registration on failure)
                 .flatMap(user -> sendVerificationEmailSafe(user, ipAddress))
 
-                // 9. ISSUES: audit, cache, metrics, and event publish
+                // 11. Success logging and metrics
                 .doOnSuccess(user -> {
                     long duration = System.currentTimeMillis() - startTime;
-                    logger.info("Registration completed for {} in {} ms", user.getEmail(), duration);
+                    logger.info("✅ Registration completed for {} in {} ms",
+                            user.getEmail(), duration);
                     eventPublisher.publishEvent(new UserRegisteredEvent(user, ipAddress));
                     auditAndMetrics(user, startTime, ipAddress, deviceFingerprint, duration);
                 })
 
-                // 10. Error handling
+                // 12. Error handling and cleanup
                 .doOnError(e -> {
                     long duration = System.currentTimeMillis() - startTime;
-                    // Don't log EmailAlreadyExistsException as error - it's expected
-                    if (e instanceof EmailAlreadyExistsException) {
-                        logger.warn("⚠️ Registration attempt with existing email: {} after {} ms",
-                                userDto.getEmail(), duration);
-                    } else {
-                        logger.error("❌ Registration failed for {} after {} ms: {}",
-                                Objects.toString(userDto.getEmail(), "unknown"), duration, e.getMessage());
-                    }
-                    logger.error("Registration failed for {} after {} ms: {}", Objects.toString(userDto.getEmail(), "unknown"), duration, e.getMessage());
-                    metricsService.incrementCounter("user.registration.failure");
-                    // If the failure is because Firebase reported EMAIL_EXISTS we attempt cleanup
-                    if (e instanceof FirebaseAuthException && "EMAIL_EXISTS".equals(((FirebaseAuthException) e).getErrorCode())) {
-                        firebaseServiceAuth.cleanupFailedRegistration(userDto.getEmail())
-                                .subscribe(); // one-off cleanup: issues; keep as last-resort
-                    }
+                    logger.info(String.valueOf(duration));
+                    registrationErrorHandlerService.handleRegistrationError(e, userDto.getEmail());
                 })
-                // 11. Retry policy for retriable errors (network, transient service issues)
+
+                // 13. Retry policy for transient errors
                 .retryWhen(Retry.backoff(3, Duration.ofMillis(200))
-                        .filter(this::isRetryableError)
+                        .filter(retryUtils::isRetryableError)
                         .doBeforeRetry(retrySignal ->
-                                logger.info("Retrying registration attempt #{}", retrySignal.totalRetriesInARow() + 1)
+                                logger.info("🔄 Retrying registration attempt #{}",
+                                        retrySignal.totalRetriesInARow() + 1)
                         )
                         .onRetryExhaustedThrow((retrySpec, retrySignal) -> {
                             Throwable lastFailure = retrySignal.failure();
-                            logger.error("Registration service unavailable after max retries (3). Last failure: {}", lastFailure.getMessage());
+                            logger.error("❌ Max retries exhausted. Last failure: {}",
+                                    lastFailure.getMessage());
 
-                            // Ensure we return CustomException for GlobalExceptionHandler
                             if (lastFailure instanceof CustomException) {
                                 return lastFailure;
                             }
-                            return new CustomException(
-                                    HttpStatus.SERVICE_UNAVAILABLE,
-                                    "Registration service temporarily unavailable"
-                            );
+                            return new ServiceUnavailableException("Registration service");
                         })
                 );
     }
 
-    public Mono<UserDTO> validateUserInput(UserDTO userDto) {
-        return Mono.fromCallable(() -> {
+    /**
+     * Reactive-safe user input validation with field & code mapping - Validate user input
+     */
+    private Mono<UserDTO> validateUserInput(UserDTO userDto) {
+        return Mono.defer(() -> {
+            if (userDto == null) {
+                return Mono.error(new CustomException(
+                        HttpStatus.BAD_REQUEST,
+                        "Invalid request payload",
+                        "payload",
+                        "REQUEST_INVALID"
+                ));
+            }
+
             if (!StringUtils.hasText(userDto.getEmail())) {
-                throw new ValidationException("Email is required");
+                return Mono.error(new CustomException(
+                        HttpStatus.BAD_REQUEST,
+                        "Email is required",
+                        "email",
+                        "EMAIL_REQUIRED"
+                ));
             }
+
+            if (!EMAIL_PATTERN.matcher(userDto.getEmail()).matches()) {
+                return Mono.error(new CustomException(
+                        HttpStatus.BAD_REQUEST,
+                        "Invalid email format",
+                        "email",
+                        "EMAIL_INVALID"
+                ));
+            }
+
             if (!StringUtils.hasText(userDto.getPassword())) {
-                throw new ValidationException("Password is required");
+                return Mono.error(new CustomException(
+                        HttpStatus.BAD_REQUEST,
+                        "Password is required",
+                        "password",
+                        "PASSWORD_REQUIRED"
+                ));
             }
-            if (StringUtils.hasText(userDto.getHoneypot())) {
-                throw new ValidationException("Invalid form submission");
+
+            if (!StringUtils.hasText(userDto.getFirstName())) {
+                return Mono.error(new CustomException(
+                        HttpStatus.BAD_REQUEST,
+                        "First name is required",
+                        "firstName",
+                        "FIRSTNAME_REQUIRED"
+                ));
             }
-            return userDto;
+
+            if (!StringUtils.hasText(userDto.getLastName())) {
+                return Mono.error(new CustomException(
+                        HttpStatus.BAD_REQUEST,
+                        "Last name is required",
+                        "lastName",
+                        "LASTNAME_REQUIRED"
+                ));
+            }
+
+            // ✅ All validations passed
+            return Mono.just(userDto);
         });
     }
+
 
     /**
      * Check for duplicate email using Redis cache first then Firestore.
@@ -247,7 +290,7 @@ public  class AuthService {
                 .flatMap(inCache -> {
                     if (Boolean.TRUE.equals(inCache)) {
                         logger.warn("Duplicate email found in Redis: {}", userDto.getEmail());
-                        return Mono.error(new EmailAlreadyExistsException());
+                        return Mono.error(new EmailAlreadyExistsException(userDto.getEmail()));
                         //return Mono.error(new EmailAlreadyExistsException(userDto.getEmail()));
                     }
                     return checkFirestoreForEmail(userDto);
@@ -258,7 +301,7 @@ public  class AuthService {
         return firebaseServiceAuth.findByEmail(userDto.getEmail())
                 .flatMap(foundUser -> {
                     logger.warn("Duplicate email found in Firestore: {}", userDto.getEmail());
-                    return Mono.<UserDTO>error(new EmailAlreadyExistsException());
+                    return Mono.<UserDTO>error(new EmailAlreadyExistsException(userDto.getEmail()));
                     //return Mono.<UserDTO>error(new EmailAlreadyExistsException(userDto.getEmail()));
                 })
                 .switchIfEmpty(Mono.just(userDto));
@@ -329,12 +372,15 @@ public  class AuthService {
         return sendVerificationEmail(user, ipAddress)
                 .onErrorResume(e -> {
                     logger.warn("Verification email process failed for {}: {}", user.getEmail(), e.getMessage());
-                    logger.debug("Full error details:", e); // Add debug logging for full stack trace
+                    logger.debug("Full error details:", e);
                     auditLogService.logAudit(user, ActionType.EMAIL_FAILURE,
                             "Verification email failed", e.getMessage());
 
-                    // Return user to allow registration to proceed
-                    return Mono.just(user);
+                    // FIX: Propagate a failure in a resend context to signal the operation failed
+                    return Mono.error(new CustomException(
+                            HttpStatus.INTERNAL_SERVER_ERROR,
+                            "Failed to send verification email. Please try again later."
+                    ));
                 })
                 .doOnSuccess(u -> logger.info("Verification email process completed for user: {}", u.getEmail()));
     }
@@ -349,10 +395,14 @@ public  class AuthService {
                             appConfig.getBaseUrl(), token);
 
                     // Send email asynchronously (fire and forget)
-                    emailServiceInstance1.sendVerificationEmail(user.getEmail(), verificationLink)
+                    //emailServiceInstance1.sendVerificationEmail(user.getEmail(), verificationLink)
+                            //.doOnSuccess(__ -> logger.info("✅ Sent verification email to {}", user.getEmail()))
+                            //.doOnError(e -> logger.error("❌ Failed to send verification email to {}: {}", user.getEmail(), e.getMessage()))
+                            //.subscribe();
+                    // FIX 1: Don't subscribe. Use the Mono returned by the email service.
+                    Mono<Void> sendEmailMono = emailServiceInstance1.sendVerificationEmail(user.getEmail(), verificationLink)
                             .doOnSuccess(__ -> logger.info("✅ Sent verification email to {}", user.getEmail()))
-                            .doOnError(e -> logger.error("❌ Failed to send verification email to {}: {}", user.getEmail(), e.getMessage()))
-                            .subscribe();
+                            .doOnError(e -> logger.error("❌ Failed to send verification email to {}: {}", user.getEmail(), e.getMessage()));
 
                     // Prepare Firestore update data
                     Map<String, Object> updateData = new HashMap<>();
@@ -360,9 +410,8 @@ public  class AuthService {
                     updateData.put("verificationTokenExpiresAt", Instant.now().plus(Duration.ofHours(24)));
 
                     DocumentReference userDoc = firestore.collection(COLLECTION_USERS).document(user.getId());
-
                     // Firestore transaction wrapped in a reactive Mono
-                    return Mono.fromFuture(() ->
+                    Mono<User> firestoreUpdateMono = Mono.fromFuture(() ->
                                     FirestoreUtil.toCompletableFuture(
                                             firestore.runTransaction(transaction -> {
                                                 transaction.update(userDoc, updateData);
@@ -372,10 +421,15 @@ public  class AuthService {
                             )
                             .doOnSuccess(__ -> logger.info("✅ Stored verification token for {}", user.getEmail()))
                             .thenReturn(user);
+
+                    // FIX 2: Chain the email sending with the Firestore update using then()
+                    // Email sending must complete successfully before proceeding to store token.
+                    return sendEmailMono.then(firestoreUpdateMono);
                 })
                 .onErrorResume(e -> {
+                    // Keep this for initial registration logic: don’t block registration on token/email failure
                     logger.warn("⚠️ Failed to send verification email for {}: {}", user.getEmail(), e.getMessage());
-                    return Mono.just(user); // don’t block registration on email failure
+                    return Mono.just(user);
                 })
                 .subscribeOn(Schedulers.boundedElastic());
     }
@@ -477,29 +531,6 @@ public  class AuthService {
         }
     }
 
-    public boolean isRetryableError(Throwable throwable) {
-        boolean retryable = false;
-
-        if (throwable instanceof CustomException custom) {
-            retryable = custom.getStatusCode().is5xxServerError();
-        } else if (throwable instanceof TimeoutException ||
-                throwable instanceof java.net.ConnectException ||
-                throwable instanceof java.net.SocketTimeoutException ||
-                throwable instanceof org.springframework.web.reactive.function.client.WebClientRequestException) {
-            retryable = true;
-        } else if (throwable instanceof FirebaseAuthException fae) {
-            String errorCode = String.valueOf(fae.getErrorCode());
-            int status = fae.getHttpResponse() != null ? fae.getHttpResponse().getStatusCode() : -1;
-            retryable = (status >= 500) ||
-                    "INTERNAL_ERROR".equalsIgnoreCase(errorCode) ||
-                    "UNAVAILABLE".equalsIgnoreCase(errorCode) ||
-                    "UNKNOWN".equalsIgnoreCase(errorCode);
-        }
-
-        logger.debug("Retry check for {} → {}", throwable.getClass().getSimpleName(), retryable);
-        return retryable;
-    }
-
     public Mono<Void> verifyEmail(String token, String ipAddress) {
         return jwtService.verifyEmailVerificationToken(token)
                 .flatMap(claims ->
@@ -519,6 +550,39 @@ public  class AuthService {
                         throw new CustomException(HttpStatus.INTERNAL_SERVER_ERROR, "Token processing failed");
                     }
                 });
+    }
+    /**
+     * Resend verification email
+     */
+    public Mono<Void> resendVerificationEmail(String email, String ipAddress) {
+        return firebaseServiceAuth.getUserByEmail(email)
+                .map(this::mapUserRecordToUser)
+                .flatMap(user -> {
+                    if (user.isEmailVerified()) {
+                        return Mono.error(new CustomException(
+                                HttpStatus.BAD_REQUEST,
+                                "Email is already verified"
+                        ));
+                    }
+                    // Call safe method and ensure the return type is Mono<Void>
+                    return sendVerificationEmailSafe(user, ipAddress).then();
+                });
+    }
+    /**
+     * Maps the Firebase SDK UserRecord into your application's domain User model.
+     * * NOTE: Your application's User class must be able to accept data from UserRecord.
+     */
+    private User mapUserRecordToUser(UserRecord userRecord) {
+        // This is a placeholder; you need to adjust this to match
+        // the constructor/fields of your actual 'User' class.
+
+        User user = new User();
+        user.setId(userRecord.getUid());
+        user.setEmail(userRecord.getEmail());
+        user.setEmailVerified(userRecord.isEmailVerified());
+        // Add other fields you need (e.g., displayName, photoUrl)
+
+        return user;
     }
 
     private Mono<Void> validateIpAddress(TokenClaims claims, String ipAddress) {

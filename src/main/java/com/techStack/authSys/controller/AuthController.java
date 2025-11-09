@@ -1,13 +1,11 @@
 package com.techStack.authSys.controller;
 
-import com.techStack.authSys.dto.AuthResponse;
-import com.techStack.authSys.dto.AuthResult;
-import com.techStack.authSys.dto.LoginRequest;
-import com.techStack.authSys.dto.UserDTO;
+import com.techStack.authSys.dto.*;
 import com.techStack.authSys.exception.AuthException;
 import com.techStack.authSys.exception.CustomException;
 import com.techStack.authSys.exception.EmailAlreadyVerifiedException;
 import com.techStack.authSys.models.Permissions;
+import com.techStack.authSys.models.User;
 import com.techStack.authSys.repository.AuthServiceController;
 import com.techStack.authSys.repository.PermissionProvider;
 import com.techStack.authSys.repository.RateLimiterService;
@@ -33,6 +31,11 @@ import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
 
+/**
+ * Authentication Controller
+ * Handles user registration and authentication endpoints
+ */
+
 @Slf4j
 @RestController
 @RequiredArgsConstructor
@@ -44,6 +47,7 @@ public class AuthController {
     private final EmailServiceInstance1 emailService;
     private final AuditLogService auditLogService;
     private final AuthService authService;
+    private final FirebaseServiceAuth firebaseServiceAuth;
     private final RateLimiterService.SessionService sessionService;
     private final JwtService jwtService;
     private final AuthServiceController authServiceController;
@@ -51,25 +55,76 @@ public class AuthController {
     private final PermissionProvider permissionProvider;
 
     // Register a new user
-
     @PostMapping("/register")
-    public Mono<ResponseEntity<String>> registerUser(
-            @RequestBody UserDTO userDto,
+    public Mono<ResponseEntity<ApiResponse<User>>> registerUser(
+            @Valid @RequestBody UserDTO userDto,
             ServerWebExchange exchange) {
 
-        String ipAddress = exchange.getRequest().getRemoteAddress() != null
-                ? exchange.getRequest().getRemoteAddress().getAddress().getHostAddress().split("%")[0]
-                : "unknown";
+        logger.info("Registration request received for email: {}",
+                userDto.getEmail() != null ? userDto.getEmail().replaceAll("@.*", "@***") : "unknown");
 
-        logger.info("📝 Registration request received for email: {} from IP: {}",
-                userDto.getEmail(), ipAddress);
-
-        // Let GlobalExceptionHandler catch all exceptions
         return authService.registerUser(userDto, exchange)
-                .then(Mono.just(ResponseEntity.ok(
-                        "User registered successfully. Please check your email for verification.")))
-                .doOnSuccess(__ -> logger.info("✅ User registered successfully: {}", userDto.getEmail()));
+                .map(user -> {
+                    ApiResponse<User> response = new ApiResponse<>(
+                            true,
+                            "Registration successful! Please check your email to verify your account.",
+                            user
+                    );
+                    return ResponseEntity
+                            .status(HttpStatus.CREATED)
+                            .body(response);
+                });
+
+        // NOTE: Error handling is automatically done by GlobalExceptionHandler
+        // No need for .onErrorResume() here - keeps controller clean
     }
+
+    /**
+     * Check if email is available
+     *
+     * @param email Email to check
+     * @return Mono with availability status
+     */
+    @GetMapping("/check-email")
+    public Mono<ResponseEntity<ApiResponse<Boolean>>> checkEmailAvailability(
+            @RequestParam String email) {
+
+        return firebaseServiceAuth.checkEmailAvailability(email)
+                .map(available -> {
+                    ApiResponse<Boolean> response = new ApiResponse<>(
+                            true,
+                            available ? "Email is available" : "Email is already registered",
+                            available
+                    );
+                    return ResponseEntity.ok(response);
+                });
+    }
+
+    /**
+     * Resend verification email
+     *
+     * @param email User email
+     * @return Mono with success response
+     */
+    @PostMapping("/resend-verification")
+    public Mono<ResponseEntity<ApiResponse<Void>>> resendVerificationEmail(
+            @RequestParam String email,
+            ServerWebExchange exchange) {
+
+        //String ipAddress = extractClientIp(exchange);
+        String ipAddress = deviceVerificationService.extractClientIp(exchange);
+
+        return authService.resendVerificationEmail(email, ipAddress)
+                .then(Mono.fromCallable(() -> {
+                    ApiResponse<Void> response = new ApiResponse<>(
+                            true,
+                            "Verification email sent successfully. Please check your inbox.",
+                            null
+                    );
+                    return ResponseEntity.ok(response);
+                }));
+    }
+
     @GetMapping("/verify-email")
     public Mono<ResponseEntity<String>> verifyEmail(
             @RequestParam("token") String token,
@@ -205,7 +260,7 @@ public class AuthController {
         return authHeader.startsWith("Bearer ") ? authHeader.substring(7) : authHeader;
     }
 
-    @PostMapping("/resend-verification")
+    @PostMapping("/resend-email-verification")
     public Mono<ResponseEntity<Object>> resendVerificationEmail(
             @RequestParam String userId,
             @RequestHeader("X-Forwarded-For") String ipAddress) {

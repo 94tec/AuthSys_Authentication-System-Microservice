@@ -38,7 +38,7 @@ public class PasswordChangeController {
                 ))
                 .thenReturn(ResponseEntity.ok(new ApiResponse(true, "Password changed successfully", null)))
                 .onErrorResume(CustomException.class, e ->
-                        Mono.just(ResponseEntity.status(e.getStatusCode())
+                        Mono.just(ResponseEntity.status(e.getStatus())
                                 .body(new ApiResponse(false, e.getMessage(), null))));
     }
 
@@ -49,7 +49,7 @@ public class PasswordChangeController {
         return userService.forcePasswordChange(request.getUserId(), request.getNewPassword())
                 .thenReturn(ResponseEntity.ok(new ApiResponse(true, "Password changed successfully", null)))
                 .onErrorResume(CustomException.class, e ->
-                        Mono.just(ResponseEntity.status(e.getStatusCode())
+                        Mono.just(ResponseEntity.status(e.getStatus())
                                 .body(new ApiResponse(false, null, e.getMessage()))));
     }
 }

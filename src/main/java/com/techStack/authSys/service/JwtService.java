@@ -230,7 +230,8 @@ public class JwtService {
                 .onErrorMap(e -> new CustomException(
                         HttpStatus.INTERNAL_SERVER_ERROR,
                         "Failed to store refresh token ",
-                        e.getMessage())).then();
+                        e))
+                .then();
     }
 
     public Mono<Claims> validateRefreshToken(String token, String expectedUserId) {

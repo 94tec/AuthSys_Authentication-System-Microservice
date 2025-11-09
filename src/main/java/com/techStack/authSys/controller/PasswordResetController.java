@@ -5,8 +5,11 @@ import com.techStack.authSys.dto.PasswordResetRequest;
 import com.techStack.authSys.dto.PasswordResetCompletion;
 import com.techStack.authSys.dto.TokenValidationRequest;
 import com.techStack.authSys.exception.*;
+import com.techStack.authSys.service.AuthService;
 import com.techStack.authSys.service.PasswordResetService;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -18,6 +21,7 @@ import reactor.core.publisher.Mono;
 public class PasswordResetController {
 
     private final PasswordResetService passwordResetService;
+    private static final Logger logger = LoggerFactory.getLogger(PasswordResetService.class);
 
     @PostMapping("/initiate")
     public Mono<ResponseEntity<String>> initiatePasswordReset(
@@ -46,22 +50,4 @@ public class PasswordResetController {
                         Mono.just(ResponseEntity.internalServerError().body(false)));
     }
 
-    @PostMapping("/complete")
-    public Mono<ResponseEntity<ApiResponse>> completePasswordReset(
-            @RequestBody PasswordResetCompletion request) {
-        return passwordResetService.completePasswordReset(request.getToken(), request.getNewPassword())
-                .map(user -> ResponseEntity.ok(new ApiResponse(true, user, null)))
-                .onErrorResume(InvalidTokenException.class, e ->
-                        Mono.just(ResponseEntity.badRequest()
-                                .body(new ApiResponse(false, null, e.getMessage()))))
-                .onErrorResume(IllegalArgumentException.class, e ->
-                        Mono.just(ResponseEntity.badRequest()
-                                .body(new ApiResponse(false, null, e.getMessage()))))
-                .onErrorResume(UserNotFoundException.class, e ->
-                        Mono.just(ResponseEntity.status(HttpStatus.NOT_FOUND)
-                                .body(new ApiResponse(false, null, e.getMessage()))))
-                .onErrorResume(e ->
-                        Mono.just(ResponseEntity.internalServerError()
-                                .body(new ApiResponse(false, null, "Failed to complete password reset"))));
-    }
 }

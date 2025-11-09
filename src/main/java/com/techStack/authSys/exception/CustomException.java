@@ -4,50 +4,49 @@ import lombok.Getter;
 import org.jetbrains.annotations.NotNull;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
-
+/**
+ * Custom exception with field-level details for reactive apps.
+ */
 @Getter
-public class CustomException extends ResponseStatusException {
+public class CustomException extends RuntimeException {
     private final HttpStatus status;
-    private final String message;
+    private final String field;
+    private final String code;
 
-    // Main constructor with status, reason, and message
-    public CustomException(HttpStatus status, String reason, String message) {
-        super(status, reason);
-        this.status = status;
-        this.message = message;
-    }
-
-    // Constructor with status, reason, and cause
-    public CustomException(HttpStatus status, String reason, Throwable cause, String message) {
-        super(status, reason, cause);
-        this.status = status;
-        this.message = message;
-    }
-
-    // Simplified constructor - status and message only (MOST COMMONLY USED)
     public CustomException(HttpStatus status, String message) {
-        super(status, message);
+        super(message);
         this.status = status;
-        this.message = message;
+        this.field = null;
+        this.code = null;
     }
-
-    // Alternative constructor - message first, then status
-    public CustomException(String message, HttpStatus status) {
-        super(status, message);
+    public CustomException(HttpStatus status, String message, Throwable cause) {
+        super(message, cause);
         this.status = status;
-        this.message = message;
+        this.field = null;
+        this.code = null;
     }
 
-    @NotNull
+    public CustomException(HttpStatus status, String message, String field, String code) {
+        super(message);
+        this.status = status;
+        this.field = field;
+        this.code = code;
+    }
+
+    public CustomException(HttpStatus status, String message, Throwable cause, String field, String code) {
+        super(message, cause);
+        this.status = status;
+        this.field = field;
+        this.code = code;
+    }
+
     @Override
-    public HttpStatus getStatusCode() {
-        return this.status;
+    public String toString() {
+        return "CustomException{" +
+                "status=" + status +
+                ", field='" + field + '\'' +
+                ", code='" + code + '\'' +
+                ", message='" + getMessage() + '\'' +
+                '}';
     }
-
-    @NotNull
-    @Override
-    public String getMessage() {
-        return message;
-    }
-
 }

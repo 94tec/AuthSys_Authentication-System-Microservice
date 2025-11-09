@@ -399,7 +399,7 @@ public class SuperAdminService {
         return redisCacheService.isEmailRegistered(userDto.getEmail())
                 .flatMap(exists -> {
                     if (exists) {
-                        return Mono.error(new EmailAlreadyExistsException());
+                        return Mono.error(new EmailAlreadyExistsException(userDto.getEmail()));
                     }
                     return proceedWithAdminCreation(userDto, creatorId, ipAddress, deviceFingerprint, startTime);
                 })

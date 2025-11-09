@@ -94,9 +94,9 @@ public class AdminAuthController {
                 .onErrorResume(CustomException.class, e -> {
                     logger.warn("⚠️ Login failed for Administrator {}: {}", loginRequest.getEmail(), e.getMessage());
                     auditLogService.logAuthFailure(loginRequest.getEmail(), ipAddress, deviceFingerprint, e.getMessage());
-                    return Mono.just(ResponseEntity.status(e.getStatusCode())
+                    return Mono.just(ResponseEntity.status(e.getStatus())
                             .body(AuthResponse.builder()
-                                    .warning(e.getReason())
+                                    .warning(e.getMessage())
                                     .build()));
                 })
                 .onErrorResume(e -> {
