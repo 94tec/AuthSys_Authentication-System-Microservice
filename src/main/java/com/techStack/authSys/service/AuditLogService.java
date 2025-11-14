@@ -26,7 +26,7 @@ import java.util.stream.Collectors;
 @Service
 public class AuditLogService {
     private static final Logger logger = LoggerFactory.getLogger(AuditLogService.class);
-    private static final String COLLECTION_NAME = "audit_logs";
+    private static final String AUDIT_COLLECTION = "audit_logs";
     private static final String SYSTEM_AUDIT_COLLECTION = "system_audit_logs";
     private static final String PASSWORD_CHANGE_AUDIT_COLLECTION = "password_change_logs";
 
@@ -62,7 +62,7 @@ public class AuditLogService {
 
             // Push Firestore write to boundedElastic to avoid blocking main threads
             return Mono.fromCallable(() ->
-                            firestore.collection(COLLECTION_NAME).add(logData)
+                            firestore.collection(AUDIT_COLLECTION).add(logData)
                     )
                     .subscribeOn(Schedulers.boundedElastic())
                     .doOnSuccess(ref -> {
@@ -82,7 +82,21 @@ public class AuditLogService {
             return Mono.empty(); // Failsafe fallback
         }
     }
+    /**
+     * Log registration attempt
+     * Document recommendation: "Log all registration attempts for auditability"
+     */
+    public void logRegistrationAttempt(String email, Set<Roles> roles, String ipAddress) {
+        Map<String, Object> logEntry = createBaseLogEntry("REGISTRATION_ATTEMPT");
+        logEntry.put("email", email);
+        logEntry.put("requestedRoles", roles.toString());
+        logEntry.put("ipAddress", ipAddress);
 
+        saveAuditLog(logEntry);
+        logger.info("📝 Audit: Registration attempt for {} with roles {} from IP {}",
+                email, roles, ipAddress);
+
+    }
     public Mono<Void> logAudit(User user, ActionType actionType, String details, String ipAddress) {
         Map<String, Object> logData = new HashMap<>();
         logData.put("userId", user.getId());
@@ -91,9 +105,9 @@ public class AuditLogService {
         logData.put("ipAddress", ipAddress);
         logData.put("createdAt", Timestamp.now());
 
-        ApiFuture<DocumentReference> future = firestore.collection(COLLECTION_NAME).add(logData);
+        ApiFuture<DocumentReference> future = firestore.collection(AUDIT_COLLECTION).add(logData);
 
-        return FirestoreUtils.apiFutureToMono(firestore.collection(COLLECTION_NAME).add(logData))
+        return FirestoreUtils.apiFutureToMono(firestore.collection(AUDIT_COLLECTION).add(logData))
                 .doOnSuccess(docRef -> logger.info("✅ Audit log saved"))
                 .doOnError(e -> logger.error("❌ Error saving audit log", e))
                 .then();
@@ -153,7 +167,7 @@ public class AuditLogService {
             logEntry.put("timestamp", FieldValue.serverTimestamp());
 
             // Asynchronously save to Firestore
-            ApiFuture<DocumentReference> future = firestore.collection(COLLECTION_NAME).add(logEntry);
+            ApiFuture<DocumentReference> future = firestore.collection(AUDIT_COLLECTION).add(logEntry);
 
             future.addListener(() -> {
                 try {
@@ -169,6 +183,7 @@ public class AuditLogService {
             logger.error("Unexpected error while logging data operation: {}", e.getMessage(), e);
         }
     }
+
     public void logSecurityEvent(String eventType, String key, String description) {
         try {
             logger.warn("Security Event - Type: {}, Key: {}, Description: {}", eventType, key, description);
@@ -226,7 +241,7 @@ public class AuditLogService {
 
     public List<AuditLogDTO> getAuditLogs() {
         try {
-            QuerySnapshot querySnapshot = firestore.collection(COLLECTION_NAME).get().get();
+            QuerySnapshot querySnapshot = firestore.collection(AUDIT_COLLECTION).get().get();
             return querySnapshot.getDocuments().stream()
                     .map(this::convertToDTO)
                     .collect(Collectors.toList());
@@ -238,7 +253,7 @@ public class AuditLogService {
 
     public List<AuditLogDTO> getAuditLogsByUser(String userId) {
         try {
-            QuerySnapshot querySnapshot = firestore.collection(COLLECTION_NAME)
+            QuerySnapshot querySnapshot = firestore.collection(AUDIT_COLLECTION)
                     .whereEqualTo("userId", userId)
                     .get()
                     .get();
@@ -255,7 +270,7 @@ public class AuditLogService {
 
     public List<AuditLogDTO> getAuditLogsByAction(ActionType actionType) {
         try {
-            QuerySnapshot querySnapshot = firestore.collection(COLLECTION_NAME)
+            QuerySnapshot querySnapshot = firestore.collection(AUDIT_COLLECTION)
                     .whereEqualTo("actionType", actionType.name())
                     .get()
                     .get();
@@ -271,7 +286,7 @@ public class AuditLogService {
     }
 
     public void watchAuditLogs() {
-        firestore.collection(COLLECTION_NAME)
+        firestore.collection(AUDIT_COLLECTION)
                 .addSnapshotListener((snapshots, e) -> {
                     if (e != null) {
                         logger.error("Listen failed: {}", e.getMessage(), e);
@@ -304,7 +319,7 @@ public class AuditLogService {
             logData.put("timestamp", Timestamp.now());
             logData.put("eventDate", Date.from(clock.instant()));
 
-            firestore.collection(COLLECTION_NAME).add(logData).get();
+            firestore.collection(AUDIT_COLLECTION).add(logData).get();
 
             logger.info("User audit logged - User: {}, Action: {}, Details: {}",
                     user.getEmail(), actionType, details);
@@ -342,7 +357,7 @@ public class AuditLogService {
             logData.put("details", details);
             logData.put("timestamp", Timestamp.now());
 
-            firestore.collection(COLLECTION_NAME).add(logData).get();
+            firestore.collection(AUDIT_COLLECTION).add(logData).get();
 
             logger.info("User action logged - User: {}, Action: {}", userId, action);
         } catch (Exception e) {
@@ -358,7 +373,7 @@ public class AuditLogService {
             logData.put("deviceInfo", deviceInfo);
             logData.put("timestamp", Timestamp.now());
 
-            firestore.collection(COLLECTION_NAME).add(logData).get();
+            firestore.collection(AUDIT_COLLECTION).add(logData).get();
 
             logger.info("User action logged - User: {}, Action: {}", deviceRegistered, deviceInfo);
         } catch (Exception e) {
@@ -368,6 +383,145 @@ public class AuditLogService {
 
         }
     }
+        /**
+         * Log successful registration
+         */
+        public void logRegistrationSuccess(String email, Set<Roles> roles, String status, String ipAddress) {
+            Map<String, Object> logEntry = createBaseLogEntry("REGISTRATION_SUCCESS");
+            logEntry.put("email", email);
+            logEntry.put("roles", roles.toString());
+            logEntry.put("status", status);
+            logEntry.put("ipAddress", ipAddress);
+
+            saveAuditLog(logEntry);
+            logger.info("📝 Audit: Registration successful for {} (Status: {})", email, status);
+        }
+
+        /**
+         * Log registration failure
+         */
+        public void logRegistrationFailure(String email, String reason, String ipAddress) {
+            Map<String, Object> logEntry = createBaseLogEntry("REGISTRATION_FAILURE");
+            logEntry.put("email", email);
+            logEntry.put("reason", reason);
+            logEntry.put("ipAddress", ipAddress);
+            logEntry.put("severity", "WARNING");
+
+            saveAuditLog(logEntry);
+            logger.warn("📝 Audit: Registration failed for {} - Reason: {}", email, reason);
+        }
+
+        /**
+         * Log role assignment
+         */
+        public void logRoleAssignment(String userId, String role, String assignedBy) {
+            Map<String, Object> logEntry = createBaseLogEntry("ROLE_ASSIGNED");
+            logEntry.put("userId", userId);
+            logEntry.put("role", role);
+            logEntry.put("assignedBy", assignedBy);
+
+            saveAuditLog(logEntry);
+            logger.info("📝 Audit: Role {} assigned to user {} by {}", role, userId, assignedBy);
+        }
+
+        /**
+         * Log role assignment failure
+         */
+        public void logRoleAssignmentFailure(String userId, String role, String error) {
+            Map<String, Object> logEntry = createBaseLogEntry("ROLE_ASSIGNMENT_FAILURE");
+            logEntry.put("userId", userId);
+            logEntry.put("role", role);
+            logEntry.put("error", error);
+            logEntry.put("severity", "ERROR");
+
+            saveAuditLog(logEntry);
+            logger.error("📝 Audit: Role assignment failed for user {} - Role: {}, Error: {}",
+                    userId, role, error);
+        }
+
+        /**
+         * Log approval/rejection action
+         * Document recommendation: "Log all approval decisions for auditability"
+         */
+        public void logApprovalAction(String userId, String actionBy, String action, String approverRole) {
+            logApprovalAction(userId, actionBy, action, approverRole, null);
+        }
+
+        public void logApprovalAction(String userId, String actionBy, String action,
+                String approverRole, String reason) {
+            Map<String, Object> logEntry = createBaseLogEntry("APPROVAL_ACTION");
+            logEntry.put("userId", userId);
+            logEntry.put("action", action); // APPROVED or REJECTED
+            logEntry.put("actionBy", actionBy);
+            logEntry.put("approverRole", approverRole);
+            if (reason != null) {
+                logEntry.put("reason", reason);
+            }
+
+            saveAuditLog(logEntry);
+            logger.info("📝 Audit: User {} {} by {} ({})", userId, action, actionBy, approverRole);
+        }
+
+        /**
+         * Log unauthorized approval attempt
+         */
+        public void logUnauthorizedApproval(String userId, String attemptedBy, String role) {
+            Map<String, Object> logEntry = createBaseLogEntry("UNAUTHORIZED_APPROVAL_ATTEMPT");
+            logEntry.put("userId", userId);
+            logEntry.put("attemptedBy", attemptedBy);
+            logEntry.put("attemptedByRole", role);
+            logEntry.put("severity", "SECURITY_VIOLATION");
+
+            saveAuditLog(logEntry);
+            logger.warn("🚨 Audit: Unauthorized approval attempt on user {} by {} ({})",
+                    userId, attemptedBy, role);
+        }
+
+        /**
+         * Log login attempt
+         */
+        public void logLoginAttempt(String email, String ipAddress, boolean success) {
+            Map<String, Object> logEntry = createBaseLogEntry(success ? "LOGIN_SUCCESS" : "LOGIN_FAILURE");
+            logEntry.put("email", email);
+            logEntry.put("ipAddress", ipAddress);
+            if (!success) {
+                logEntry.put("severity", "WARNING");
+            }
+
+            saveAuditLog(logEntry);
+        }
+
+        /**
+         * Log account status change
+         */
+        public void logStatusChange(String userId, String oldStatus, String newStatus, String changedBy) {
+            Map<String, Object> logEntry = createBaseLogEntry("STATUS_CHANGE");
+            logEntry.put("userId", userId);
+            logEntry.put("oldStatus", oldStatus);
+            logEntry.put("newStatus", newStatus);
+            logEntry.put("changedBy", changedBy);
+
+            saveAuditLog(logEntry);
+            logger.info("📝 Audit: User {} status changed from {} to {} by {}",
+                    userId, oldStatus, newStatus, changedBy);
+        }
+
+        private Map<String, Object> createBaseLogEntry(String eventType) {
+            Map<String, Object> entry = new HashMap<>();
+            entry.put("eventType", eventType);
+            entry.put("timestamp", Instant.now().toString());
+            entry.put("timestampMillis", System.currentTimeMillis());
+            return entry;
+        }
+
+        private void saveAuditLog(Map<String, Object> logEntry) {
+            try {
+                firestore.collection(AUDIT_COLLECTION).add(logEntry);
+            } catch (Exception e) {
+                // Never fail operation due to audit log failure
+                logger.error("⚠️ Failed to save audit log: {}", e.getMessage());
+            }
+        }
     public Mono<Void> logPasswordChange(String userId, String ipAddress) {
         return currentUserProvider.getCurrentUserId()
                 .defaultIfEmpty("system") // fallback for system-initiated changes

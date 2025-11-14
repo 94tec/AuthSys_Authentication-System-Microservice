@@ -7,7 +7,6 @@ import com.techStack.authSys.models.ProcessResult;
 import com.techStack.authSys.models.User;
 import com.techStack.authSys.models.UserPasswordHistory;
 import com.techStack.authSys.repository.AccountLockService;
-import com.techStack.authSys.repository.AuthRepository;
 import com.techStack.authSys.repository.CustomAuthRepository;
 import com.techStack.authSys.repository.UserPasswordHistoryRepository;
 import io.micrometer.core.instrument.DistributionSummary;
@@ -42,7 +41,7 @@ import java.util.stream.Collectors;
 public class PasswordExpiryService {
 
     private final UserPasswordHistoryRepository passwordHistoryRepository;
-    private final AuthRepository authRepository;
+    private final FirebaseServiceAuth firebaseServiceAuth;
     private final EncryptionService encryptionService;
     private final Clock clock;  // For testability
     private final AccountLockService lockService;
@@ -76,7 +75,7 @@ public class PasswordExpiryService {
     private int lockAfterExpiryDays;
 
     public PasswordExpiryService(UserPasswordHistoryRepository passwordHistoryRepository,
-                                 AuthRepository authRepository,
+                                 FirebaseServiceAuth firebaseServiceAuth,
                                  EncryptionService encryptionService,
                                  Clock clock,
                                  AccountLockService lockService,
@@ -85,7 +84,7 @@ public class PasswordExpiryService {
                                  MeterRegistry meterRegistry,
                                  CustomAuthRepository customAuthRepository, List<Integer> notificationDays) {
         this.passwordHistoryRepository = passwordHistoryRepository;
-        this.authRepository = authRepository;
+        this.firebaseServiceAuth = firebaseServiceAuth;
         this.encryptionService = encryptionService;
         this.clock = clock;
         this.lockService = lockService;
@@ -204,7 +203,7 @@ public class PasswordExpiryService {
                 .collect(Collectors.toList());
 
         user.setPasswordHistory(trimmed);
-        return authRepository.save(user)
+        return firebaseServiceAuth.save(user)
                 .doOnSuccess(updated -> {
                     cleanedUsersCount.incrementAndGet();
                     entriesRemovedMetrics.record(removedCount);
@@ -219,7 +218,7 @@ public class PasswordExpiryService {
         AtomicInteger expiredCount = new AtomicInteger();
         AtomicInteger failedCount = new AtomicInteger();
 
-        authRepository.findAll()
+        firebaseServiceAuth.findAllUsers()
                 .name("passwordExpiryCheck")
                 .limitRate(100)
                 .parallel(4)
@@ -279,7 +278,7 @@ public class PasswordExpiryService {
         return Mono.empty();
     }
     private Mono<Instant> getExpiryDate(String id) {
-        return authRepository.findById(id)
+        return firebaseServiceAuth.getUserById(id)
                 .switchIfEmpty(Mono.error(new UserNotFoundException(id)))
                 .flatMap(user -> {
                     try {

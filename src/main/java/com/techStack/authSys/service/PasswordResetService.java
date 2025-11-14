@@ -3,7 +3,6 @@ package com.techStack.authSys.service;
 import com.techStack.authSys.dto.UserDTO;
 import com.techStack.authSys.exception.*;
 import com.techStack.authSys.models.User;
-import com.techStack.authSys.repository.AuthRepository;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,7 +22,7 @@ public class PasswordResetService {
     private static final int MAX_RETRIES = 3;
     private static final Duration RETRY_DELAY = Duration.ofMillis(500);
 
-    private final AuthRepository userRepository;
+    private final FirebaseServiceAuth firebaseServiceAuth;
     private final PasswordEncoder passwordEncoder;
     private final EmailServiceInstance1 emailService;
     private final PasswordResetTokenService tokenService;
@@ -49,7 +48,7 @@ public class PasswordResetService {
     }
 
     private Mono<User> findUserByEmail(String email) {
-        return userRepository.findByEmail(email)
+        return firebaseServiceAuth.findByEmail(email)
                 .switchIfEmpty(Mono.error(new UserNotFoundException(HttpStatus.NOT_FOUND, "User not found")));
     }
 
@@ -116,7 +115,7 @@ public class PasswordResetService {
     private Mono<User> updateUserPassword(User user, String newPassword) {
         user.setPassword(passwordEncoder.encode(newPassword));
         user.setForcePasswordChange(false);  // Reset force password flag
-        return userRepository.save(user)
+        return firebaseServiceAuth.save(user)
                 .onErrorMap(e -> new PasswordUpdateException("Failed to update password", e));
     }
 

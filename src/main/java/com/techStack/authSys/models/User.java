@@ -4,6 +4,7 @@ import com.google.cloud.Timestamp;
 import com.google.cloud.firestore.annotation.PropertyName;
 import com.google.cloud.spring.data.firestore.Document;
 import com.google.firebase.auth.UserRecord;
+import com.techStack.authSys.service.RoleAssignmentService;
 import lombok.*;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -83,6 +84,20 @@ public class User implements UserDetails {
     private String lastPasswordChangeDate;
     private String deviceFingerprint;
 
+    // Approval tracking fields
+    //private String approvalLevel;      // ApprovalLevel enum as string
+    //private Instant approvedAt;        // When was account approved
+    private RoleAssignmentService.ApprovalLevel approvalLevel; // <--- FIX: Use the actual enum type
+    private Instant approvedAt;
+    private String approvedBy;         // Who approved (admin email/id)
+
+    private String rejectionReason;
+    private String rejectedBy;
+    private String rejectedAt;
+    private String restoredBy;
+    private String restoredAt;
+
+
     // Spring Security fields
     @PropertyName("account_non_locked")
     private boolean accountNonLocked;
@@ -132,6 +147,9 @@ public class User implements UserDetails {
         // NOTE: UserRecord is normally returned from FirebaseAuth.getUserBy...()
         // You cannot build a UserRecord directly. It's immutable and has no public constructors.
         throw new UnsupportedOperationException("UserRecord is a Firebase SDK object and cannot be manually created.");
+    }
+    public Optional<RoleAssignmentService.ApprovalLevel> getApprovalLevel() {
+        return Optional.ofNullable(approvalLevel);
     }
 
     // -------------------------------

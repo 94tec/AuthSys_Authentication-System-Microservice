@@ -6,7 +6,6 @@ import com.google.firebase.auth.FirebaseAuthException;
 import com.google.firebase.auth.FirebaseToken;
 import com.techStack.authSys.exception.CustomException;
 import com.techStack.authSys.models.User;
-import com.techStack.authSys.repository.AuthRepository;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,7 +19,7 @@ import reactor.core.publisher.Mono;
 public class GoogleAuthService {
 
     private static final Logger logger = LoggerFactory.getLogger(GoogleAuthService.class);
-    private final AuthRepository authRepository;
+    private final FirebaseServiceAuth firebaseServiceAuth;
 
     @Transactional
     public User authenticateWithGoogle(String idToken) throws CustomException {
@@ -33,14 +32,14 @@ public class GoogleAuthService {
 
             logger.info("Google authentication successful for user: {}", email);
 
-            User user = authRepository.findByEmail(email)
+            User user = firebaseServiceAuth.findByEmail(email)
                     .switchIfEmpty(Mono.defer(() -> {
                         User newUser = new User();
                         newUser.setEmail(email);
                         newUser.setUsername(uid);
                         newUser.setFirstName(name);
                         newUser.setEnabled(true);
-                        return authRepository.save(newUser);
+                        return firebaseServiceAuth.save(newUser);
                     }))
                     .block(); // Blocking call to get the User synchronously
 

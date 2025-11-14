@@ -4,7 +4,6 @@ import com.techStack.authSys.dto.UserProfileDTO;
 import com.techStack.authSys.exception.ResourceNotFoundException;
 import com.techStack.authSys.models.UserProfile;
 import com.techStack.authSys.repository.UserProfileRepository;
-import com.techStack.authSys.repository.AuthRepository;
 import org.modelmapper.ModelMapper;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -19,12 +18,12 @@ import java.util.UUID;
 public class UserProfileService {
 
     private final UserProfileRepository userProfileRepository;
-    private final AuthRepository authRepository;
+    private final FirebaseServiceAuth firebaseServiceAuth;
     private final ModelMapper modelMapper;
 
-    public UserProfileService(UserProfileRepository userProfileRepository, AuthRepository authRepository, ModelMapper modelMapper) {
+    public UserProfileService(UserProfileRepository userProfileRepository, FirebaseServiceAuth firebaseServiceAuth, ModelMapper modelMapper) {
         this.userProfileRepository = userProfileRepository;
-        this.authRepository = authRepository;
+        this.firebaseServiceAuth = firebaseServiceAuth;
         this.modelMapper = modelMapper;
     }
 
@@ -32,7 +31,7 @@ public class UserProfileService {
     public Mono<UserProfileDTO> createUserProfile(UUID userId, UserProfileDTO profileDTO) {
         String userIdStr = userId.toString(); // Convert UUID to String
 
-        return authRepository.findById(userIdStr)
+        return firebaseServiceAuth.getUserById(userIdStr)
                 .switchIfEmpty(Mono.error(new ResourceNotFoundException(HttpStatus.NOT_FOUND, "User not found with ID: " + userId)))
                 .flatMap(user -> {
                     UserProfile userProfile = modelMapper.map(profileDTO, UserProfile.class);

@@ -8,6 +8,9 @@ import com.google.firebase.auth.FirebaseAuthException;
 import com.google.firebase.auth.UserRecord;
 import com.google.firebase.database.GenericTypeIndicator;
 import com.techStack.authSys.config.FirebaseConfig;
+import com.techStack.authSys.dto.PendingUserResponse;
+import com.techStack.authSys.dto.RequesterContext;
+import com.techStack.authSys.dto.SecurityContext;
 import com.techStack.authSys.dto.UserDTO;
 import com.techStack.authSys.exception.*;
 import com.techStack.authSys.models.*;
@@ -27,6 +30,7 @@ import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.DisabledException;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 import reactor.util.retry.Retry;
@@ -60,6 +64,7 @@ public class FirebaseServiceAuth {
     private final MetricsService metricsService;
     private final RedisCacheService redisCacheService;
     private final PermissionProvider permissionProvider;
+    private final RoleAssignmentService roleAssignmentService;
 
     @Autowired
     public FirebaseServiceAuth(Firestore firestore,
@@ -69,7 +74,7 @@ public class FirebaseServiceAuth {
                                FirebaseConfig firebaseConfig,
                                MetricsService metricsService,
                                RedisCacheService redisCacheService,
-                               PermissionProvider permissionProvider) {
+                               PermissionProvider permissionProvider, RoleAssignmentService roleAssignmentService) {
         this.firestore = firestore;
         this.encryptionService = encryptionService;
         this.firebaseAuth = firebaseAuth;
@@ -78,6 +83,7 @@ public class FirebaseServiceAuth {
         this.permissionProvider = permissionProvider;
         this.metricsService = metricsService;
         this.redisCacheService = redisCacheService;
+        this.roleAssignmentService = roleAssignmentService;
     }
     public Mono<User> createSuperAdmin(User user, String password) {
         UserRecord.CreateRequest request = new UserRecord.CreateRequest()
@@ -98,69 +104,67 @@ public class FirebaseServiceAuth {
         baseUser.setUpdatedAt(now);
         return baseUser;
     }
-
     public Mono<User> createFirebaseUser(UserDTO userDto, String ipAddress, String deviceFingerprint) {
-        return Mono.fromCallable(() -> {
-                    // Create user in Firebase Authentication
-                    UserRecord.CreateRequest request = new UserRecord.CreateRequest()
-                            .setEmail(userDto.getEmail())
-                            .setEmailVerified(false)
-                            .setPassword(userDto.getPassword())
-                            .setDisabled(false);
-
-                    if (userDto.getPhoneNumber() != null) {
-                        request.setPhoneNumber(userDto.getPhoneNumber());
-                    }
-
-                    if (userDto.getFirstName() != null && userDto.getLastName() != null) {
-                        request.setDisplayName(userDto.getFirstName() + " " + userDto.getLastName());
-                    }
-
-                    return firebaseAuth.createUser(request);
-                })
-                .subscribeOn(Schedulers.boundedElastic()) // Ensure Firebase API calls are non-blocking
-                .flatMap(userRecord -> Mono.fromCallable(() -> encryptionService.encrypt(userDto.getPassword()))
-                        .subscribeOn(Schedulers.boundedElastic())
-                        .map(encryptedPassword -> {
-                            // Determine if user has privileged role
-                            boolean isPrivileged = userDto.getRoles().stream()
-                                    .anyMatch(role -> role.equalsIgnoreCase("ADMIN") ||
-                                            role.equalsIgnoreCase("SUPER_ADMIN") ||
-                                            role.equalsIgnoreCase("MANAGER"));
-
-                            return User.builder()
-                                    .id(userRecord.getUid())
-                                    .firstName(userDto.getFirstName())
-                                    .lastName(userDto.getLastName())
-                                    .email(userDto.getEmail())
-                                    .username(userDto.getUsername())
-                                    .identityNo(userDto.getIdentityNo())
-                                    .phoneNumber(userDto.getPhoneNumber())
-                                    .roleNames(
-                                            userDto.getRoles().stream()
-                                                    .map(role -> Roles.fromName(role)
-                                                            .orElseThrow(() -> new IllegalArgumentException("Invalid role: " + role)))
-                                                    .map(Roles::name)
-                                                    .collect(Collectors.toList())
-                                    )
-                                    .enabled(isPrivileged) // Auto-enable for privileged roles
-                                    .emailVerified(false)
-                                    .accountLocked(false)
-                                    .password(encryptedPassword)
-                                    .lastPasswordChangeDate(LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE))
-                                    .deviceFingerprint(deviceFingerprint)
-                                    .status(isPrivileged ? User.Status.ACTIVE : User.Status.PENDING_APPROVAL)
-                                    .build();
-                        }))
-                .flatMap(user -> saveUserToFirestore(user, ipAddress)
-                        .then(deviceVerificationService.saveUserFingerprint(user.getId(), deviceFingerprint))
-                        //.then(saveUserPermissions(user)) // Save permissions based on role
-                        .thenReturn(user))
-                .onErrorResume(e -> {
-                    logger.error("❌ User creation failed: {}", e.getMessage(), e);
-                    return rollbackFirebaseUserCreation(userDto.getEmail()).then(Mono.error(e));
-                });
+        return createFirebaseAuthUser(userDto)     // ✅ Create Firebase user in boundedElastic
+                .flatMap(userRecord -> encryptPassword(userDto.getPassword())
+                        .map(enc -> buildLocalUserModel(userRecord, userDto, enc, deviceFingerprint)))
+                .flatMap(user ->
+                        saveUserToFirestore(user, ipAddress)
+                                .then(deviceVerificationService.saveUserFingerprint(user.getId(), deviceFingerprint))
+                                .thenReturn(user)
+                )
+                .onErrorResume(e -> rollbackFirebaseUserCreation(userDto.getEmail())
+                        .then(Mono.error(e)));
     }
+    private Mono<UserRecord> createFirebaseAuthUser(UserDTO userDto) {
+        return Mono.fromCallable(() -> {
+            UserRecord.CreateRequest request = new UserRecord.CreateRequest()
+                    .setEmail(userDto.getEmail())
+                    .setPassword(userDto.getPassword())
+                    .setEmailVerified(false)
+                    .setDisabled(false);
+
+            if (userDto.getPhoneNumber() != null) request.setPhoneNumber(userDto.getPhoneNumber());
+            if (userDto.getFirstName() != null && userDto.getLastName() != null)
+                request.setDisplayName(userDto.getFirstName() + " " + userDto.getLastName());
+
+            return firebaseAuth.createUser(request);
+        }).subscribeOn(Schedulers.boundedElastic());
+    }
+    private Mono<String> encryptPassword(String password) {
+        return Mono.fromCallable(() -> encryptionService.encrypt(password))
+                .subscribeOn(Schedulers.boundedElastic());
+    }
+    private User buildLocalUserModel(UserRecord userRecord, UserDTO userDto, String encryptedPassword,
+                                     String deviceFingerprint) {
+
+        List<String> roleNames = userDto.getRoles().stream()
+                .map(role -> Roles.fromName(role)
+                        .orElseThrow(() -> new IllegalArgumentException("Invalid role: " + role)))
+                .map(Roles::name)
+                .collect(Collectors.toList());
+
+        return User.builder()
+                .id(userRecord.getUid())
+                .firstName(userDto.getFirstName())
+                .lastName(userDto.getLastName())
+                .email(userDto.getEmail())
+                .username(userDto.getUsername())
+                .identityNo(userDto.getIdentityNo())
+                .phoneNumber(userDto.getPhoneNumber())
+                .roleNames(roleNames)
+                .enabled(false)                                   // ✅ role service updates
+                .emailVerified(false)
+                .accountLocked(false)
+                .password(encryptedPassword)
+                .lastPasswordChangeDate(LocalDate.now().toString())
+                .deviceFingerprint(deviceFingerprint)
+                .status(User.Status.PENDING_APPROVAL)            // ✅ updated by role service
+                .permissions(new ArrayList<>())                  // ✅ safe initialization
+                .build();
+    }
+
+
     public Mono<User> saveUser(User user, String ipAddress, String deviceFingerprint) {
         return saveUserToFirestore(user, ipAddress)
                 .then(deviceVerificationService.saveUserFingerprint(user.getId(), deviceFingerprint))
@@ -170,25 +174,6 @@ public class FirebaseServiceAuth {
     private Mono<User> saveUserToFirestore(User user, String ipAddress) {
         return Mono.defer(() -> {
             try {
-                // Determine status based on role
-                boolean isPrivileged = user.getRoleNames().stream()
-                        .anyMatch(role -> role.equalsIgnoreCase("ADMIN") ||
-                                role.equalsIgnoreCase("SUPER_ADMIN") ||
-                                role.equalsIgnoreCase("MANAGER"));
-
-                User.Status status = isPrivileged ? User.Status.ACTIVE : User.Status.PENDING_APPROVAL;
-
-                // Resolve permissions only for privileged users
-                List<String> permissionsList = Collections.emptyList();
-                if (isPrivileged) {
-                    Set<String> resolvedPermissions = permissionProvider.resolveEffectivePermissions(user);
-                    permissionsList = new ArrayList<>(resolvedPermissions);
-                    logger.info("✅ Resolved {} permissions for privileged user: {}",
-                            permissionsList.size(), user.getEmail());
-                } else {
-                    logger.info("⚠️ User {} registered with PENDING_APPROVAL status. Permissions will be assigned after approval.",
-                            user.getEmail());
-                }
 
                 Map<String, Object> userData = new HashMap<>();
 
@@ -202,19 +187,18 @@ public class FirebaseServiceAuth {
                 userData.put("phoneNumber", user.getPhoneNumber());
 
                 // Roles and Permissions
+                // Roles and Permissions - USE ACTUAL PERMISSIONS FROM USER OBJECT
                 userData.put("roleNames", user.getRoleNames());
-                userData.put("permissions", permissionsList);
-                userData.put("requestedRole", user.getRequestedRole() != null ?
-                        user.getRequestedRole().name() : null);
+                userData.put("permissions", user.getPermissions() != null ? user.getPermissions() : Collections.emptyList());
                 userData.put("department", user.getDepartment());
-                userData.put("status", status.name());
+                userData.put("status", user.getStatus().name());
 
                 // Security Fields
                 userData.put("createdBy", user.getCreatedBy());
                 userData.put("forcePasswordChange", user.isForcePasswordChange());
                 userData.put("otpSecret", user.getOtpSecret());
                 userData.put("mfaRequired", user.isMfaRequired());
-                userData.put("enabled", isPrivileged); // Auto-enable privileged users
+                userData.put("enabled", user.isEnabled());
                 userData.put("accountLocked", user.isAccountLocked());
                 userData.put("emailVerified", user.isEmailVerified());
                 userData.put("loginAttempts", user.getLoginAttempts());
@@ -280,7 +264,7 @@ public class FirebaseServiceAuth {
                 return Mono.fromFuture(() -> FirestoreUtil.toCompletableFuture(batch.commit()))
                         .doOnSuccess(result -> {
                             logger.info("✅ Firestore batch write successful for user {}", user.getId());
-                            logger.info("✅ User status: {}", status);
+                            logger.info("✅ User status: {}", user.getStatus());
                         })
                         .doOnError(error -> logger.error("❌ Firestore batch write failed for user {}: {}",
                                 user.getId(), error.getMessage()))
@@ -721,6 +705,99 @@ public class FirebaseServiceAuth {
                     return Mono.error(new AuthException("Failed to fetch user info", HttpStatus.INTERNAL_SERVER_ERROR));
                 });
     }
+    public Mono<User> findUserByStatus(User.Status status) {
+        return Mono.fromCallable(() ->
+                        firestore.collection(COLLECTION_USERS)
+                                .whereEqualTo("status", status.name()) // ✅ match Firestore field naming convention
+                                .limit(1)
+                                .get()
+                )
+                .flatMap(apiFuture ->
+                        Mono.fromFuture(toCompletableFuture(apiFuture))
+                                .subscribeOn(Schedulers.boundedElastic()) // ✅ Offload Firestore I/O to boundedElastic
+                )
+                .flatMap(querySnapshot -> {
+                    if (querySnapshot == null || querySnapshot.isEmpty()) {
+                        logger.warn("⚠️ No user found with status [{}]", status);
+                        return Mono.empty();
+                    }
+
+                    User user = querySnapshot.getDocuments().get(0).toObject(User.class);
+                    if (user == null) {
+                        logger.error("❌ Failed to deserialize User document for status [{}]", status);
+                        return Mono.error(new AuthException("Failed to map Firestore document to User", HttpStatus.INTERNAL_SERVER_ERROR));
+                    }
+
+                    return Mono.just(user);
+                })
+                .onErrorResume(ex -> {
+                    logger.error("🔥 Error fetching user by status [{}]: {}", status, ex.getMessage(), ex);
+                    return Mono.error(new AuthException("Failed to fetch user info from Firestore", HttpStatus.INTERNAL_SERVER_ERROR));
+                });
+    }
+
+    public Flux<User> findAllUsersByStatus(User.Status status) {
+        return Mono.fromCallable(() ->
+                        firestore.collection(COLLECTION_USERS)
+                                .whereEqualTo("status", status.name())
+                                .get()
+                )
+                .flatMap(apiFuture ->
+                        Mono.fromFuture(toCompletableFuture(apiFuture))
+                                .subscribeOn(Schedulers.boundedElastic())
+                )
+                .flatMapMany(querySnapshot -> {
+                    if (querySnapshot == null || querySnapshot.isEmpty()) {
+                        logger.warn("⚠️ No users found with status [{}]", status);
+                        return Flux.empty();
+                    }
+                    return Flux.fromIterable(querySnapshot.getDocuments())
+                            .map(doc -> doc.toObject(User.class))
+                            .filter(Objects::nonNull);
+                })
+                .onErrorResume(ex -> {
+                    logger.error("🔥 Error fetching users by status [{}]: {}", status, ex.getMessage(), ex);
+                    return Flux.error(new AuthException("Failed to fetch user list from Firestore", HttpStatus.INTERNAL_SERVER_ERROR));
+                });
+    }
+
+    /**
+     * Get pending users with comprehensive approval context
+     */
+    public Flux<PendingUserResponse> getPendingUsersWithApprovalContext(SecurityContext securityContext) {
+        logger.info("📋 Fetching pending users - Requester: {} ({})",
+                securityContext.getRequesterEmail(), securityContext.getRequesterRole());
+
+        return findAllUsersByStatus(User.Status.PENDING_APPROVAL)
+                .map(user -> buildPendingUserResponse(user, securityContext))
+                .doOnNext(response ->
+                        logger.debug("👤 Pending user processed: {} | Can Approve: {}",
+                                response.getEmail(), response.isCanApprove()));
+    }
+
+    private PendingUserResponse buildPendingUserResponse(User user, SecurityContext securityContext) {
+        return PendingUserResponse.builder()
+                .id(user.getId())
+                .email(user.getEmail())
+                .firstName(user.getFirstName())
+                .lastName(user.getLastName())
+                .roles(user.getRoles())
+                .status(user.getStatus())
+                .approvalLevel(user.getApprovalLevel().orElse(RoleAssignmentService.ApprovalLevel.MANAGER_OR_ABOVE))
+                .createdAt(user.getCreatedAt() != null ? user.getCreatedAt() : Instant.now())
+                .department(user.getDepartment() != null ? user.getDepartment() : "")
+                .canApprove(roleAssignmentService.canApproveUser(securityContext, user))
+                .requesterContext(buildRequesterContext(securityContext))
+                .build();
+    }
+
+    private RequesterContext buildRequesterContext(SecurityContext securityContext) {
+        return RequesterContext.builder()
+                .requesterEmail(securityContext.getRequesterEmail())
+                .requesterRole(securityContext.getRequesterRole())
+                .timestamp(Instant.now())
+                .build();
+    }
 
     public Mono<Map<String, Object>> getDocument(String collection, String documentId) {
         return Mono.fromCallable(() -> {
@@ -743,6 +820,178 @@ public class FirebaseServiceAuth {
                 .subscribeOn(Schedulers.boundedElastic())
                 .then();
     }
+    /**
+     * Retrieves all user documents from the Firestore 'users' collection.
+     * The operation is performed on a boundedElastic scheduler as it involves blocking I/O (Firestore sync call).
+     *
+     * @return Flux of User objects found in the collection.
+     */
+    public Flux<User> findAllUsers() {
+        return Flux.defer(() -> {
+                    logger.info("🔍 Initiating retrieval of all users from Firestore.");
+
+                    // 1. Get a reference to the 'users' collection
+                    CollectionReference usersCollection = firestore.collection(COLLECTION_USERS);
+
+                    // 2. Asynchronously retrieve all documents
+                    ApiFuture<QuerySnapshot> future = usersCollection.get();
+
+                    // 3. Convert the ApiFuture to a CompletableFuture for reactive integration
+                    return Mono.fromFuture(() -> FirestoreUtil.toCompletableFuture(future))
+                            // 4. Map the QuerySnapshot to a Flux of User objects
+                            .flatMapMany(querySnapshot -> {
+                                List<User> users = new ArrayList<>();
+                                for (DocumentSnapshot document : querySnapshot.getDocuments()) {
+                                    try {
+                                        // Map each document to the User domain object
+                                        User user = document.toObject(User.class);
+                                        if (user != null) {
+                                            users.add(user);
+                                        } else {
+                                            logger.warn("⚠️ Failed to deserialize user document with ID: {}", document.getId());
+                                        }
+                                    } catch (Exception e) {
+                                        logger.error("❌ Error mapping document {} to User object: {}", document.getId(), e.getMessage(), e);
+                                        // Continue to the next document
+                                    }
+                                }
+                                logger.info("✅ Successfully retrieved {} users.", users.size());
+                                return Flux.fromIterable(users);
+                            })
+                            // 5. Handle potential exceptions during the Firestore operation
+                            .onErrorMap(e -> {
+                                logger.error("❌ Failed to fetch all users from Firestore: {}", e.getMessage(), e);
+                                return new CustomException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to retrieve the list of all users.");
+                            });
+                })
+                // 6. Ensure the blocking Firestore call runs on a suitable scheduler
+                .subscribeOn(Schedulers.boundedElastic());
+    }
+    /**
+     * Deletes a user completely from both Firebase Authentication and Firestore.
+     *
+     * @param userId The ID of the user to delete.
+     * @return Mono<Void> signal upon successful completion.
+     */
+    public Mono<Void> deleteUser(String userId) {
+        if (userId == null) {
+            return Mono.error(new IllegalArgumentException("User ID cannot be null for deletion."));
+        }
+
+        // 1. Delete from Firebase Authentication (Blocking Call)
+        Mono<Void> deleteFirebaseAuth = Mono.fromCallable(() -> {
+                    firebaseAuth.deleteUser(userId);
+                    logger.info("🔥 Successfully deleted user from Firebase Auth: {}", userId);
+                    return (Void) null;
+                }).subscribeOn(Schedulers.boundedElastic())
+                .onErrorMap(FirebaseAuthException.class, e -> {
+                    if ("USER_NOT_FOUND".equals(e.getAuthErrorCode().name())) {
+                        logger.warn("⚠️ User not found in Firebase Auth, proceeding with Firestore deletion: {}", userId);
+                        return new UserNotFoundException("User not found in Auth, proceeding with data cleanup.");
+                    }
+                    logger.error("❌ Firebase Auth deletion failed for {}: {}", userId, e.getMessage());
+                    return new CustomException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to delete user in Firebase Auth.");
+                })
+                // Treat UserNotFoundException as success for flow control
+                .onErrorResume(UserNotFoundException.class, e -> Mono.empty());
+
+
+        // 2. Delete main User document and subcollections from Firestore
+        Mono<Void> deleteFirestoreUser = Mono.defer(() -> {
+            logger.warn("🗑️ Initiating Firestore data cleanup for user: {}", userId);
+
+            // Deleting the main user document
+            DocumentReference userRef = firestore.collection(COLLECTION_USERS).document(userId);
+
+            // Note: Firestore does not automatically delete subcollections when the parent document is deleted.
+            // A full deletion would require iterating and deleting documents in all subcollections:
+            // - COLLECTION_USER_PROFILES
+            // - COLLECTION_USER_PASSWORD_HISTORY
+            // - COLLECTION_USER_PERMISSIONS
+            // For simplicity in this example, we only delete the main document, which is often sufficient
+            // for soft-deletion/archival or when using a dedicated cleanup utility.
+
+            ApiFuture<WriteResult> future = userRef.delete();
+
+            return Mono.fromFuture(() -> FirestoreUtil.toCompletableFuture(future))
+                    .doOnSuccess(result ->
+                            logger.info("✅ Successfully deleted main user document from Firestore: {}", userId))
+                    .doOnError(error ->
+                            logger.error("❌ Failed to delete main user document from Firestore: {}", userId))
+                    .onErrorMap(e -> new CustomException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to delete user data from Firestore."))
+                    .then();
+        }).subscribeOn(Schedulers.boundedElastic());
+
+
+        // 3. Execute both deletion steps sequentially
+        return deleteFirebaseAuth
+                .then(deleteFirestoreUser);
+    }
+    /**
+     * Saves or updates the main User document in the Firestore 'users' collection.
+     * This is an asynchronous operation using Reactor for non-blocking execution.
+     *
+     * @param user The User object to save (assumes ID is already set).
+     * @return Mono<User> containing the saved user.
+     */
+    public Mono<User> save(User user) {
+        return Mono.defer(() -> {
+            logger.info("💾 Initiating save/update for user: {}", user.getId());
+
+            // 1. Convert the User object to a Map for Firestore (to ensure specific field control)
+            Map<String, Object> userData = new HashMap<>();
+            // Only include fields that should be updated frequently (avoid overwriting timestamps, etc.)
+            userData.put("firstName", user.getFirstName());
+            userData.put("lastName", user.getLastName());
+            userData.put("phoneNumber", user.getPhoneNumber());
+            userData.put("department", user.getDepartment());
+            userData.put("status", user.getStatus().name());
+            userData.put("enabled", user.isEnabled());
+            userData.put("accountLocked", user.isAccountLocked());
+            userData.put("forcePasswordChange", user.isForcePasswordChange());
+            userData.put("roleNames", user.getRoleNames());
+            userData.put("permissions", user.getPermissions() != null ? user.getPermissions() : Collections.emptyList());
+            userData.put("updatedAt", Instant.now()); // Update timestamp
+
+            DocumentReference userRef = firestore.collection(COLLECTION_USERS).document(user.getId());
+            ApiFuture<WriteResult> future = userRef.update(userData);
+
+            return Mono.fromFuture(() -> FirestoreUtil.toCompletableFuture(future))
+                    .doOnSuccess(result ->
+                            logger.info("✅ Firestore user update successful for {} at {}", user.getId(), result.getUpdateTime()))
+                    .doOnError(error ->
+                            logger.error("❌ Firestore user update failed for {}: {}", user.getId(), error.getMessage()))
+                    .thenReturn(user); // Return the original user object on success
+        }).subscribeOn(Schedulers.boundedElastic());
+    }
+    public Mono<Void> updateUserInFirestore(User user) {
+        return Mono.defer(() -> {
+            // 1. Convert the User object to a Map for Firestore (to ensure specific field control)
+            Map<String, Object> userData = new HashMap<>();
+            // Only include fields that should be updated frequently (avoid overwriting timestamps, etc.)
+            userData.put("firstName", user.getFirstName());
+            userData.put("lastName", user.getLastName());
+            userData.put("phoneNumber", user.getPhoneNumber());
+            userData.put("department", user.getDepartment());
+            userData.put("status", user.getStatus().name());
+            userData.put("enabled", user.isEnabled());
+            userData.put("accountLocked", user.isAccountLocked());
+            userData.put("forcePasswordChange", user.isForcePasswordChange());
+            userData.put("roleNames", user.getRoleNames());
+            userData.put("permissions", user.getPermissions() != null ? user.getPermissions() : Collections.emptyList());
+            userData.put("updatedAt", Instant.now()); // Update timestamp
+
+            DocumentReference userRef = firestore.collection(COLLECTION_USERS).document(user.getId());
+            ApiFuture<WriteResult> future = userRef.update(userData);
+            return Mono.fromFuture(() -> FirestoreUtil.toCompletableFuture(future))
+                    .doOnSuccess(result ->
+                            logger.info("✅ Firestore user {} updated successfully", user.getEmail()))
+                    .doOnError(e ->
+                            logger.error("❌ Failed to update Firestore user {}: {}", user.getEmail(), e.getMessage()))
+                    .thenReturn(user);
+        }).subscribeOn(Schedulers.boundedElastic()).then();
+    }
+
 
     private <T> CompletableFuture<T> toCompletableFuture(ApiFuture<T> apiFuture) {
         CompletableFuture<T> completableFuture = new CompletableFuture<>();

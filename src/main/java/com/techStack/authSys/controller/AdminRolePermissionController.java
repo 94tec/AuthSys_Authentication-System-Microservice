@@ -2,8 +2,8 @@ package com.techStack.authSys.controller;
 
 import com.techStack.authSys.models.Permissions;
 import com.techStack.authSys.models.Roles;
-import com.techStack.authSys.repository.AuthRepository;
 import com.techStack.authSys.repository.PermissionProvider;
+import com.techStack.authSys.service.FirebaseServiceAuth;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -19,7 +19,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class AdminRolePermissionController {
 
-    private final AuthRepository authRepository;
+    private final FirebaseServiceAuth firebaseServiceAuth;
     private final PermissionProvider permissionProvider;
 
     // 1. Get all roles and their permissions

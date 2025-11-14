@@ -3,7 +3,6 @@ package com.techStack.authSys.service;
 import com.techStack.authSys.dto.UserDTO;
 import com.techStack.authSys.exception.CustomException;
 import com.techStack.authSys.models.User;
-import com.techStack.authSys.repository.AuthRepository;
 import com.techStack.authSys.repository.RateLimiterService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -16,7 +15,7 @@ import reactor.core.publisher.Mono;
 @RequiredArgsConstructor
 @Slf4j
 public class UserService {
-    private final AuthRepository userRepository;
+    private final FirebaseServiceAuth firebaseServiceAuth;
     private final PasswordEncoder passwordEncoder;
     private final PasswordPolicyService passwordPolicyService;
     private final PasswordHistoryService passwordHistoryService;
@@ -24,7 +23,7 @@ public class UserService {
     private final AuditLogService auditLogService;
 
     public Mono<Void> changePassword(String userId, String currentPassword, String newPassword) {
-        return userRepository.findById(userId)
+        return firebaseServiceAuth.getUserById(userId)
                 .switchIfEmpty(Mono.error(new CustomException(HttpStatus.NOT_FOUND, "User not found")))
                 .flatMap(user -> {
                     // Verify current password
@@ -36,7 +35,7 @@ public class UserService {
     }
 
     public Mono<Void> forcePasswordChange(String userId, String newPassword) {
-        return userRepository.findById(userId)
+        return firebaseServiceAuth.getUserById(userId)
                 .switchIfEmpty(Mono.error(new CustomException(HttpStatus.NOT_FOUND, "User not found")))
                 .flatMap(user -> processPasswordChange(user, newPassword));
     }
@@ -52,7 +51,7 @@ public class UserService {
                     // Update password
                     user.setPassword(passwordEncoder.encode(newPassword));
                     user.setForcePasswordChange(false);
-                    return userRepository.save(user);
+                    return firebaseServiceAuth.save(user);
                 }))
                 .flatMap(savedUser -> passwordHistoryService.saveToHistory(savedUser.getId(), newPassword))
                 .then(sessionService.invalidateAllSessionsForUser(user.getId()))

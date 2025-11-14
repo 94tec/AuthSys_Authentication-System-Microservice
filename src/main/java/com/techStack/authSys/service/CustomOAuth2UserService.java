@@ -2,7 +2,6 @@ package com.techStack.authSys.service;
 
 import com.techStack.authSys.models.Roles;
 import com.techStack.authSys.models.User;
-import com.techStack.authSys.repository.AuthRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,7 +22,11 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
     private static final Logger logger = LoggerFactory.getLogger(CustomOAuth2UserService.class);
 
     @Autowired
-    private AuthRepository authRepository;
+    private final  FirebaseServiceAuth firebaseServiceAuth;
+
+    public CustomOAuth2UserService(FirebaseServiceAuth firebaseServiceAuth) {
+        this.firebaseServiceAuth = firebaseServiceAuth;
+    }
 
     @Override
     public OAuth2User loadUser(OAuth2UserRequest userRequest) throws OAuth2AuthenticationException {
@@ -68,14 +71,14 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
     }
 
     private Mono<User> findOrCreateUser(String email, String name) {
-        return authRepository.findByUsername(email)
+        return firebaseServiceAuth.findByEmail(email)
                 .switchIfEmpty(Mono.defer(() -> {
                     User newUser = new User();
                     newUser.setEmail(email);
                     newUser.setUsername(name);
                     // Ensure the role names are stored as List<String>
                     newUser.setRoleNames(Collections.singletonList(Roles.USER.name())); // Convert to List<String>
-                    return authRepository.save(newUser);
+                    return firebaseServiceAuth.save(newUser);
                 }));
     }
 

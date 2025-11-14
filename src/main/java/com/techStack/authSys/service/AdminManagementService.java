@@ -3,6 +3,7 @@ package com.techStack.authSys.service;
 import com.google.api.core.ApiFuture;
 import com.google.cloud.Timestamp;
 import com.google.cloud.firestore.*;
+import com.google.firebase.auth.FirebaseAuth;
 import com.techStack.authSys.dto.SessionRecord;
 import com.techStack.authSys.models.*;
 import com.techStack.authSys.repository.PermissionProvider;
@@ -31,9 +32,12 @@ public class AdminManagementService {
     private static final Logger log = LoggerFactory.getLogger(AdminManagementService.class);
 
     private final Firestore firestore;
+    private final FirebaseAuth firebaseAuth;
     private final AuditLogService auditLogService;
     private final RateLimiterService.SessionService sessionService;
     private final PermissionProvider permissionProvider;
+    private final FirebaseServiceAuth firebaseServiceAuth;
+    private final AdminNotificationService adminNotificationService;
 
     private static final String USERS_COLLECTION = "users";
     private static final String USER_PERMISSIONS_COLLECTION = "user_permissions";
@@ -161,6 +165,195 @@ public class AdminManagementService {
                         FirestoreUtil.toCompletableFuture(commitFuture)))
                 .then();
     }
+    /**
+     * Approve user account - Enhanced with approval level validation
+     */
+    public Mono<User> approveUserAccount(String userId, String approvedBy, Roles approverRole) {
+        return firebaseServiceAuth.getUserById(userId)
+                .flatMap(user -> {
+                    // Validate user is pending approval
+                    if (user.getStatus() != User.Status.PENDING_APPROVAL) {
+                        return Mono.error(new IllegalStateException(
+                                "User " + user.getEmail() + " is not pending approval. Current status: " + user.getStatus()));
+                    }
+
+                    // Validate approver has sufficient privileges
+                    return validateApproverAuthority(user, approverRole)
+                            .flatMap(hasAuthority -> {
+                                if (!hasAuthority) {
+                                    auditLogService.logUnauthorizedApproval(userId, approvedBy, approverRole.name());
+                                    return Mono.error(new SecurityException(
+                                            "Approver role " + approverRole + " insufficient to approve user with roles " + user.getRoles()));
+                                }
+
+                                // Approve user
+                                user.setStatus(User.Status.ACTIVE);
+                                user.setEnabled(true);
+                                user.setCreatedBy(approvedBy);
+                                user.setApprovedAt(Instant.now());
+                                user.setApprovedBy(approvedBy);
+
+                                log.info("✅ User {} approved by {} ({})", user.getEmail(), approvedBy, approverRole);
+
+                                // Save and notify
+                                return firebaseServiceAuth.save(user)
+                                        .flatMap(approvedUser ->
+                                                adminNotificationService.notifyUserApproved(approvedUser)
+                                                        .thenReturn(approvedUser))
+                                        .doOnSuccess(approvedUser -> {
+                                            auditLogService.logApprovalAction(
+                                                    userId, approvedBy, "APPROVED", approverRole.name());
+                                        });
+                            });
+                })
+                .onErrorResume(e -> {
+                    log.error("❌ Failed to approve user {}: {}", userId, e.getMessage());
+                    return Mono.error(e);
+                });
+    }
+    /**
+     * Validate if approver has authority to approve user
+     * Implements hierarchical approval logic
+     */
+    private Mono<Boolean> validateApproverAuthority(User userToApprove, Roles approverRole) {
+        return Mono.fromCallable(() -> {
+            RoleAssignmentService.ApprovalLevel requiredLevel = userToApprove.getApprovalLevel()
+                    .orElse(RoleAssignmentService.ApprovalLevel.MANAGER_OR_ABOVE);
+
+            switch (requiredLevel) {
+                case SUPER_ADMIN_ONLY:
+                    return approverRole == Roles.SUPER_ADMIN;
+
+                case ADMIN_OR_SUPER_ADMIN:
+                    return approverRole == Roles.SUPER_ADMIN || approverRole == Roles.ADMIN;
+
+                case MANAGER_OR_ABOVE:
+                    return approverRole == Roles.SUPER_ADMIN ||
+                            approverRole == Roles.ADMIN ||
+                            approverRole == Roles.MANAGER;
+
+                default:
+                    return false;
+            }
+        });
+    }
+
+    /**
+     * Reject user account - Enhanced with reason tracking
+     */
+    public Mono<Void> rejectUserAccount(String userId, String rejectedBy, Roles rejectorRole, String reason) {
+        return firebaseServiceAuth.getUserById(userId)
+                .flatMap(user -> {
+                    if (user.getStatus() != User.Status.PENDING_APPROVAL) {
+                        return Mono.error(new IllegalStateException("User is not pending approval"));
+                    }
+
+                    // Validate rejector has authority
+                    return validateApproverAuthority(user, rejectorRole)
+                            .flatMap(hasAuthority -> {
+                                if (!hasAuthority) {
+                                    return Mono.error(new SecurityException(
+                                            "Rejector role " + rejectorRole + " insufficient to reject user"));
+                                }
+
+                                log.info("❌ Rejecting user {} by {} ({}) - Reason: {}",
+                                        user.getEmail(), rejectedBy, rejectorRole, reason);
+
+                                // Notify user before deletion
+                                return adminNotificationService.notifyUserRejected(user, reason)
+                                        .then(firebaseServiceAuth.deleteUser(user.getId())
+                                                .then(Mono.fromRunnable(() -> {
+                                                    try {
+                                                        firebaseAuth.deleteUser(user.getId());
+                                                        log.info("✅ Deleted rejected user {} from Firebase Auth", user.getEmail());
+                                                    } catch (Exception e) {
+                                                        log.error("⚠️ Failed to delete user from Firebase Auth: {}", e.getMessage());
+                                                    }
+                                                }))
+                                                .doOnSuccess(v -> {
+                                                    auditLogService.logApprovalAction(
+                                                            userId, rejectedBy, "REJECTED", rejectorRole.name(), reason);
+                                                }));
+                            });
+                }).then();
+    }
+    /**
+     * Reject a pending user account
+     */
+    public Mono<Void> rejectUserAccount(String userId, String rejectedBy, String reason) {
+        return firebaseServiceAuth.getUserById(userId)
+                .flatMap(user -> {
+                    if (user.getStatus() != User.Status.PENDING_APPROVAL) {
+                        return Mono.error(new IllegalStateException(
+                                "User is not pending approval"));
+                    }
+
+                    log.info("❌ Rejecting user {} by {} - Reason: {}",
+                            user.getEmail(), rejectedBy, reason);
+
+                    // Delete user from Firestore and Firebase Auth
+                    return firebaseServiceAuth.deleteUser(user.getId())
+                            .then(Mono.fromRunnable(() -> {
+                                try {
+                                    firebaseAuth.deleteUser(user.getId());
+                                    log.info("✅ Deleted rejected user {} from Firebase Auth", user.getEmail());
+                                } catch (Exception e) {
+                                    log.error("⚠️ Failed to delete user from Firebase Auth: {}", e.getMessage());
+                                }
+                            }));
+
+                });
+    }
+    /**
+     * Restores a previously rejected user.
+     * - Only SUPER_ADMIN (or authorized approver) can perform this.
+     * - Sets status back to PENDING_APPROVAL (or ACTIVE based on role rules).
+     * - Keeps audit and rejection history.
+     */
+    public Mono<Void> restoreRejectedUser(String userId, String restoredBy, Roles restorerRole) {
+        return firebaseServiceAuth.getUserById(userId)
+                .flatMap(user -> {
+                    if (user.getStatus() != User.Status.REJECTED) {
+                        return Mono.error(new IllegalStateException("User is not in REJECTED status"));
+                    }
+
+                    // Validate authority of restorer
+                    return validateApproverAuthority(user, restorerRole)
+                            .flatMap(hasAuthority -> {
+                                if (!hasAuthority) {
+                                    return Mono.error(new SecurityException(
+                                            "Role " + restorerRole + " insufficient to restore user account"));
+                                }
+
+                                log.info("♻️ Restoring rejected user {} by {} ({})",
+                                        user.getEmail(), restoredBy, restorerRole);
+
+                                // Reactivate account
+                                user.setStatus(User.Status.PENDING_APPROVAL);
+                                user.setAccountLocked(false);
+                                user.setEnabled(false); // still inactive until approval
+                                user.setRestoredBy(restoredBy);
+                                user.setRestoredAt(Instant.now().toString());
+
+                                return firebaseServiceAuth.updateUserInFirestore(user)
+                                        .then(adminNotificationService.notifyUserRestored(user))
+                                        .then(Mono.fromRunnable(() ->
+                                                auditLogService.logApprovalAction(
+                                                        userId, restoredBy, "RESTORED", restorerRole.name(),
+                                                        "User reinstated after review")))
+                                        .doOnSuccess(v ->
+                                                log.info("✅ User {} restored and moved to PENDING_APPROVAL", user.getEmail()))
+                                        .doOnError(e ->
+                                                log.error("❌ Failed to restore user {}: {}", user.getEmail(), e.getMessage()))
+                                        .then();
+                            });
+                })
+                .onErrorResume(e -> {
+                    log.error("⚠️ Error restoring user {}: {}", userId, e.getMessage(), e);
+                    return Mono.error(e);
+                });
+    }
+
 
     // Example implementation - adapt to your security context
     private String getCurrentAdminId() {

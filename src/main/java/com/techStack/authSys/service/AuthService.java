@@ -101,7 +101,9 @@ public  class AuthService {
             AppConfig appConfig,
             RedisCacheService redisCacheService,
             MetricsService metricsService,
-            RoleAssignmentService roleAssignmentService, RegistrationErrorHandlerService registrationErrorHandlerService, RetryUtils retryUtils
+            RoleAssignmentService roleAssignmentService,
+            RegistrationErrorHandlerService registrationErrorHandlerService,
+            RetryUtils retryUtils
     ) {
         this.firebaseAuth = firebaseAuth;
         this.firestore = firestore;
@@ -180,8 +182,9 @@ public  class AuthService {
                 // 11. Success logging and metrics
                 .doOnSuccess(user -> {
                     long duration = System.currentTimeMillis() - startTime;
-                    logger.info("✅ Registration completed for {} in {} ms",
-                            user.getEmail(), duration);
+                    logger.info("✅ Registration completed for {} in {} ms (Status: {}, Permissions: {})",
+                            user.getEmail(), duration, user.getStatus(),
+                            user.getPermissions() != null ? user.getPermissions().size() : 0);
                     eventPublisher.publishEvent(new UserRegisteredEvent(user, ipAddress));
                     auditAndMetrics(user, startTime, ipAddress, deviceFingerprint, duration);
                 })
@@ -276,8 +279,6 @@ public  class AuthService {
             return Mono.just(userDto);
         });
     }
-
-
     /**
      * Check for duplicate email using Redis cache first then Firestore.
      */

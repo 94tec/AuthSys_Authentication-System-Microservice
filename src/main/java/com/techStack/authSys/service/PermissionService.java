@@ -7,7 +7,6 @@ import com.techStack.authSys.config.PermissionsConfig;
 import com.techStack.authSys.models.Permissions;
 import com.techStack.authSys.models.Roles;
 import com.techStack.authSys.models.User;
-import com.techStack.authSys.repository.AuthRepository;
 import com.techStack.authSys.repository.PermissionProvider;
 import com.techStack.authSys.util.FirestoreUtil;
 import org.slf4j.Logger;
@@ -33,12 +32,12 @@ public class PermissionService implements PermissionProvider {
     private final Map<Roles, Set<Permissions>> rolePermissions = new ConcurrentHashMap<>();
     private final Map<String, Map<String, Map<String, String>>> userAttributes = new ConcurrentHashMap<>();
 
-    private final AuthRepository authRepository;
+    private final FirebaseServiceAuth firebaseServiceAuth;
     private final PermissionsConfig permissionsConfig;
     private final Firestore firestore;
 
-    public PermissionService(AuthRepository authRepository, PermissionsConfig permissionsConfig, Firestore firestore) {
-        this.authRepository = authRepository;
+    public PermissionService(FirebaseServiceAuth firebaseServiceAuth, PermissionsConfig permissionsConfig, Firestore firestore) {
+        this.firebaseServiceAuth = firebaseServiceAuth;
         this.permissionsConfig = permissionsConfig;
         this.firestore = firestore;
     }
@@ -113,7 +112,7 @@ public class PermissionService implements PermissionProvider {
     }
 
     private Mono<Boolean> checkRolePermissions(String userId, String requiredPermission) {
-        return authRepository.findById(userId)
+        return firebaseServiceAuth.getUserById(userId)
                 .map(User::getRoles)
                 .flatMap(role -> Mono.justOrEmpty(rolePermissions.get(role)))
                 .flatMapMany(Flux::fromIterable)
