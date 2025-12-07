@@ -21,6 +21,7 @@ import io.jsonwebtoken.io.IOException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -73,7 +74,8 @@ public class FirebaseServiceAuth {
                                FirebaseConfig firebaseConfig,
                                MetricsService metricsService,
                                RedisCacheService redisCacheService,
-                               RoleAssignmentService roleAssignmentService, PermissionProvider permissionProvider) {
+                               @Lazy  RoleAssignmentService roleAssignmentService,
+                               PermissionProvider permissionProvider) {
         this.firestore = firestore;
         this.encryptionService = encryptionService;
         this.firebaseAuth = firebaseAuth;
