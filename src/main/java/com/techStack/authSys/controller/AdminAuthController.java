@@ -1,24 +1,15 @@
 package com.techStack.authSys.controller;
 
-import java.security.Principal;
-import java.time.Instant;
-import java.util.List;
-
-import com.techStack.authSys.dto.AuthResponse;
-import com.techStack.authSys.dto.AuthResult;
-import com.techStack.authSys.dto.LoginRequest;
-import com.techStack.authSys.dto.UserDTO;
-import com.techStack.authSys.exception.CustomException;
-import com.techStack.authSys.models.Permissions;
-import com.techStack.authSys.repository.MetricsService;
-import com.techStack.authSys.repository.PermissionProvider;
-import com.techStack.authSys.service.*;
+import com.techStack.authSys.dto.*;
+import com.techStack.authSys.service.DeviceVerificationService;
+import com.techStack.authSys.service.authentication.AuthenticationOrchestrator;
+import com.techStack.authSys.service.authentication.LoginResponseBuilder;
+import com.techStack.authSys.service.bootstrap.AdminUserManagementService;
+import com.techStack.authSys.service.bootstrap.SuperAdminCreationService;
+import com.techStack.authSys.service.verification.EmailVerificationService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -26,158 +17,194 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
+import java.util.Set;
+
+/**
+ * Refactored Admin Authentication Controller.
+ * Handles Super Admin and Admin user operations with proper separation of concerns.
+ */
+@Slf4j
 @RestController
 @RequestMapping("/api/super-admin")
 @RequiredArgsConstructor
-@Slf4j
 public class AdminAuthController {
-    private static final Logger logger = LoggerFactory.getLogger(AdminAuthController.class);
 
-    private final SuperAdminService superAdminService;
+    // Authentication Services
+    private final AuthenticationOrchestrator authenticationOrchestrator;
+    private final LoginResponseBuilder loginResponseBuilder;
+
+    // Admin Management Services
+    private final SuperAdminCreationService superAdminCreationService;
+    private final AdminUserManagementService adminUserManagementService;
+
+    // Support Services
     private final DeviceVerificationService deviceVerificationService;
-    private final EmailServiceInstance1 emailServiceInstance1;
-    private final AuditLogService auditLogService;
-    private final JwtService jwtService;
-    private final PermissionProvider permissionProvider;
-    private final BootstrapFlagService bootstrapFlagService;
-    private final MetricsService metricsService;
-    private final RedisCacheService redisCacheService;
-    private final FirebaseServiceAuth firebaseServiceAuth;
-    private final RoleAssignmentService roleAssignmentService;
-    private final EmailServiceInstance1 emailService;
+    private final EmailVerificationService emailVerificationService;
 
+    /**
+     * Manually registers a Super Admin (for emergency situations).
+     * Should be disabled in production or protected by additional security.
+     */
     @PostMapping("/register")
     @ResponseStatus(HttpStatus.CREATED)
-    public Mono<ResponseEntity<String>> registerSuperAdmin(
+    public Mono<ResponseEntity<ApiResponse<Object>>> registerSuperAdmin(
             @RequestParam String email,
-            @RequestParam String phone
-    ) {
-        return superAdminService.registerSuperAdmin(email, phone)
-                .map(message -> ResponseEntity.ok(message))
+            @RequestParam String phone) {
+
+        log.warn("🚨 Manual Super Admin registration initiated for: {}", maskEmail(email));
+
+        return superAdminCreationService.createSuperAdminIfAbsent(email, phone)
+                .then(Mono.just(ResponseEntity
+                        .status(HttpStatus.CREATED)
+                        .body(new ApiResponse<>(
+                                true,
+                                "Super Admin created successfully. Check email for credentials.",
+                                null
+                        ))
+                ))
                 .onErrorResume(e -> {
-                    log.error("❌ Super admin registration failed: {}", e.getMessage(), e);
-                    return Mono.just(ResponseEntity.badRequest().body(e.getMessage()));
+                    log.error("❌ Manual Super Admin registration failed: {}", e.getMessage(), e);
+                    return Mono.just(ResponseEntity
+                            .status(HttpStatus.BAD_REQUEST)
+                            .body(new ApiResponse<>(
+                                    false,
+                                    e.getMessage(),
+                                    null
+                            ))
+                    );
                 });
     }
 
+    /**
+     * Authenticates Super Admin or Admin users.
+     */
     @PostMapping("/login")
-    public Mono<ResponseEntity<AuthResponse>> authenticateUser(
+    public Mono<ResponseEntity<AuthResponse>> login(
             @Valid @RequestBody LoginRequest loginRequest,
             @RequestHeader(value = "User-Agent", required = false) String userAgent,
             ServerWebExchange exchange) {
 
         String ipAddress = deviceVerificationService.extractClientIp(exchange);
-        String deviceFingerprint = deviceVerificationService.generateDeviceFingerprint(ipAddress, userAgent);
+        String deviceFingerprint = deviceVerificationService.generateDeviceFingerprint(
+                ipAddress, userAgent);
 
-        return superAdminService.login(
+        log.info("Admin login attempt for: {} from IP: {}",
+                maskEmail(loginRequest.getEmail()), ipAddress);
+        // Determine permissions for admin login
+        Set<String> permissions = getAdminPermissions();
+
+        return authenticationOrchestrator.authenticate(
                         loginRequest.getEmail(),
                         loginRequest.getPassword(),
                         ipAddress,
                         deviceFingerprint,
                         userAgent,
-                        Instant.now().toString(),
-                        loginRequest.getUserId()
+                        permissions
                 )
-                .flatMap(authResult -> {
-                    if (!authResult.getUser().isEmailVerified()) {
-                        return emailServiceInstance1.sendVerificationEmail(authResult.getUser().getId(), ipAddress)
-                                .thenReturn(
-                                        ResponseEntity.status(HttpStatus.FORBIDDEN)
-                                                .body(AuthResponse.builder()
-                                                        .warning("Email not verified. Verification email resent")
-                                                        .build())
-                                );
-                    }
-                    return handleLoginSuccess(authResult, ipAddress, deviceFingerprint, userAgent);
-                })
-                .doOnSuccess(res -> logger.info("✅ Successful login for Administrator User {}", loginRequest.getEmail()))
-                .onErrorResume(CustomException.class, e -> {
-                    logger.warn("⚠️ Login failed for Administrator {}: {}", loginRequest.getEmail(), e.getMessage());
-                    auditLogService.logAuthFailure(loginRequest.getEmail(), ipAddress, deviceFingerprint, e.getMessage());
-                    return Mono.just(ResponseEntity.status(e.getStatus())
-                            .body(AuthResponse.builder()
-                                    .warning(e.getMessage())
-                                    .build()));
-                })
-                .onErrorResume(e -> {
-                    logger.error("❌ Unexpected Administrator login error for {}: {}", loginRequest.getEmail(), e.getMessage(), e);
-                    return Mono.just(ResponseEntity.internalServerError().build());
-                });
-    }
-    private Mono<ResponseEntity<AuthResponse>> handleLoginSuccess(AuthResult authResult, String ipAddress, String deviceFingerprint, String userAgent) {
-        AuthResponse.UserInfo userInfo = AuthResponse.UserInfo.builder()
-                .userId(authResult.getUser().getId())
-                .email(authResult.getUser().getEmail())
-                .build();
+                .flatMap(authResult -> handleAdminLoginResult(authResult, ipAddress))
+                .doOnSuccess(res -> log.info("✅ Admin login successful for: {}",
+                        maskEmail(loginRequest.getEmail())));
 
-        List<String> resolved = permissionProvider.resolveEffectivePermission(authResult.getUser()).stream().toList();
-        List<Permissions> permissions = permissionProvider.deserializePermissions(resolved);
-
-        AuthResponse response = AuthResponse.builder()
-                .accessToken(authResult.getAccessToken())
-                .refreshToken(authResult.getRefreshToken())
-                .accessTokenExpiry(authResult.getAccessTokenExpiry())
-                .refreshTokenExpiry(authResult.getRefreshTokenExpiry())
-                .user(userInfo)
-                .permissions(permissions)
-                .build();
-        // Log the token pair and context info
-        logger.info("✅ Generated token pair for userId={}", userInfo.getUserId());
-
-        return Mono.just(ResponseEntity.ok()
-                .header(HttpHeaders.AUTHORIZATION, response.getAccessToken())
-                .body(response));
+        // Error handling delegated to GlobalExceptionHandler
     }
 
-    @PostMapping("/logout")
-    public Mono<ResponseEntity<String>> logout(ServerWebExchange exchange, Principal principal) {
-        String ipAddress = exchange.getRequest().getHeaders().getFirst("X-Forwarded-For");
-        String sessionId = exchange.getRequest().getHeaders().getFirst("sessionId");
-
-        if (principal == null || sessionId == null) {
-            return Mono.just(ResponseEntity.badRequest().body("Missing principal or sessionId"));
-        }
-
-        String userId = principal.getName(); // Auto from JWT or security context
-
-        return superAdminService.logout(userId, sessionId, ipAddress)
-                .thenReturn(ResponseEntity.ok("Logout successful"));
-    }
-
-    //SUPER ADMIN - REGISTER ADMIN ROUTE
+    /**
+     * Registers a new Admin user (Super Admin only).
+     */
     @PostMapping("/register-admin")
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("hasRole('SUPER_ADMIN')")
-    public Mono<ResponseEntity<String>> registerAdmin(
-            @RequestBody UserDTO userDto,
+    public Mono<ResponseEntity<ApiResponse<String>>> registerAdmin(
+            @Valid @RequestBody UserDTO userDto,
             ServerWebExchange exchange) {
 
-        String ipAddress = exchange.getRequest().getRemoteAddress() != null
-                ? exchange.getRequest().getRemoteAddress().getAddress().getHostAddress().split("%")[0] // Removes zone index
-                : "unknown";
+        String ipAddress = deviceVerificationService.extractClientIp(exchange);
+        String deviceFingerprint = deviceVerificationService.generateDeviceFingerprint(
+                ipAddress, userDto.getUserAgent());
 
-        return superAdminService.createAdminUser(userDto, exchange)
-                .map(user -> {
-                    logger.info("Administrator registered successfully: {}", user.getEmail());
-                    return ResponseEntity.ok("User registered successfully. Please check your email for verification." + user);
-                })
-                .onErrorResume(CustomException.class, e -> {
-                    logger.warn("User registration failed: {}", e.getMessage());
-                    return Mono.just(ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                            .body("Registration failed: " + e.getMessage()));
-                })
-                .onErrorResume(Exception.class, e -> {
-                    logger.error("Unexpected registration error", e);
-                    return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                            .body("User registration failed due to an unexpected error."));
+        log.info("Admin registration by Super Admin for: {}", maskEmail(userDto.getEmail()));
+
+        return adminUserManagementService.createAdminUser(userDto, exchange, ipAddress, deviceFingerprint)
+                .map(user -> ResponseEntity
+                        .status(HttpStatus.CREATED)
+                        .body(new ApiResponse<>(
+                                true,
+                                "Admin user created successfully. Credentials sent to email.",
+                                user.getId()
+                        ))
+                );
+
+        // Error handling delegated to GlobalExceptionHandler
+    }
+
+    // ============================================================================
+    // PRIVATE HELPER METHODS
+    // ============================================================================
+
+    /**
+     * Handles admin login result, checking email verification.
+     */
+    private Mono<ResponseEntity<AuthResponse>> handleAdminLoginResult(
+            AuthResult authResult,
+            String ipAddress) {
+
+        if (!authResult.getUser().isEmailVerified()) {
+            return handleUnverifiedAdminEmail(authResult.getUser(), ipAddress);
+        }
+
+        return Mono.just(loginResponseBuilder.buildSuccessResponse(authResult));
+    }
+
+    /**
+     * Handles login with unverified email.
+     */
+    private Mono<ResponseEntity<AuthResponse>> handleUnverifiedAdminEmail(
+            com.techStack.authSys.models.User user,
+            String ipAddress) {
+
+        log.warn("Admin login attempt with unverified email: {}", maskEmail(user.getEmail()));
+
+        return emailVerificationService.resendVerificationEmail(user.getEmail(), ipAddress)
+                .then(Mono.just(ResponseEntity
+                        .status(HttpStatus.FORBIDDEN)
+                        .body(AuthResponse.builder()
+                                .success(false)
+                                .message("Email not verified")
+                                .warning("Please verify your email before logging in. " +
+                                        "A new verification link has been sent.")
+                                .build())
+                ))
+                .onErrorResume(e -> {
+                    log.error("Failed to resend verification: {}", e.getMessage());
+                    return Mono.just(ResponseEntity
+                            .status(HttpStatus.FORBIDDEN)
+                            .body(AuthResponse.builder()
+                                    .success(false)
+                                    .message("Email not verified")
+                                    .warning("Please verify your email before logging in.")
+                                    .build())
+                    );
                 });
     }
 
+    /**
+     * Masks email for logging (GDPR compliance).
+     */
+    private String maskEmail(String email) {
+        if (email == null || !email.contains("@")) {
+            return "***";
+        }
+        String[] parts = email.split("@");
+        return parts[0].substring(0, Math.min(3, parts[0].length())) + "***@" + parts[1];
+    }
+    // Helper method to get admin permissions
+    private Set<String> getAdminPermissions() {
+        return Set.of(
+                "ADMIN_READ",
+                "ADMIN_WRITE",
+                "USER_MANAGEMENT",
+                "SYSTEM_CONFIG"
+                // Add other admin permissions as needed
+        );
+    }
 }
-
-
-
-
-
-
-

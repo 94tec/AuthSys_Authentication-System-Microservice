@@ -17,5 +17,6 @@ public enum ActionType {
     LOGIN_FAILED,
     LOGOUT,
     USER_APPROVAL_FAILED,
-    EMAIL_FAILURE
+    EMAIL_FAILURE,
+    EMAIL_SENT
 }

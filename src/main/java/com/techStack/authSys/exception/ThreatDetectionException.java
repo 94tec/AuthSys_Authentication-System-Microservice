@@ -1,11 +1,13 @@
 package com.techStack.authSys.exception;
 
-public class ThreatDetectionException extends RuntimeException {
+import org.springframework.http.HttpStatus;
+
+public class ThreatDetectionException extends CustomException {
     public ThreatDetectionException(String message) {
-        super(message);
+        super(HttpStatus.FORBIDDEN, message);
     }
 
     public ThreatDetectionException(String message, Throwable cause) {
-        super(message, cause);
+        super(HttpStatus.FORBIDDEN, message, cause);
     }
 }

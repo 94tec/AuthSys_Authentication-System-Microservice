@@ -1,11 +1,13 @@
 package com.techStack.authSys.exception;
 
-public class SessionException extends RuntimeException {
+import org.springframework.http.HttpStatus;
+
+public class SessionException extends CustomException {
     public SessionException(String message) {
-        super(message);
+        super(HttpStatus.INTERNAL_SERVER_ERROR, message);
     }
 
     public SessionException(String message, Throwable cause) {
-        super(message, cause);
+        super(HttpStatus.INTERNAL_SERVER_ERROR, message, cause);
     }
 }

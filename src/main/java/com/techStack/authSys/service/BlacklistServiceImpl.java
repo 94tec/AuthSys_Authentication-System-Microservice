@@ -92,48 +92,64 @@ public class BlacklistServiceImpl implements BlacklistService {
                     });
         }).subscribeOn(Schedulers.boundedElastic());
     }
-
-
     @Override
     public Mono<Void> addToBlacklist(String ipAddress, String reason, int durationHours) {
-        return Mono.defer(() -> {
-            String encryptedIp = null;
-            try {
-                encryptedIp = encryptionService.encrypt(ipAddress);
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            }
-            Instant expiration = Instant.now().plus(durationHours, ChronoUnit.HOURS);
 
-            Map<String, Object> blacklistEntry = null;
-            try {
-                blacklistEntry = Map.of(
-                        "ipAddress", encryptedIp,
-                        "reason", encryptionService.encrypt(reason),
-                        "expiration", Date.from(expiration),
-                        "createdAt", FieldValue.serverTimestamp()
-                );
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            }
+        return Mono.fromCallable(() -> encryptionService.encrypt(ipAddress))
+                .zipWith(Mono.fromCallable(() -> encryptionService.encrypt(reason)))
+                .flatMap(tuple -> {
+                    String encryptedIp = tuple.getT1();
+                    String encryptedReason = tuple.getT2();
+                    Instant expiration = Instant.now().plus(durationHours, ChronoUnit.HOURS);
 
-            String finalEncryptedIp = encryptedIp;
-            // Use the conversion inside addToBlacklist
-            return Mono.fromFuture(
-                            FirestoreUtil.toCompletableFuture(firestore.collection(BLACKLIST_COLLECTION).document(encryptedIp).set(blacklistEntry))
-                    )
-                    .doOnSuccess(v -> {
-                        redisService.setBlacklistStatus(finalEncryptedIp, true, durationHours );
-                        jwtService.revokeTokensForIp(ipAddress);
-                        log.warn("IP address blacklisted: {} for {} hours. Reason: {}", ipAddress, durationHours, reason);
-                        auditLogService.logSecurityEvent("IP_BLACKLISTED", ipAddress, "Blacklisted for " + durationHours + " hours.");
-                    })
-                    .onErrorResume(e -> {
-                        log.error("Failed to blacklist IP {}: {}", ipAddress, e.getMessage());
-                        return Mono.error(new BlacklistOperationException("Failed to blacklist IP"));
-                    });
-        }).subscribeOn(Schedulers.boundedElastic()).then();
+                    Map<String, Object> blacklistEntry = Map.of(
+                            "ipAddress", encryptedIp,
+                            "reason", encryptedReason,
+                            "expiration", Date.from(expiration),
+                            "createdAt", FieldValue.serverTimestamp()
+                    );
+
+                    return Mono.fromFuture(
+                                    FirestoreUtil.toCompletableFuture(
+                                            firestore.collection(BLACKLIST_COLLECTION)
+                                                    .document(encryptedIp)
+                                                    .set(blacklistEntry)
+                                    )
+                            )
+                            .thenReturn(encryptedIp) // pass the encrypted IP downstream
+                            .zipWith(Mono.just(expiration));
+                })
+                .flatMap(tuple -> {
+                    String encryptedIp = tuple.getT1();
+                    Instant expiration = tuple.getT2();
+
+                    // Write to Redis cache
+                    redisService.setBlacklistStatus(encryptedIp, true, durationHours);
+
+                    // New revokeTokensForIp signature (userId optional here)
+                    // We pass null userId because blacklisting is global by IP
+                    return jwtService.revokeTokensForIp(
+                            null,                         // userId
+                            ipAddress,                    // raw IP
+                            "SYSTEM_BLACKLIST"            // revokedBy
+                    );
+                })
+                .doOnSuccess(v -> {
+                    log.warn("IP address blacklisted: {} for {} hours. Reason: {}", ipAddress, durationHours, reason);
+                    auditLogService.logSecurityEvent(
+                            "IP_BLACKLISTED",
+                            ipAddress,
+                            "Blacklisted for " + durationHours + " hours."
+                    );
+                })
+                .onErrorResume(e -> {
+                    log.error("Failed to blacklist IP {}: {}", ipAddress, e.getMessage());
+                    return Mono.error(new BlacklistOperationException("Failed to blacklist IP"));
+                })
+                .subscribeOn(Schedulers.boundedElastic())
+                .then();
     }
+
 
     @Override
     public Mono<Void> removeFromBlacklist(String ipAddress) {
@@ -290,19 +306,23 @@ public class BlacklistServiceImpl implements BlacklistService {
     }
     @Override
     public Mono<Void> blacklistIp(String ipAddress) {
-        return addToBlacklist(ipAddress, "Suspicious activity detected", defaultBlacklistDuration)
-                .doOnSuccess(v -> {
-                    log.info("IP {} has been blacklisted.", ipAddress);
-                    auditLogService.logSecurityEvent(
-                            "IP_BLACKLISTED",
-                            ipAddress,
-                            "Added to blacklist due to suspicious activity"
-                    );
+        String revokedBy = "SYSTEM_BLACKLIST";
+        String userId = null; // you can replace this if needed
 
-                    // Revoke JWT tokens for this IP
-                    jwtService.revokeTokensForIp(ipAddress);
-                })
-                .doOnError(e -> log.error("Failed to blacklist IP {}: {}", ipAddress, e.getMessage()));
+        return addToBlacklist(ipAddress, "Suspicious activity detected", defaultBlacklistDuration)
+                .flatMap(v ->
+                        jwtService.revokeTokensForIp(userId, ipAddress, revokedBy)
+                                .then(Mono.fromRunnable(() -> {
+                                    log.info("IP {} has been blacklisted.", ipAddress);
+                                    auditLogService.logSecurityEvent(
+                                            "IP_BLACKLISTED",
+                                            ipAddress,
+                                            "Added to blacklist due to suspicious activity"
+                                    );
+                                }))
+                )
+                .doOnError(e -> log.error("Failed to blacklist IP {}: {}", ipAddress, e.getMessage()))
+                .then();
     }
 
     public static class BlacklistOperationException extends RuntimeException {

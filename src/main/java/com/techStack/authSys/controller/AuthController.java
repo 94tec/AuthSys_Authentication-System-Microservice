@@ -1,16 +1,11 @@
 package com.techStack.authSys.controller;
 
 import com.techStack.authSys.dto.*;
-import com.techStack.authSys.exception.AuthException;
-import com.techStack.authSys.exception.CustomException;
-import com.techStack.authSys.exception.EmailAlreadyVerifiedException;
-import com.techStack.authSys.models.Permissions;
 import com.techStack.authSys.models.User;
-import com.techStack.authSys.repository.AuthServiceController;
-import com.techStack.authSys.repository.PermissionProvider;
-import com.techStack.authSys.repository.RateLimiterService;
 import com.techStack.authSys.service.*;
-import jakarta.servlet.http.HttpServletRequest;
+import com.techStack.authSys.service.authentication.AuthenticationOrchestrator;
+import com.techStack.authSys.service.authentication.LoginResponseBuilder;
+import com.techStack.authSys.service.authentication.LogoutService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -19,17 +14,12 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.context.request.ServletWebRequest;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
-import java.net.InetSocketAddress;
-import java.time.Instant;
 import java.util.*;
-import java.util.stream.Collectors;
 
 /**
  * Authentication Controller
@@ -44,15 +34,12 @@ public class AuthController {
 
     private static final Logger logger = LoggerFactory.getLogger(AuthController.class);
 
-    private final EmailServiceInstance1 emailService;
-    private final AuditLogService auditLogService;
     private final AuthService authService;
+    private final AuthenticationOrchestrator authenticationOrchestrator;
     private final FirebaseServiceAuth firebaseServiceAuth;
-    private final RateLimiterService.SessionService sessionService;
-    private final JwtService jwtService;
-    private final AuthServiceController authServiceController;
     private final DeviceVerificationService deviceVerificationService;
-    private final PermissionProvider permissionProvider;
+    private final LogoutService logoutService;
+    private final LoginResponseBuilder loginResponseBuilder;
 
     // Register a new user
     @PostMapping("/register")
@@ -78,201 +65,195 @@ public class AuthController {
         // NOTE: Error handling is automatically done by GlobalExceptionHandler
         // No need for .onErrorResume() here - keeps controller clean
     }
-
     /**
-     * Check if email is available
-     *
-     * @param email Email to check
-     * @return Mono with availability status
-     */
-    @GetMapping("/check-email")
-    public Mono<ResponseEntity<ApiResponse<Boolean>>> checkEmailAvailability(
-            @RequestParam String email) {
-
-        return firebaseServiceAuth.checkEmailAvailability(email)
-                .map(available -> {
-                    ApiResponse<Boolean> response = new ApiResponse<>(
-                            true,
-                            available ? "Email is available" : "Email is already registered",
-                            available
-                    );
-                    return ResponseEntity.ok(response);
-                });
-    }
-
-    /**
-     * Resend verification email
-     *
-     * @param email User email
-     * @return Mono with success response
+     * Resend verification email.
      */
     @PostMapping("/resend-verification")
     public Mono<ResponseEntity<ApiResponse<Void>>> resendVerificationEmail(
             @RequestParam String email,
             ServerWebExchange exchange) {
 
-        //String ipAddress = extractClientIp(exchange);
         String ipAddress = deviceVerificationService.extractClientIp(exchange);
 
         return authService.resendVerificationEmail(email, ipAddress)
-                .then(Mono.fromCallable(() -> {
-                    ApiResponse<Void> response = new ApiResponse<>(
-                            true,
-                            "Verification email sent successfully. Please check your inbox.",
-                            null
-                    );
-                    return ResponseEntity.ok(response);
-                }));
+                .then(Mono.just(ResponseEntity.ok(new ApiResponse<>(
+                        true,
+                        "Verification email sent successfully. Please check your inbox.",
+                        null
+                ))));
+
+        // Error handling delegated to GlobalExceptionHandler
     }
 
+    /**
+     * Verify email address using token.
+     */
     @GetMapping("/verify-email")
-    public Mono<ResponseEntity<String>> verifyEmail(
+    public Mono<ResponseEntity<ApiResponse<Object>>> verifyEmail(
             @RequestParam("token") String token,
-            @RequestHeader(value = "X-Forwarded-For", required = false) String forwardedIp,
-            ServerHttpRequest request) {
+            ServerWebExchange exchange) {
 
-        // Extract client IP
-        String clientIp = Optional.ofNullable(forwardedIp)
-                .map(ip -> ip.split(",")[0].trim())
-                .orElseGet(() -> {
-                    InetSocketAddress remoteAddress = request.getRemoteAddress();
-                    return (remoteAddress != null) ? remoteAddress.getAddress().getHostAddress() : "UNKNOWN";
-                });
+        String ipAddress = deviceVerificationService.extractClientIp(exchange);
 
-        logger.info("📧 Processing email verification for token (first 10 chars): {}...",
-                token.length() > 10 ? token.substring(0, 10) : token);
+        log.info("Email verification attempt from IP: {}", ipAddress);
 
-        // Just let exceptions bubble up - GlobalExceptionHandler will catch them
-        return authService.verifyEmail(token, clientIp)
-                .then(Mono.just(ResponseEntity.ok("Email verified successfully. You can now log in.")))
-                .doOnSuccess(__ -> logger.info("✅ Email verification completed successfully"));
+        return authService.verifyEmail(token, ipAddress)
+                .then(Mono.just(ResponseEntity.ok(new ApiResponse<>(
+                        true,
+                        "Email verified successfully. You can now log in.",
+                        null
+                ))))
+                .doOnSuccess(__ -> log.info("✅ Email verification successful"));
+
+        // Error handling delegated to GlobalExceptionHandler
     }
-
-    @PostMapping("/logout")
-    public Mono<ResponseEntity<Object>> logout(
-            @RequestHeader(HttpHeaders.AUTHORIZATION) String authHeader,
-            WebRequest request) {
-
-        String ipAddress = getClientIp(request);
-        String token = extractToken(authHeader);
-
-        return jwtService.getUserIdFromToken(token)
-                .flatMap(userId -> sessionService.invalidateSession(userId, ipAddress)
-                        .then(jwtService.validateToken(token, "access"))
-                        .thenReturn(ResponseEntity.ok().build()))
-                .doOnSuccess(response -> log.info("User logged out successfully"))
-                .doOnError(e -> log.error("Logout failed: {}", e.getMessage()));
-    }
-
+    //Authenticate user and return tokens.
+    //Error handling follows the same pattern as registration.
     @PostMapping("/login")
-    public Mono<ResponseEntity<AuthResponse>> authenticateUser(
+    public Mono<ResponseEntity<AuthResponse>> login(
             @Valid @RequestBody LoginRequest loginRequest,
             @RequestHeader(value = "User-Agent", required = false) String userAgent,
             ServerWebExchange exchange) {
 
         String ipAddress = deviceVerificationService.extractClientIp(exchange);
-        String deviceFingerprint = deviceVerificationService.generateDeviceFingerprint(ipAddress, userAgent);
+        String deviceFingerprint = deviceVerificationService.generateDeviceFingerprint(
+                ipAddress, userAgent);
 
-        return authServiceController.authenticate(
+        log.info("Login attempt for: {} from IP: {}", maskEmail(loginRequest.getEmail()), ipAddress);
+
+        return authenticationOrchestrator.authenticate(
                         loginRequest.getEmail(),
                         loginRequest.getPassword(),
                         ipAddress,
                         deviceFingerprint,
                         userAgent,
-                        Instant.now().toString(),
-                        loginRequest.getUserId()
+                null
                 )
-                .flatMap(authResult -> {
-                    if (!authResult.getUser().isEmailVerified()) {
-                        return emailService.sendVerificationEmail(authResult.getUser().getId(), ipAddress)
-                                .thenReturn(
-                                        ResponseEntity.status(HttpStatus.FORBIDDEN)
-                                                .body(AuthResponse.builder()
-                                                        .warning("Email not verified. Verification email resent")
-                                                        .build())
-                                );
-                    }
-                    return handleLoginSuccess(authResult, ipAddress, deviceFingerprint, userAgent);
-                })
-                .doOnSuccess(res -> logger.info("✅ Successful login for {}", loginRequest.getEmail()))
-                .onErrorResume(AuthException.class, e -> {
-                    logger.warn("⚠️ Login failed for {}: {} - Status: {}",
-                            loginRequest.getEmail(), e.getMessage(), e.getStatus());
+                .flatMap(authResult -> handleLoginResult(authResult, loginRequest.getEmail(),
+                        ipAddress, deviceFingerprint))
+                .doOnSuccess(res -> log.info("✅ Login successful for: {}",
+                        maskEmail(loginRequest.getEmail())));
 
-                    auditLogService.logAuthFailure(loginRequest.getEmail(), ipAddress, deviceFingerprint, e.getMessage());
+        // Error handling delegated to GlobalExceptionHandler
+        // No .onErrorResume() needed here - keeps controller clean!
+    }
 
-                    return Mono.just(ResponseEntity
-                            .status(e.getStatus())
-                            .body(AuthResponse.builder()
-                                    .message("Authentication failed")
-                                    .warning(e.getMessage()) // This will now be user-friendly
-                                    .timestamp(new Date())
-                                    .build()));
-                })
+    /**
+     * Logout user and invalidate session.
+     */
+    @PostMapping("/logout")
+    public Mono<ResponseEntity<ApiResponse<Void>>> logout(
+            @RequestHeader(HttpHeaders.AUTHORIZATION) String authHeader,
+            WebRequest request) {
+
+        String ipAddress = extractClientIp(request);
+        String token = extractToken(authHeader);
+
+        return logoutService.logout(token, ipAddress)
+                .then(Mono.just(ResponseEntity.ok(new ApiResponse<>(
+                        true,
+                        "Logged out successfully",
+                        null
+                ))));
+
+        // Error handling delegated to GlobalExceptionHandler
+    }
+    /**
+     * Check if email is available for registration.
+     */
+    @GetMapping("/check-email")
+    public Mono<ResponseEntity<ApiResponse<Boolean>>> checkEmailAvailability(
+            @RequestParam String email) {
+
+        return firebaseServiceAuth.checkEmailAvailability(email)
+                .map(available -> ResponseEntity.ok(new ApiResponse<>(
+                        true,
+                        available ? "Email is available" : "Email is already registered",
+                        available
+                )));
+
+        // Error handling delegated to GlobalExceptionHandler
+    }
+
+    // ============================================================================
+    // PRIVATE HELPER METHODS
+    // ============================================================================
+
+    /**
+     * Handles successful login by checking email verification status.
+     */
+    private Mono<ResponseEntity<AuthResponse>> handleLoginResult(
+            AuthResult authResult,
+            String email,
+            String ipAddress,
+            String deviceFingerprint) {
+
+        // Check if email is verified
+        if (!authResult.getUser().isEmailVerified()) {
+            return handleUnverifiedEmail(authResult.getUser(), ipAddress);
+        }
+
+        // Build success response
+        return Mono.just(loginResponseBuilder.buildSuccessResponse(authResult));
+    }
+
+    /**
+     * Handles login attempt with unverified email.
+     */
+    private Mono<ResponseEntity<AuthResponse>> handleUnverifiedEmail(User user, String ipAddress) {
+        log.warn("Login attempt with unverified email: {}", maskEmail(user.getEmail()));
+
+        return authService.resendVerificationEmail(user.getEmail(), ipAddress)
+                .then(Mono.just(ResponseEntity
+                        .status(HttpStatus.FORBIDDEN)
+                        .body(AuthResponse.builder()
+                                .success(false)
+                                .message("Email not verified")
+                                .warning("Please verify your email address before logging in. " +
+                                        "A new verification link has been sent to your email.")
+                                .build())
+                ))
                 .onErrorResume(e -> {
-                    logger.error("❌ Unexpected login error for {}: {}", loginRequest.getEmail(), e.getMessage(), e);
-
+                    // If resend fails, still inform user about verification requirement
+                    log.error("Failed to resend verification email: {}", e.getMessage());
                     return Mono.just(ResponseEntity
-                            .status(HttpStatus.INTERNAL_SERVER_ERROR)
+                            .status(HttpStatus.FORBIDDEN)
                             .body(AuthResponse.builder()
-                                    .message("Login error")
-                                    .warning("An unexpected error occurred. Please try again.")
-                                    .timestamp(new Date())
-                                    .build()));
+                                    .success(false)
+                                    .message("Email not verified")
+                                    .warning("Please verify your email address before logging in. " +
+                                            "Check your inbox for the verification link.")
+                                    .build())
+                    );
                 });
     }
-    private Mono<ResponseEntity<AuthResponse>> handleLoginSuccess(AuthResult authResult, String ipAddress, String deviceFingerprint, String userAgent) {
-        AuthResponse.UserInfo userInfo = AuthResponse.UserInfo.builder()
-                .userId(authResult.getUser().getId())
-                .email(authResult.getUser().getEmail())
-                .firstName(authResult.getUser().getFirstName())
-                .lastName(authResult.getUser().getLastName())
-                //.MfaRequired(authResult.getUser().isMfaRequired())
-                .profileImageUrl(authResult.getUser().getProfilePictureUrl())
-                .build();
 
-        List<String> resolved = permissionProvider.resolveEffectivePermission(authResult.getUser()).stream().toList();
-        List<Permissions> permissions = permissionProvider.deserializePermissions(resolved);
-
-        AuthResponse response = AuthResponse.builder()
-                .accessToken(authResult.getAccessToken())
-                .refreshToken(authResult.getRefreshToken())
-                .accessTokenExpiry(authResult.getAccessTokenExpiry())
-                .refreshTokenExpiry(authResult.getRefreshTokenExpiry())
-                .user(userInfo)
-                .permissions(permissions)
-                .build();
-
-        return Mono.just(ResponseEntity.ok()
-                .header(HttpHeaders.AUTHORIZATION, response.getAccessToken())
-                .body(response));
-    }
-
-    private String getClientIp(WebRequest request) {
-        if (request instanceof ServletWebRequest servletWebRequest) {
-            HttpServletRequest servletRequest = servletWebRequest.getRequest();
-            return servletRequest.getRemoteAddr(); // ✅ Correctly extracts IP address
+    /**
+     * Extracts client IP from WebRequest.
+     */
+    private String extractClientIp(WebRequest request) {
+        String xForwardedFor = request.getHeader("X-Forwarded-For");
+        if (xForwardedFor != null && !xForwardedFor.isEmpty()) {
+            return xForwardedFor.split(",")[0].trim();
         }
         return "UNKNOWN";
     }
 
+    /**
+     * Extracts JWT token from Authorization header.
+     */
     private String extractToken(String authHeader) {
         return authHeader.startsWith("Bearer ") ? authHeader.substring(7) : authHeader;
     }
 
-    @PostMapping("/resend-email-verification")
-    public Mono<ResponseEntity<Object>> resendVerificationEmail(
-            @RequestParam String userId,
-            @RequestHeader("X-Forwarded-For") String ipAddress) {
-
-        return emailService.sendVerificationEmail(userId, ipAddress)
-                .thenReturn(ResponseEntity.ok().build())
-                .onErrorResume(e -> {
-                    if (e instanceof EmailAlreadyVerifiedException) {
-                        return Mono.just(ResponseEntity.status(HttpStatus.CONFLICT).build());
-                    }
-                    return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());
-                });
+    /**
+     * Masks email for logging (GDPR compliance).
+     */
+    private String maskEmail(String email) {
+        if (email == null || !email.contains("@")) {
+            return "unknown";
+        }
+        return email.replaceAll("@.*", "@***");
     }
 
 }

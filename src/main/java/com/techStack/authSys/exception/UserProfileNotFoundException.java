@@ -1,8 +1,9 @@
 package com.techStack.authSys.exception;
 
+import org.springframework.http.HttpStatus;
 
-public class UserProfileNotFoundException extends RuntimeException {
+public class UserProfileNotFoundException extends CustomException {
     public UserProfileNotFoundException(String message) {
-        super(message);
+        super(HttpStatus.NOT_FOUND, message);
     }
 }

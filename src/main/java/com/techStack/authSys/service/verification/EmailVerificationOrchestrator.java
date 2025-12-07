@@ -1,0 +1,123 @@
+package com.techStack.authSys.service.verification;
+
+import com.google.cloud.firestore.DocumentReference;
+import com.google.cloud.firestore.Firestore;
+import com.techStack.authSys.config.AppConfig;
+import com.techStack.authSys.exception.CustomException;
+import com.techStack.authSys.models.ActionType;
+import com.techStack.authSys.models.User;
+import com.techStack.authSys.service.AuditLogService;
+import com.techStack.authSys.service.EmailServiceInstance1;
+import com.techStack.authSys.service.EncryptionService;
+import com.techStack.authSys.service.JwtService;
+import com.techStack.authSys.util.FirestoreUtil;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
+
+import java.time.Duration;
+import java.time.Instant;
+import java.util.HashMap;
+import java.util.Map;
+
+/**
+ * Orchestrates email verification workflows.
+ * Handles token generation, email sending, and token storage.
+ */
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class EmailVerificationOrchestrator {
+
+    private static final String COLLECTION_USERS = "users";
+    private static final String FIELD_VERIFICATION_TOKEN_HASH = "verificationTokenHash";
+    private static final String FIELD_TOKEN_EXPIRES_AT = "verificationTokenExpiresAt";
+    private static final Duration TOKEN_EXPIRY = Duration.ofHours(24);
+
+    private final JwtService jwtService;
+    private final EmailServiceInstance1 emailService;
+    private final EncryptionService encryptionService;
+    private final AuditLogService auditLogService;
+    private final Firestore firestore;
+    private final AppConfig appConfig;
+
+    /**
+     * Sends verification email with graceful error handling.
+     * Registration continues even if email fails.
+     */
+    public Mono<User> sendVerificationEmailSafely(User user, String ipAddress) {
+        return sendVerificationEmail(user, ipAddress)
+                .onErrorResume(e -> {
+                    log.warn("Verification email failed for {}: {}",
+                            user.getEmail(), e.getMessage());
+                    log.debug("Full error details:", e);
+
+                    auditLogService.logAudit(user, ActionType.EMAIL_FAILURE,
+                            "Verification email failed", e.getMessage());
+
+                    // Don't block registration - user can resend later
+                    return Mono.just(user);
+                })
+                .doOnSuccess(u -> log.info("Verification email process completed for: {}",
+                        u.getEmail()));
+    }
+
+    /**
+     * Generates token, sends email, and stores hashed token.
+     */
+    private Mono<User> sendVerificationEmail(User user, String ipAddress) {
+        return jwtService.generateEmailVerificationToken(user.getId(), user.getEmail(), ipAddress)
+                .flatMap(token -> {
+                    String hashedToken = encryptionService.hashToken(token);
+                    String verificationLink = buildVerificationLink(token);
+
+                    // Send email and store token in parallel
+                    Mono<Void> emailMono = sendEmail(user.getEmail(), verificationLink);
+                    Mono<Void> storeMono = storeVerificationToken(user.getId(), hashedToken);
+
+                    return emailMono
+                            .then(storeMono)
+                            .thenReturn(user);
+                })
+                .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    /**
+     * Sends verification email to user.
+     */
+    private Mono<Void> sendEmail(String email, String verificationLink) {
+        return emailService.sendVerificationEmail(email, verificationLink)
+                .doOnSuccess(__ -> log.info("✅ Sent verification email to {}", email))
+                .doOnError(e -> log.error("❌ Failed to send email to {}: {}",
+                        email, e.getMessage()));
+    }
+
+    /**
+     * Stores hashed verification token in Firestore.
+     */
+    private Mono<Void> storeVerificationToken(String userId, String hashedToken) {
+        Map<String, Object> updateData = new HashMap<>();
+        updateData.put(FIELD_VERIFICATION_TOKEN_HASH, hashedToken);
+        updateData.put(FIELD_TOKEN_EXPIRES_AT, Instant.now().plus(TOKEN_EXPIRY));
+
+        DocumentReference userDoc = firestore.collection(COLLECTION_USERS).document(userId);
+
+        return Mono.fromFuture(() ->
+                        FirestoreUtil.toCompletableFuture(userDoc.update(updateData))
+                )
+                .doOnSuccess(__ -> log.info("✅ Stored verification token for user: {}", userId))
+                .doOnError(e -> log.error("❌ Failed to store token for user: {}", userId, e))
+                .then();
+    }
+
+    /**
+     * Builds verification link with token.
+     */
+    private String buildVerificationLink(String token) {
+        return String.format("%s/api/auth/verify-email?token=%s",
+                appConfig.getBaseUrl(), token);
+    }
+}

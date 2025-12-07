@@ -1,11 +1,13 @@
 package com.techStack.authSys.exception;
 
-public class ServiceException extends RuntimeException {
+import org.springframework.http.HttpStatus;
+
+public class ServiceException extends CustomException {
     public ServiceException(String message) {
-        super(message);
+        super(HttpStatus.INTERNAL_SERVER_ERROR, message);
     }
 
     public ServiceException(String message, Throwable cause) {
-        super(message, cause);
+        super(HttpStatus.INTERNAL_SERVER_ERROR, message, cause);
     }
 }

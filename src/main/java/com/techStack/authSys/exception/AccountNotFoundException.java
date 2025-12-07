@@ -1,7 +1,9 @@
 package com.techStack.authSys.exception;
 
-public class AccountNotFoundException extends RuntimeException {
+import org.springframework.http.HttpStatus;
+
+public class AccountNotFoundException extends CustomException {
     public AccountNotFoundException(String message) {
-        super(message);
+        super(HttpStatus.NOT_FOUND, message);
     }
 }

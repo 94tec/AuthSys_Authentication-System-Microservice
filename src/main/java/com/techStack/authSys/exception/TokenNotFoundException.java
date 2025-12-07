@@ -1,7 +1,9 @@
 package com.techStack.authSys.exception;
 
-public  class TokenNotFoundException extends RuntimeException {
+import org.springframework.http.HttpStatus;
+
+public class TokenNotFoundException extends CustomException {
     public TokenNotFoundException(String message) {
-        super(message);
+        super(HttpStatus.NOT_FOUND, message);
     }
 }

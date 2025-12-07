@@ -14,11 +14,6 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.concurrent.ExecutionException;
 
 @Slf4j
 @Service
@@ -32,7 +27,6 @@ public class RateLimiterServiceImpl implements RateLimiterService {
     private final Firestore firestore;
     private final AuditLogService auditLogService;
     private final GeoLocationService geoLocationService;
-    private final JwtService jwtService;
     private final CacheService cacheService;
     private final BlacklistService blacklistService;
 

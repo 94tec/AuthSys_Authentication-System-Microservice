@@ -1,7 +1,13 @@
 package com.techStack.authSys.exception;
 
-public class AccountDisabledException extends RuntimeException {
+import org.springframework.http.HttpStatus;
+
+public class AccountDisabledException extends CustomException {
     public AccountDisabledException(String message) {
-        super(message);
+        super(HttpStatus.FORBIDDEN, message);
+    }
+
+    public AccountDisabledException(String message, Throwable cause) {
+        super(HttpStatus.FORBIDDEN, message, cause);
     }
 }

@@ -1,6 +1,8 @@
 package com.techStack.authSys.models;
 
+import lombok.Getter;
 
+@Getter
 public class TokenPair {
     private final String accessToken;
     private final String refreshToken;
@@ -10,12 +12,5 @@ public class TokenPair {
         this.refreshToken = refreshToken;
     }
 
-    public String getAccessToken() {
-        return accessToken;
-    }
-
-    public String getRefreshToken() {
-        return refreshToken;
-    }
 }
 

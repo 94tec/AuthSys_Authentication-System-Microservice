@@ -1,11 +1,13 @@
 package com.techStack.authSys.models;
 
 import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Getter;
 
 import java.time.Instant;
 import java.util.Date;
 
+@Builder
 public record TokenClaims(
         String userId,
         String email,

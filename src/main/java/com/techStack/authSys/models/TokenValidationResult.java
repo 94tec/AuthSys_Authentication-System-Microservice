@@ -1,8 +1,11 @@
 package com.techStack.authSys.models;
 
+import lombok.Builder;
+
 import java.time.Instant;
 import java.util.List;
 
+@Builder
 public class TokenValidationResult {
     private final String subject;
     private final String userId;

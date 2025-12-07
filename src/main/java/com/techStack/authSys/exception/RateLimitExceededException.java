@@ -1,10 +1,12 @@
 package com.techStack.authSys.exception;
 
+import lombok.Getter;
 import org.springframework.http.HttpStatus;
 
 /**
  * Rate limit exceeded exception
  */
+@Getter
 public class RateLimitExceededException extends CustomException {
     private final int retryAfterMinutes;
 
@@ -14,7 +16,4 @@ public class RateLimitExceededException extends CustomException {
         this.retryAfterMinutes = retryAfterMinutes;
     }
 
-    public int getRetryAfterMinutes() {
-        return retryAfterMinutes;
-    }
 }

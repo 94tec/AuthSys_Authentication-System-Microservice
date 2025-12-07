@@ -1,11 +1,13 @@
 package com.techStack.authSys.exception;
 
-public class InvalidTokenException extends RuntimeException {
+import org.springframework.http.HttpStatus;
+
+public class InvalidTokenException extends CustomException {
     public InvalidTokenException(String message) {
-        super(message);
+        super(HttpStatus.UNAUTHORIZED, message);
     }
 
     public InvalidTokenException(String message, Throwable cause) {
-        super(message, cause);
+        super(HttpStatus.UNAUTHORIZED, message, cause);
     }
 }

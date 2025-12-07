@@ -1,5 +1,9 @@
 package com.techStack.authSys.exception;
 
-public class TokenGenerationException extends RuntimeException {
-    public TokenGenerationException(String message, Throwable cause) { super(message, cause); }
+import org.springframework.http.HttpStatus;
+
+public class TokenGenerationException extends CustomException {
+    public TokenGenerationException(String message, Throwable cause) {
+        super(HttpStatus.INTERNAL_SERVER_ERROR, message, cause);
+    }
 }

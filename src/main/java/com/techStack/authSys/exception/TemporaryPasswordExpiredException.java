@@ -1,7 +1,9 @@
 package com.techStack.authSys.exception;
 
-public class TemporaryPasswordExpiredException extends RuntimeException {
+import org.springframework.http.HttpStatus;
+
+public class TemporaryPasswordExpiredException extends CustomException {
     public TemporaryPasswordExpiredException(String message) {
-        super(message);
+        super(HttpStatus.UNAUTHORIZED, message);
     }
 }

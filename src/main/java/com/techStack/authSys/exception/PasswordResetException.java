@@ -1,7 +1,9 @@
 package com.techStack.authSys.exception;
 
-public class PasswordResetException extends RuntimeException {
+import org.springframework.http.HttpStatus;
+
+public class PasswordResetException extends CustomException {
     public PasswordResetException(String message) {
-        super(message);
+        super(HttpStatus.BAD_REQUEST, message);
     }
 }

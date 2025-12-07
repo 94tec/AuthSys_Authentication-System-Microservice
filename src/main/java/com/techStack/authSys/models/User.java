@@ -85,8 +85,6 @@ public class User implements UserDetails {
     private String deviceFingerprint;
 
     // Approval tracking fields
-    //private String approvalLevel;      // ApprovalLevel enum as string
-    //private Instant approvedAt;        // When was account approved
     private RoleAssignmentService.ApprovalLevel approvalLevel; // <--- FIX: Use the actual enum type
     private Instant approvedAt;
     private String approvedBy;         // Who approved (admin email/id)

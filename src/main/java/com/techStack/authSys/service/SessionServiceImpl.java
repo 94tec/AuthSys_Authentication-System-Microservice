@@ -35,36 +35,36 @@ public class SessionServiceImpl implements RateLimiterService.SessionService {
 
     private final ReactiveRedisTemplate<String, SessionRecord> redisTemplate;
     private final ReactiveRedisTemplate<String, SessionRecord> sessionRecordRedisTemplate;
-
     private final Firestore firestore;
-    private final JwtService jwtService;
     private final SessionExpirationService sessionExpirationService;
-
     private final AuditLogService auditLogService;
 
+    // ✅ STEP 3: Removed JwtService dependency
     @Autowired
     public SessionServiceImpl(ReactiveRedisTemplate<String, SessionRecord> redisTemplate,
                               ReactiveRedisTemplate<String, SessionRecord> sessionRecordRedisTemplate,
                               Firestore firestore,
-                              JwtService jwtService,
                               SessionExpirationService sessionExpirationService,
                               AuditLogService auditLogService) {
         this.redisTemplate = redisTemplate;
         this.sessionRecordRedisTemplate = sessionRecordRedisTemplate;
         this.firestore = firestore;
-        this.jwtService = jwtService;
         this.sessionExpirationService = sessionExpirationService;
         this.auditLogService = auditLogService;
     }
 
+    // ✅ Modified to accept token expiry times as parameters instead of calling jwtService
     @Override
     public Mono<Void> createSession(String userId, String sessionId, String ipAddress,
                                     String deviceFingerprint, String accessToken,
                                     String refreshToken, Instant lastActivity,
-                                    Timestamp firestoreExpiresAt) {
+                                    Timestamp firestoreExpiresAt,
+                                    Instant accessTokenExpiry,
+                                    Instant refreshTokenExpiry) {
 
         return buildSession(sessionId, userId, ipAddress, deviceFingerprint,
-                accessToken, refreshToken, lastActivity, firestoreExpiresAt)
+                accessToken, refreshToken, lastActivity, firestoreExpiresAt,
+                accessTokenExpiry, refreshTokenExpiry)
                 .flatMap(session -> Mono.fromFuture(
                         FirestoreUtil.toCompletableFuture(
                                 firestore.collection("sessions")
@@ -90,29 +90,28 @@ public class SessionServiceImpl implements RateLimiterService.SessionService {
                 .then();
     }
 
+    // ✅ Modified to accept token expiry times as parameters
     public Mono<Session> buildSession(String sessionId, String userId, String ipAddress,
                                       String deviceFingerprint, String accessToken,
                                       String refreshToken, Instant lastActivity,
-                                      Timestamp firestoreExpiresAt) {
-        return Mono.zip(
-                        jwtService.getAccessTokenExpiry(accessToken),
-                        jwtService.getRefreshTokenExpiry(refreshToken)
-                )
-                .map(tuple -> Session.builder()
-                        .id(sessionId)
-                        .userId(userId)
-                        .ipAddress(ipAddress)
-                        .deviceFingerprint(deviceFingerprint)
-                        .accessToken(accessToken)
-                        .refreshToken(refreshToken)
-                        .createdAt(Instant.now())
-                        .accessTokenExpiry(tuple.getT1())  // Access token expiry from Mono
-                        .refreshTokenExpiry(tuple.getT2()) // Refresh token expiry from Mono
-                        .status(SessionStatus.ACTIVE)
-                        .lastActivity(lastActivity)
-                        .firestoreExpiresAt(firestoreExpiresAt)
-                        .build()
-                );
+                                      Timestamp firestoreExpiresAt,
+                                      Instant accessTokenExpiry,
+                                      Instant refreshTokenExpiry) {
+        return Mono.just(Session.builder()
+                .id(sessionId)
+                .userId(userId)
+                .ipAddress(ipAddress)
+                .deviceFingerprint(deviceFingerprint)
+                .accessToken(accessToken)
+                .refreshToken(refreshToken)
+                .createdAt(Instant.now())
+                .accessTokenExpiry(accessTokenExpiry)
+                .refreshTokenExpiry(refreshTokenExpiry)
+                .status(SessionStatus.ACTIVE)
+                .lastActivity(lastActivity)
+                .firestoreExpiresAt(firestoreExpiresAt)
+                .build()
+        );
     }
 
     @Override
@@ -152,6 +151,7 @@ public class SessionServiceImpl implements RateLimiterService.SessionService {
                 .doOnSuccess(v -> log.info("Invalidated sessions for user {}", userId))
                 .doOnError(e -> log.error("Failed to invalidate sessions for user {}", userId, e));
     }
+
     @Override
     public Mono<Void> invalidateUserSessions(String userId) {
         String pattern = "session:user:" + userId + ":*";
@@ -205,7 +205,7 @@ public class SessionServiceImpl implements RateLimiterService.SessionService {
                                         .whereEqualTo("userId", userId)
                                         .whereEqualTo("accessToken", accessToken)
                                         .whereEqualTo("status", SessionStatus.ACTIVE)
-                                        .whereGreaterThan("accessTokenExpiry", Timestamp.now()) // Fix: Use Firestore Timestamp
+                                        .whereGreaterThan("accessTokenExpiry", Timestamp.now())
                                         .limit(1)
                                         .get()
                         )
@@ -219,6 +219,7 @@ public class SessionServiceImpl implements RateLimiterService.SessionService {
                     return Mono.just(true);
                 });
     }
+
     @Override
     public Flux<SessionRecord> getActiveSessionsCached(String userId) {
         String redisKey = "active_sessions:" + userId;
@@ -249,6 +250,7 @@ public class SessionServiceImpl implements RateLimiterService.SessionService {
                     return Flux.empty();
                 });
     }
+
     @Override
     public Mono<List<SessionRecord>> fetchActiveSessionsFromFirestore(String userId) {
         return FirestoreUtils.apiFutureToMono(
@@ -265,8 +267,9 @@ public class SessionServiceImpl implements RateLimiterService.SessionService {
 
     private String mask(String value) {
         if (value == null || value.length() < 6) return "***";
-        return STR."\{value.substring(0, 2)}***\{value.substring(value.length() - 2)}";
+        return value.substring(0, 2) + "***" + value.substring(value.length() - 2);
     }
+
     private String maskIp(String ip) {
         if (ip == null || ip.isBlank()) return "x.x.x.x";
         return ip.replaceAll("\\b(\\d{1,3})\\.(\\d{1,3})\\..*", "$1.$2.xxx.xxx");
@@ -274,7 +277,7 @@ public class SessionServiceImpl implements RateLimiterService.SessionService {
 
     private String maskDevice(String device) {
         if (device == null || device.length() < 5) return "****";
-        return STR."\{device.substring(0, 3)}***\{device.substring(device.length() - 2)}";
+        return device.substring(0, 3) + "***" + device.substring(device.length() - 2);
     }
 
     private Mono<Void> fallbackAuditLog(String userId, Throwable ex) {
@@ -285,22 +288,81 @@ public class SessionServiceImpl implements RateLimiterService.SessionService {
         );
         return auditLogService.logEventLog(event)
                 .doOnError(err -> log.warn("Failed to log fallback audit event for userId={}", userId, err))
-                .onErrorResume(err -> Mono.empty()); // Prevent cascade failure
+                .onErrorResume(err -> Mono.empty());
     }
 
     @Override
     public Mono<Void> updateSessionTokens(String userId, String newAccessToken, String newRefreshToken, String ipAddress) {
-        return null;
+        return Mono.fromFuture(
+                        FirestoreUtil.toCompletableFuture(
+                                firestore.collection("sessions")
+                                        .whereEqualTo("userId", userId)
+                                        .whereEqualTo("ipAddress", ipAddress)
+                                        .whereEqualTo("status", SessionStatus.ACTIVE)
+                                        .limit(1)
+                                        .get()
+                        )
+                )
+                .flatMap(querySnapshot -> {
+                    if (querySnapshot.isEmpty()) {
+                        log.warn("No active session found for user {} with IP {}", userId, ipAddress);
+                        return Mono.empty();
+                    }
+
+                    DocumentSnapshot doc = querySnapshot.getDocuments().get(0);
+                    return Mono.fromFuture(
+                            FirestoreUtil.toCompletableFuture(
+                                    doc.getReference().update(
+                                            "accessToken", newAccessToken,
+                                            "refreshToken", newRefreshToken,
+                                            "lastActivity", Instant.now()
+                                    )
+                            )
+                    );
+                })
+                .doOnSuccess(v -> log.info("Updated session tokens for user {}", userId))
+                .doOnError(e -> log.error("Failed to update session tokens for user {}", userId, e))
+                .then();
     }
 
     @Override
     public Mono<Void> recordSessionActivity(String sessionId) {
-        return null;
+        return Mono.fromFuture(
+                        FirestoreUtil.toCompletableFuture(
+                                firestore.collection("sessions")
+                                        .document(sessionId)
+                                        .update("lastActivity", Instant.now())
+                        )
+                )
+                .doOnSuccess(v -> log.debug("Recorded activity for session {}", sessionId))
+                .doOnError(e -> log.error("Failed to record activity for session {}", sessionId, e))
+                .then();
     }
 
     @Override
     public Mono<Void> cleanupAfterBlacklistRemoval(String encryptedIp) {
-        return null;
-    }
+        return Mono.fromFuture(
+                        FirestoreUtil.toCompletableFuture(
+                                firestore.collection("sessions")
+                                        .whereEqualTo("ipAddress", encryptedIp)
+                                        .whereEqualTo("status", SessionStatus.BLOCKED)
+                                        .get()
+                        )
+                )
+                .flatMap(querySnapshot -> {
+                    if (querySnapshot.isEmpty()) {
+                        return Mono.empty();
+                    }
 
+                    WriteBatch batch = firestore.batch();
+                    querySnapshot.getDocuments().forEach(doc ->
+                            batch.update(doc.getReference(), "status", SessionStatus.INVALIDATED)
+                    );
+
+                    return Mono.fromFuture(FirestoreUtil.toCompletableFuture(batch.commit()));
+                })
+                .doOnSuccess(v -> log.info("Cleaned up sessions for unblacklisted IP {}", encryptedIp))
+                .doOnError(e -> log.error("Failed to cleanup sessions for IP {}", encryptedIp, e))
+                .then();
+    }
 }

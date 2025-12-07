@@ -1,7 +1,17 @@
 package com.techStack.authSys.exception;
 
-public class AuthenticationException extends RuntimeException {
+import org.springframework.http.HttpStatus; // 💡 Need to import HttpStatus
+
+public class AuthenticationException extends CustomException {
+
+    /**
+     * Constructor for an authentication failure exception.
+     * Sets the HTTP status to 401 (UNAUTHORIZED).
+     *
+     * @param message The user-facing message (e.g., "Invalid credentials").
+     */
     public AuthenticationException(String message) {
-        super(message);
+        // 🟢 FIX: Pass the 401 UNAUTHORIZED status to the parent constructor.
+        super(HttpStatus.UNAUTHORIZED, message);
     }
 }

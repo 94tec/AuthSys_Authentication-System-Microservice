@@ -1,7 +1,9 @@
 package com.techStack.authSys.exception;
 
-public class PasswordMismatchException extends RuntimeException {
+import org.springframework.http.HttpStatus;
+
+public class PasswordMismatchException extends CustomException {
     public PasswordMismatchException(String message) {
-        super(message);
+        super(HttpStatus.BAD_REQUEST, message);
     }
 }

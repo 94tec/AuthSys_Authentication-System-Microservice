@@ -17,7 +17,8 @@ public interface RateLimiterService {
     interface SessionService {
 
         Mono<Void> createSession(String userId, String sessionId, String ipAddress, String deviceFingerprint,
-                                 String accessToken, String refreshToken, Instant lastActivity, Timestamp firestoreExpiresAt);
+                                 String accessToken, String refreshToken, Instant lastActivity, Timestamp firestoreExpiresAt,
+                                 Instant accessTokenExpiry, Instant refreshTokenExpiry);
 
         Mono<Void> invalidateSession(Object userId, String ipAddress);
 

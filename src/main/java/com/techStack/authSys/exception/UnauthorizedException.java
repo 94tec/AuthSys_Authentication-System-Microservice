@@ -2,12 +2,12 @@ package com.techStack.authSys.exception;
 
 import org.springframework.http.HttpStatus;
 
-public class UnauthorizedException extends RuntimeException {
-    public UnauthorizedException(HttpStatus status, String message) {
-        super();
-    }
-    public UnauthorizedException(HttpStatus status, String message, Throwable cause) {
-        super();
+public class UnauthorizedException extends CustomException {
+    public UnauthorizedException(String message) {
+        super(HttpStatus.UNAUTHORIZED, message);
     }
 
+    public UnauthorizedException(String message, Throwable cause) {
+        super(HttpStatus.UNAUTHORIZED, message, cause);
+    }
 }

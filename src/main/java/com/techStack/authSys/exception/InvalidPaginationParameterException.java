@@ -1,7 +1,9 @@
 package com.techStack.authSys.exception;
 
-public class InvalidPaginationParameterException extends RuntimeException {
+import org.springframework.http.HttpStatus;
+
+public class InvalidPaginationParameterException extends CustomException {
     public InvalidPaginationParameterException(String message) {
-        super(message);
+        super(HttpStatus.BAD_REQUEST, message);
     }
 }

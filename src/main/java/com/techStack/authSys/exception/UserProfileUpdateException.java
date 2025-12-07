@@ -1,7 +1,9 @@
 package com.techStack.authSys.exception;
 
-public class UserProfileUpdateException extends RuntimeException {
+import org.springframework.http.HttpStatus;
+
+public class UserProfileUpdateException extends CustomException {
     public UserProfileUpdateException(String message) {
-        super(message);
+        super(HttpStatus.INTERNAL_SERVER_ERROR, message);
     }
 }

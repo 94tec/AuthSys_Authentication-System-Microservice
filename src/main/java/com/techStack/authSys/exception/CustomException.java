@@ -49,4 +49,5 @@ public class CustomException extends RuntimeException {
                 ", message='" + getMessage() + '\'' +
                 '}';
     }
+
 }

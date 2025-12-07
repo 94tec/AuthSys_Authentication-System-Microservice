@@ -1,7 +1,9 @@
 package com.techStack.authSys.exception;
 
-public class InvalidUserIdException extends RuntimeException {
+import org.springframework.http.HttpStatus;
+
+public class InvalidUserIdException extends CustomException {
     public InvalidUserIdException(String message) {
-        super(message);
+        super(HttpStatus.BAD_REQUEST, message);
     }
 }

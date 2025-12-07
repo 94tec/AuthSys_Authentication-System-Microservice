@@ -122,13 +122,14 @@ public class DeviceVerificationService {
         }
     }
     /**
-     * Extracts and validates client IP from request
+     * Safely extracts the real client IP address from ServerWebExchange.
+     * Prefers X-Forwarded-For, falls back to remote address.
      */
     public String extractClientIp(ServerWebExchange exchange) {
         try {
             ServerHttpRequest request = exchange.getRequest();
 
-            // Check X-Forwarded-For header first
+            // 1) Check X-Forwarded-For header
             String forwardedIps = request.getHeaders().getFirst("X-Forwarded-For");
             logger.info("X-Forwarded-For: {}", forwardedIps);
 
@@ -137,28 +138,29 @@ public class DeviceVerificationService {
                 for (String ip : ips) {
                     String cleanIp = ip.trim();
                     if (isValidIp(cleanIp)) {
-                        String normalizedIp = normalizeIp(cleanIp);
-                        logger.info("Resolved client IP from X-Forwarded-For: {}", normalizedIp);
-                        return normalizedIp;
+                        String normalized = normalizeIp(cleanIp);
+                        logger.info("Resolved client IP from X-Forwarded-For: {}", normalized);
+                        return normalized;
                     }
                 }
             }
 
-            // Fallback to remote address
-            InetSocketAddress remoteAddress = request.getRemoteAddress();
-            if (remoteAddress != null && remoteAddress.getAddress() != null) {
-                String ip = remoteAddress.getAddress().getHostAddress();
-                String normalizedIp = normalizeIp(ip);
-                logger.info("Resolved client IP from remote address: {}", normalizedIp);
-                return normalizedIp;
+            // 2) Fall back to remote address
+            InetSocketAddress remote = request.getRemoteAddress();
+            if (remote != null && remote.getAddress() != null) {
+                String ip = remote.getAddress().getHostAddress();
+                String normalized = normalizeIp(ip);
+
+                logger.info("Resolved client IP from remote address: {}", normalized);
+                return normalized;
             }
 
-            // Default fallback
-            logger.warn("Could not resolve client IP, returning fallback IP.");
+            // 3) Last fallback
+            logger.warn("Could not resolve client IP, returning fallback.");
             return FALLBACK_IP;
 
-        } catch (Exception e) {
-            logger.warn("IP extraction failed", e);
+        } catch (Exception ex) {
+            logger.warn("IP extraction failed", ex);
             return FALLBACK_IP;
         }
     }

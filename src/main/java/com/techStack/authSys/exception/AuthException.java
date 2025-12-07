@@ -8,40 +8,42 @@ import java.time.LocalDateTime;
 import java.util.Date;
 
 @Getter
-public class AuthException extends RuntimeException {
+public class AuthException extends CustomException {
 
-    private final HttpStatus status;
     private final Instant timestamp;
     private final String errorCode;
 
     // Basic constructor
     public AuthException(String message, HttpStatus status) {
-        super(message);
-        this.status = status;
+        super(status, message);
         this.timestamp = Instant.now();
         this.errorCode = generateErrorCode(status);
     }
 
     // Constructor with cause
     public AuthException(String message, Throwable cause, HttpStatus status) {
-        super(message, cause);
-        this.status = status;
+        super(status, message, cause);
         this.timestamp = Instant.now();
         this.errorCode = generateErrorCode(status);
     }
 
     // Constructor with custom error code
     public AuthException(String message, HttpStatus status, String errorCode) {
-        super(message);
-        this.status = status;
+        super(status, message);
         this.timestamp = Instant.now();
         this.errorCode = errorCode;
     }
 
     // Full constructor
     public AuthException(String message, Throwable cause, HttpStatus status, String errorCode) {
-        super(message, cause);
-        this.status = status;
+        super(status, message, cause);
+        this.timestamp = Instant.now();
+        this.errorCode = errorCode;
+    }
+
+    // Constructor with field and code for detailed validation errors
+    public AuthException(String message, HttpStatus status, String field, String errorCode) {
+        super(status, message, field, errorCode);
         this.timestamp = Instant.now();
         this.errorCode = errorCode;
     }
@@ -116,6 +118,24 @@ public class AuthException extends RuntimeException {
         );
     }
 
+    public static AuthException invalidCredentialsWithField() {
+        return new AuthException(
+                "Invalid email or password",
+                HttpStatus.UNAUTHORIZED,
+                "password", // field name
+                "AUTH_009"
+        );
+    }
+
+    public static AuthException weakPassword() {
+        return new AuthException(
+                "Password does not meet security requirements",
+                HttpStatus.BAD_REQUEST,
+                "password",
+                "AUTH_010"
+        );
+    }
+
     // Convenience method to get timestamp as Date (for compatibility)
     public Date getTimestampAsDate() {
         return Date.from(timestamp);
@@ -130,7 +150,7 @@ public class AuthException extends RuntimeException {
     public String toString() {
         return String.format(
                 "AuthException{status=%s, errorCode=%s, message=%s, timestamp=%s}",
-                status, errorCode, getMessage(), timestamp
+                getStatus(), errorCode, getMessage(), timestamp
         );
     }
 }

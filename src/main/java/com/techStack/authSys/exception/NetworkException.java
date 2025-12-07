@@ -1,12 +1,13 @@
 package com.techStack.authSys.exception;
 
-public class NetworkException extends RuntimeException {
+import org.springframework.http.HttpStatus;
+
+public class NetworkException extends CustomException {
     public NetworkException(String message) {
-        super(message);
+        super(HttpStatus.SERVICE_UNAVAILABLE, message);
     }
 
     public NetworkException(String message, Throwable cause) {
-        super(message, cause);
+        super(HttpStatus.SERVICE_UNAVAILABLE, message, cause);
     }
 }
-

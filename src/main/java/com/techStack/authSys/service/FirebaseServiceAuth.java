@@ -40,7 +40,6 @@ import java.net.SocketException;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
@@ -63,8 +62,8 @@ public class FirebaseServiceAuth {
     private final FirebaseConfig firebaseConfig;
     private final MetricsService metricsService;
     private final RedisCacheService redisCacheService;
-    private final PermissionProvider permissionProvider;
     private final RoleAssignmentService roleAssignmentService;
+    private final PermissionProvider permissionProvider;
 
     @Autowired
     public FirebaseServiceAuth(Firestore firestore,
@@ -74,16 +73,16 @@ public class FirebaseServiceAuth {
                                FirebaseConfig firebaseConfig,
                                MetricsService metricsService,
                                RedisCacheService redisCacheService,
-                               PermissionProvider permissionProvider, RoleAssignmentService roleAssignmentService) {
+                               RoleAssignmentService roleAssignmentService, PermissionProvider permissionProvider) {
         this.firestore = firestore;
         this.encryptionService = encryptionService;
         this.firebaseAuth = firebaseAuth;
         this.deviceVerificationService = deviceVerificationService;
         this.firebaseConfig = firebaseConfig;
-        this.permissionProvider = permissionProvider;
         this.metricsService = metricsService;
         this.redisCacheService = redisCacheService;
         this.roleAssignmentService = roleAssignmentService;
+        this.permissionProvider = permissionProvider;
     }
     public Mono<User> createSuperAdmin(User user, String password) {
         UserRecord.CreateRequest request = new UserRecord.CreateRequest()
@@ -236,11 +235,11 @@ public class FirebaseServiceAuth {
 
                 // Build Password History
                 UserPasswordHistory userPasswordHistory = UserPasswordHistory.builder()
-                        .password(encryptionService.encrypt(user.getPassword()))
                         .userId(user.getId())
                         .createdAt(Instant.now())
                         .changedByIp(ipAddress)
                         .changedByUserAgent(user.getDeviceFingerprint())
+                        //.reason("ACCOUNT_CREATION")
                         .build();
 
                 // Batch write
@@ -675,7 +674,7 @@ public class FirebaseServiceAuth {
                         .limit(1)
                         .get()
         ).flatMap(apiFuture ->
-                Mono.fromFuture(toCompletableFuture(apiFuture))
+                Mono.fromFuture(FirestoreUtil.toCompletableFuture(apiFuture))
                         .subscribeOn(Schedulers.boundedElastic()) // Offload blocking
         ).flatMap(querySnapshot -> {
             if (querySnapshot.isEmpty()) {
@@ -691,7 +690,7 @@ public class FirebaseServiceAuth {
                                 .limit(1)
                                 .get()
                 ).flatMap(apiFuture ->
-                        Mono.fromFuture(toCompletableFuture(apiFuture))
+                        Mono.fromFuture(FirestoreUtil.toCompletableFuture(apiFuture))
                                 .subscribeOn(Schedulers.boundedElastic()) // Offload blocking
                 ).flatMap(querySnapshot -> {
                     if (querySnapshot.isEmpty()) {
@@ -713,7 +712,7 @@ public class FirebaseServiceAuth {
                                 .get()
                 )
                 .flatMap(apiFuture ->
-                        Mono.fromFuture(toCompletableFuture(apiFuture))
+                        Mono.fromFuture(FirestoreUtil.toCompletableFuture(apiFuture))
                                 .subscribeOn(Schedulers.boundedElastic()) // ✅ Offload Firestore I/O to boundedElastic
                 )
                 .flatMap(querySnapshot -> {
@@ -743,7 +742,7 @@ public class FirebaseServiceAuth {
                                 .get()
                 )
                 .flatMap(apiFuture ->
-                        Mono.fromFuture(toCompletableFuture(apiFuture))
+                        Mono.fromFuture(FirestoreUtil.toCompletableFuture(apiFuture))
                                 .subscribeOn(Schedulers.boundedElastic())
                 )
                 .flatMapMany(querySnapshot -> {
@@ -990,21 +989,5 @@ public class FirebaseServiceAuth {
                             logger.error("❌ Failed to update Firestore user {}: {}", user.getEmail(), e.getMessage()))
                     .thenReturn(user);
         }).subscribeOn(Schedulers.boundedElastic()).then();
-    }
-
-
-    private <T> CompletableFuture<T> toCompletableFuture(ApiFuture<T> apiFuture) {
-        CompletableFuture<T> completableFuture = new CompletableFuture<>();
-        apiFuture.addListener(
-                () -> {
-                    try {
-                        completableFuture.complete(apiFuture.get());
-                    } catch (Exception e) {
-                        completableFuture.completeExceptionally(e);
-                    }
-                },
-                Runnable::run
-        );
-        return completableFuture;
     }
 }

@@ -1,10 +1,12 @@
 package com.techStack.authSys.exception;
 
+import lombok.Getter;
 import org.springframework.http.HttpStatus;
 
 /**
  * Geolocation blocked exception
  */
+@Getter
 public class GeolocationBlockedException extends CustomException {
     private final String country;
 
@@ -14,7 +16,4 @@ public class GeolocationBlockedException extends CustomException {
         this.country = country;
     }
 
-    public String getCountry() {
-        return country;
-    }
 }

@@ -13,6 +13,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
+import java.time.Instant;
+
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -84,8 +86,15 @@ public class AccountStatusChecker {
             log.warn("Account is locked for user ID: {}. Login attempt blocked.", user.getId());
             auditLogService.logSecurityEvent("ACCOUNT_LOCKED_ACCESS_ATTEMPT", user.getId(),
                     "Attempted login to locked account");
-            return Mono.error(new AccountLockedException("Account temporarily locked"));
+            // 🟢 FIX: Provide the required 'lockoutMinutes' and 'unlockTime'
+            // These values should ideally come from the accountLockService
+            int minutes = 15; // Example value
+            Instant unlockTime = Instant.now().plusSeconds(minutes * 60);
+
+            return Mono.error(new AccountLockedException(minutes, unlockTime));
+            //return Mono.error(new AccountLockedException("Account temporarily locked, "));
         }
         return Mono.empty();
     }
+
 }

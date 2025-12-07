@@ -18,6 +18,7 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 public class AuthResponse {
+    private boolean success;
     private String accessToken;
     private String refreshToken;
 

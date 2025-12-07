@@ -229,40 +229,60 @@ public class SuperAdminService {
                 .doOnError(e -> firebaseServiceAuth.logAuthFailure(email, e));
     }
 
-    public Mono<AuthResult> generateAndPersistTokens(User user, String ipAddress, String deviceFingerprint, String userAgent) {
+    public Mono<AuthResult> generateAndPersistTokens(
+            User user,
+            String ipAddress,
+            String deviceFingerprint,
+            String userAgent
+    ) {
         Instant issuedAt = Instant.now();
         List<Roles> roleList = new ArrayList<>(user.getRoles());
-        return jwtService.generateTokenPair(user, ipAddress, userAgent)
-                .flatMap(tokens -> {
-                    String sessionId = UUID.randomUUID().toString();
-                    //Instant refreshExpiry = jwtService.getRefreshTokenExpiry();
-                    return jwtService.getRefreshTokenExpiry(tokens.getRefreshToken())
-                            .flatMap(refreshExpiry -> sessionService.createSession(
-                                            user.getId(),
-                                            sessionId,
-                                            ipAddress,
-                                            deviceFingerprint,
-                                            tokens.getAccessToken(),
-                                            tokens.getRefreshToken(),
-                                            issuedAt,
-                                            Timestamp.of(Date.from(refreshExpiry))
-                                    )
-                                    .thenReturn(new AuthResult(
-                                            user,
-                                            user.getId(),
-                                            sessionId,
-                                            tokens.getAccessToken(),
-                                            tokens.getRefreshToken(),
-                                            issuedAt,
-                                            refreshExpiry,
-                                            roleList,
-                                            user.isMfaRequired(),
-                                            user.getLoginAttempts(),
-                                            issuedAt
-                                    ))
-                            );
+        String sessionId = UUID.randomUUID().toString();
+
+        return jwtService.generateTokenPairWithExpiry(
+                        user,
+                        ipAddress,
+                        userAgent,
+                        (Set<String>) user.getPermissions()     // or derive from RoleAssignmentService
+                )
+                .flatMap(components -> {
+                    TokenPair tokens = new TokenPair(
+                            components.getAccessToken(),
+                            components.getRefreshToken()
+                    );
+
+                    Instant accessExpiry = components.getAccessTokenExpiry();
+                    Instant refreshExpiry = components.getRefreshTokenExpiry();
+
+                    return sessionService.createSession(
+                                    user.getId(),
+                                    sessionId,
+                                    ipAddress,
+                                    deviceFingerprint,
+                                    tokens.getAccessToken(),
+                                    tokens.getRefreshToken(),
+                                    issuedAt,
+                                    Timestamp.of(Date.from(refreshExpiry)),
+                                    accessExpiry,
+                                    refreshExpiry
+                            )
+                            .thenReturn(new AuthResult(
+                                    user,
+                                    user.getId(),
+                                    sessionId,
+                                    tokens.getAccessToken(),
+                                    tokens.getRefreshToken(),
+                                    issuedAt,
+                                    refreshExpiry,
+                                    roleList,
+                                    user.isMfaRequired(),
+                                    user.getLoginAttempts(),
+                                    issuedAt
+                            ));
+
                 });
     }
+
     public boolean shouldRetry(Throwable throwable) {
         return throwable instanceof TransientAuthenticationException ||
                 throwable instanceof NetworkException ||

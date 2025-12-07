@@ -32,12 +32,10 @@ public class PermissionService implements PermissionProvider {
     private final Map<Roles, Set<Permissions>> rolePermissions = new ConcurrentHashMap<>();
     private final Map<String, Map<String, Map<String, String>>> userAttributes = new ConcurrentHashMap<>();
 
-    private final FirebaseServiceAuth firebaseServiceAuth;
     private final PermissionsConfig permissionsConfig;
     private final Firestore firestore;
 
-    public PermissionService(FirebaseServiceAuth firebaseServiceAuth, PermissionsConfig permissionsConfig, Firestore firestore) {
-        this.firebaseServiceAuth = firebaseServiceAuth;
+    public PermissionService(PermissionsConfig permissionsConfig, Firestore firestore) {
         this.permissionsConfig = permissionsConfig;
         this.firestore = firestore;
     }
@@ -107,17 +105,63 @@ public class PermissionService implements PermissionProvider {
         return Mono.justOrEmpty(userPermissions.get(userId))
                 .flatMapMany(Flux::fromIterable)
                 .any(perm -> perm.implies(Permissions.fromNameSafe(requiredPermission).orElse(null)))
-                .switchIfEmpty(checkRolePermissions(userId, requiredPermission))
+                .switchIfEmpty(checkRolePermissionsFromFirestore(userId, requiredPermission))
                 .subscribeOn(Schedulers.boundedElastic());
     }
 
-    private Mono<Boolean> checkRolePermissions(String userId, String requiredPermission) {
-        return firebaseServiceAuth.getUserById(userId)
-                .map(User::getRoles)
-                .flatMap(role -> Mono.justOrEmpty(rolePermissions.get(role)))
+    // ✅ Fetch user roles from Firestore
+    private Mono<Boolean> checkRolePermissionsFromFirestore(String userId, String requiredPermission) {
+
+        return Mono.fromCallable(() ->
+                        firestore.collection("users")
+                                .document(userId)
+                                .get()
+                                .get()
+                )
+                .subscribeOn(Schedulers.boundedElastic())
+                .flatMap(doc -> {
+
+                    List<String> roleNames = (List<String>) doc.get("roles");
+                    if (roleNames == null || roleNames.isEmpty()) {
+                        return Mono.just(Collections.<Roles>emptyList());
+                    }
+
+                    List<Roles> roles = roleNames.stream()
+                            .map(name -> Roles.fromName(name).orElse(null))
+                            .filter(Objects::nonNull)
+                            .toList();
+
+                    return Mono.just(roles);
+                })
+                .flatMapMany(Flux::fromIterable)         // Mono<List<Roles>> → Flux<Roles>
+                .flatMap(role -> Flux.fromIterable(
+                        rolePermissions.getOrDefault(role, Collections.emptySet())
+                ))                                        // Flux<Permissions>
+                .any(perm ->
+                        perm.implies(
+                                Permissions.fromNameSafe(requiredPermission).orElse(null)
+                        )
+                )
+                .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    // ✅ New method that accepts roles as parameter to avoid circular dependency
+    public Mono<Boolean> hasPermissionWithRoles(String userId, String requiredPermission, List<Roles> userRoles) {
+        return Mono.justOrEmpty(userPermissions.get(userId))
                 .flatMapMany(Flux::fromIterable)
                 .any(perm -> perm.implies(Permissions.fromNameSafe(requiredPermission).orElse(null)))
+                .switchIfEmpty(checkRolePermissionsWithProvidedRoles(userRoles, requiredPermission))
                 .subscribeOn(Schedulers.boundedElastic());
+    }
+    private Mono<Boolean> checkRolePermissionsWithProvidedRoles(List<Roles> userRoles, String requiredPermission) {
+        if (userRoles == null || userRoles.isEmpty()) {
+            return Mono.just(false);
+        }
+
+        return Flux.fromIterable(userRoles)
+                .flatMap(role -> Mono.justOrEmpty(rolePermissions.get(role)))
+                .flatMap(Flux::fromIterable)
+                .any(perm -> perm.implies(Permissions.fromNameSafe(requiredPermission).orElse(null)));
     }
 
     // --- ABAC: Attribute-based access control ---
@@ -222,33 +266,25 @@ public class PermissionService implements PermissionProvider {
     @Override
     public Set<String> resolveEffectivePermission(User user) {
         Set<String> effectivePermissions = new HashSet<>();
+        // 1. Add user-specific permissions
+        if (user.getPermissions() != null && !user.getPermissions().isEmpty()) {
+            effectivePermissions.addAll(user.getPermissions());
+        }
+        // 2. Add role-based permissions
+        if (user.getRoleNames() != null && !user.getRoleNames().isEmpty()) {
+            for (String roleName : user.getRoleNames()) {
+                Roles.fromName(roleName).ifPresentOrElse(role -> {
+                    Set<Permissions> rolePerms = getPermissionsForRole(role);
+                    rolePerms.forEach(perm -> effectivePermissions.add(perm.name()));
+                }, () -> logger.warn("⚠️ Unknown role [{}] for user [{}]", roleName, user.getId()));
+            }
+        }
 
         if (user.getRoleNames() == null || user.getRoleNames().isEmpty()) {
             logger.warn("⚠️ No roles found for user {}", user.getEmail());
             return effectivePermissions;
         }
-
-        for (String roleName : user.getRoleNames()) {
-            Roles role = Roles.fromName(roleName).orElse(null);
-            if (role != null) {
-                // Get permissions from the Roles enum
-                Set<Permissions> rolePermissions = getPermissionsForRole(role);
-
-                // Convert Permissions enum to String names
-                Set<String> permissionNames = rolePermissions.stream()
-                        .map(Permissions::getName)
-                        .collect(Collectors.toSet());
-
-                effectivePermissions.addAll(permissionNames);
-
-                logger.debug("✅ Role {} has {} permissions: {}", roleName, permissionNames.size(), permissionNames);
-            } else {
-                logger.warn("⚠️ Unknown role: {}", roleName);
-            }
-        }
-
         logger.info("✅ Resolved {} total permissions for user {}: {}", effectivePermissions.size(), user.getEmail(), effectivePermissions);
-
         return effectivePermissions;
     }
     // USAGE - Processing roles from an incoming request
@@ -256,12 +292,10 @@ public class PermissionService implements PermissionProvider {
     @Override
     public Set<String> resolveEffectivePermissions(User user) {
         Set<String> effectivePermissions = new HashSet<>();
-
         // 1. Add user-specific permissions
         if (user.getPermissions() != null && !user.getPermissions().isEmpty()) {
             effectivePermissions.addAll(user.getPermissions()); // assumed to be Strings like "STOCK_READ"
         }
-
         // 2. Add role-based permissions
         if (user.getRoleNames() != null && !user.getRoleNames().isEmpty()) {
             for (String roleName : user.getRoleNames()) {
@@ -271,7 +305,6 @@ public class PermissionService implements PermissionProvider {
                 }, () -> logger.warn("⚠️ Unknown role [{}] for user [{}]", roleName, user.getId()));
             }
         }
-
         return effectivePermissions;
     }
 

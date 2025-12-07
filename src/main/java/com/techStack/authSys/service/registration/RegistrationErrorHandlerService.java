@@ -1,4 +1,4 @@
-package com.techStack.authSys.service;
+package com.techStack.authSys.service.registration;
 
 import com.google.firebase.auth.FirebaseAuthException;
 import com.techStack.authSys.dto.ErrorResponse;

@@ -1,8 +1,9 @@
 package com.techStack.authSys.exception;
 
+import org.springframework.http.HttpStatus;
 
-public class InvalidUserProfileException extends RuntimeException {
+public class InvalidUserProfileException extends CustomException {
     public InvalidUserProfileException(String message) {
-        super(message);
+        super(HttpStatus.BAD_REQUEST, message);
     }
 }

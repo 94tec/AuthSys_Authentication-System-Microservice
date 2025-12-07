@@ -1,13 +1,13 @@
 package com.techStack.authSys.exception;
 
+import com.auth0.jwt.exceptions.TokenExpiredException;
 import com.google.firebase.auth.FirebaseAuthException;
-import com.techStack.authSys.dto.ErrorDetails;
 import com.techStack.authSys.dto.ErrorResponse;
-import com.techStack.authSys.service.RegistrationErrorHandlerService;
+import com.techStack.authSys.service.DeviceVerificationService;
+import com.techStack.authSys.service.registration.RegistrationErrorHandlerService;
+import com.techStack.authSys.service.authentication.AuthenticationErrorHandlerService;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpHeaders;
@@ -20,22 +20,29 @@ import org.springframework.web.bind.support.WebExchangeBindException;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
-
 import java.util.ConcurrentModificationException;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 
+/**
+ * Global exception handler for all authentication and registration operations.
+ * Provides consistent error responses across the application.
+ */
 @Slf4j
 @RestControllerAdvice
 @Order(Ordered.HIGHEST_PRECEDENCE)
+@RequiredArgsConstructor
 public class GlobalExceptionHandler {
-    private static final Logger logger = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
-    @Autowired
-    private RegistrationErrorHandlerService errorHandlerService;
+    private final RegistrationErrorHandlerService registrationErrorHandler;
+    private final AuthenticationErrorHandlerService authenticationErrorHandler;
+    private final DeviceVerificationService deviceVerificationService;
+
+    // ============================================================================
+    // REGISTRATION-SPECIFIC EXCEPTIONS
+    // ============================================================================
 
     /**
      * Handle all registration-related exceptions
@@ -43,34 +50,134 @@ public class GlobalExceptionHandler {
     @ExceptionHandler({
             EmailAlreadyExistsException.class,
             ValidationException.class,
-            //RateLimitExceededException.class,
             SuspiciousActivityException.class,
             GeolocationBlockedException.class,
             InvalidDomainException.class,
             InactiveDomainException.class,
             WeakPasswordException.class,
             CommonPasswordException.class,
-            ServiceUnavailableException.class,
-            DatabaseException.class,
             BotDetectedException.class,
             CacheException.class,
             EmailServiceException.class,
             DeviceFingerprintException.class,
             PermissionDeniedException.class,
-            DataIntegrityException.class,
-            CustomException.class
+            DataIntegrityException.class
     })
-
     public Mono<ResponseEntity<Map<String, Object>>> handleRegistrationExceptions(
             Exception ex, ServerWebExchange exchange) {
 
         String email = extractEmailFromRequest(exchange);
+        String operation = determineOperation(exchange); // "registration" or "login"
 
-        return errorHandlerService.handleRegistrationError(ex, email)
+        log.debug("Handling {} exception for {}: {}",
+                operation, sanitizeEmail(email), ex.getClass().getSimpleName());
+
+        return registrationErrorHandler.handleRegistrationError(ex, email)
                 .map(this::buildErrorResponseEntity)
                 .doOnNext(response ->
-                        logErrorResponse(ex, email, (HttpStatus) response.getStatusCode())
+                        logErrorResponse(ex, email, (HttpStatus) response.getStatusCode(), operation)
                 );
+    }
+
+    // ============================================================================
+    // AUTHENTICATION-SPECIFIC EXCEPTIONS
+    // ============================================================================
+
+    /**
+     * Handle all authentication-related exceptions
+     */
+    @ExceptionHandler({
+            AuthException.class,
+            AccountLockedException.class,
+            AccountDisabledException.class,
+            EmailNotVerifiedException.class,
+            PasswordExpiredException.class,
+            //MfaRequiredException.class,
+            InvalidTokenException.class,
+            TokenExpiredException.class,
+            //UnrecognizedDeviceException.class,
+            TransientAuthenticationException.class
+    })
+    public Mono<ResponseEntity<Map<String, Object>>> handleAuthenticationExceptions(
+            Exception ex, ServerWebExchange exchange) {
+
+        String email = extractEmailFromRequest(exchange);
+
+        log.debug("Handling authentication exception for {}: {}",
+                sanitizeEmail(email), ex.getClass().getSimpleName());
+
+        return authenticationErrorHandler.handleAuthenticationError(ex, email)
+                .map(this::buildErrorResponseEntity)
+                .doOnNext(response ->
+                        logErrorResponse(ex, email, (HttpStatus) response.getStatusCode(), "authentication")
+                );
+    }
+
+    // ============================================================================
+    // SHARED/COMMON EXCEPTIONS
+    // ============================================================================
+
+    /**
+     * Handle rate limit exceptions (used by both registration and authentication)
+     */
+    @ExceptionHandler(RateLimitExceededException.class)
+    public Mono<ResponseEntity<Map<String, Object>>> handleRateLimitExceeded(
+            RateLimitExceededException ex, ServerWebExchange exchange) {
+
+        String operation = determineOperation(exchange);
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("success", false);
+        body.put("message", ex.getMessage());
+        body.put("errorCode", "RATE_LIMIT_EXCEEDED");
+        body.put("retryAfterMinutes", ex.getRetryAfterMinutes());
+        body.put("timestamp", System.currentTimeMillis());
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("Retry-After", String.valueOf(ex.getRetryAfterMinutes() * 60));
+
+        log.warn("Rate limit exceeded for {} operation from IP: {}",
+                operation, deviceVerificationService.extractClientIp(exchange));
+
+        return Mono.just(ResponseEntity
+                .status(HttpStatus.TOO_MANY_REQUESTS)
+                .headers(headers)
+                .body(body));
+    }
+
+    /**
+     * Handle service unavailable exceptions
+     */
+    @ExceptionHandler(ServiceUnavailableException.class)
+    public Mono<ResponseEntity<Map<String, Object>>> handleServiceUnavailable(
+            ServiceUnavailableException ex, ServerWebExchange exchange) {
+
+        String email = extractEmailFromRequest(exchange);
+        String operation = determineOperation(exchange);
+
+        return (operation.equals("authentication")
+                ? authenticationErrorHandler.handleAuthenticationError(ex, email)
+                : registrationErrorHandler.handleRegistrationError(ex, email))
+                .map(this::buildErrorResponseEntity);
+    }
+
+    /**
+     * Handle database exceptions
+     */
+    @ExceptionHandler(DatabaseException.class)
+    public Mono<ResponseEntity<Map<String, Object>>> handleDatabaseException(
+            DatabaseException ex, ServerWebExchange exchange) {
+
+        String email = extractEmailFromRequest(exchange);
+        String operation = determineOperation(exchange);
+
+        log.error("Database error during {} for {}: {}",
+                operation, sanitizeEmail(email), ex.getMessage());
+
+        return (operation.equals("authentication")
+                ? authenticationErrorHandler.handleAuthenticationError(ex, email)
+                : registrationErrorHandler.handleRegistrationError(ex, email))
+                .map(this::buildErrorResponseEntity);
     }
 
     /**
@@ -81,16 +188,36 @@ public class GlobalExceptionHandler {
             FirebaseAuthException ex, ServerWebExchange exchange) {
 
         String email = extractEmailFromRequest(exchange);
+        String operation = determineOperation(exchange);
 
-        return errorHandlerService.handleRegistrationError(ex, email)
-                .map(this::buildErrorResponseEntity)
-                .doOnNext(response ->
-                        logger.warn("Firebase auth error for {}: {} - {}",
-                                sanitizeEmail(email),
-                                ex.getErrorCode(),
-                                ex.getMessage())
-                );
+        log.warn("Firebase auth error during {} for {}: {} - {}",
+                operation, sanitizeEmail(email), ex.getAuthErrorCode(), ex.getMessage());
+
+        return (operation.equals("authentication")
+                ? authenticationErrorHandler.handleAuthenticationError(ex, email)
+                : registrationErrorHandler.handleRegistrationError(ex, email))
+                .map(this::buildErrorResponseEntity);
     }
+
+    /**
+     * Handle CustomException (generic)
+     */
+    @ExceptionHandler(CustomException.class)
+    public Mono<ResponseEntity<Map<String, Object>>> handleCustomException(
+            CustomException ex, ServerWebExchange exchange) {
+
+        String email = extractEmailFromRequest(exchange);
+        String operation = determineOperation(exchange);
+
+        return (operation.equals("authentication")
+                ? authenticationErrorHandler.handleAuthenticationError(ex, email)
+                : registrationErrorHandler.handleRegistrationError(ex, email))
+                .map(this::buildErrorResponseEntity);
+    }
+
+    // ============================================================================
+    // VALIDATION EXCEPTIONS
+    // ============================================================================
 
     /**
      * Handle Spring validation errors (Bean Validation)
@@ -106,7 +233,7 @@ public class GlobalExceptionHandler {
                         FieldError::getField,
                         error -> error.getDefaultMessage() != null ?
                                 error.getDefaultMessage() : "Invalid value",
-                        (existing, replacement) -> existing // Keep first error for duplicate fields
+                        (existing, replacement) -> existing
                 ));
 
         Map<String, Object> response = new HashMap<>();
@@ -117,7 +244,7 @@ public class GlobalExceptionHandler {
         response.put("errors", fieldErrors);
         response.put("timestamp", System.currentTimeMillis());
 
-        logger.debug("Bean validation errors: {}", fieldErrors);
+        log.debug("Bean validation errors: {}", fieldErrors);
 
         return Mono.just(ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
@@ -132,10 +259,17 @@ public class GlobalExceptionHandler {
             IllegalArgumentException ex, ServerWebExchange exchange) {
 
         String email = extractEmailFromRequest(exchange);
+        String operation = determineOperation(exchange);
 
-        return errorHandlerService.handleRegistrationError(ex, email)
+        return (operation.equals("authentication")
+                ? authenticationErrorHandler.handleAuthenticationError(ex, email)
+                : registrationErrorHandler.handleRegistrationError(ex, email))
                 .map(this::buildErrorResponseEntity);
     }
+
+    // ============================================================================
+    // NETWORK & TIMEOUT EXCEPTIONS
+    // ============================================================================
 
     /**
      * Handle timeout exceptions
@@ -145,29 +279,15 @@ public class GlobalExceptionHandler {
             TimeoutException ex, ServerWebExchange exchange) {
 
         String email = extractEmailFromRequest(exchange);
-        return errorHandlerService.handleRegistrationError(ex, email)
-                .map(this::buildErrorResponseEntity)
-                .doOnNext(response ->
-                        logger.warn("Request timeout for {}: {}", sanitizeEmail(email), ex.getMessage())
-                );
-    }
-    /**
-     * Handle rate limit exceed exceptions
-     */
-    @ExceptionHandler(RateLimitExceededException.class)
-    public Mono<ResponseEntity<Map<String, Object>>> handleRateLimitExceeded(RateLimitExceededException ex) {
-        Map<String, Object> body = new HashMap<>();
-        body.put("success", false);
-        body.put("message", ex.getMessage());
-        body.put("retryAfterMinutes", ex.getRetryAfterMinutes());
-        body.put("timestamp", System.currentTimeMillis());
+        String operation = determineOperation(exchange);
 
-        HttpHeaders headers = new HttpHeaders();
-        headers.set("Retry-After", String.valueOf(ex.getRetryAfterMinutes() * 60)); // in seconds
+        log.warn("Request timeout during {} for {}: {}",
+                operation, sanitizeEmail(email), ex.getMessage());
 
-        return Mono.just(ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
-                .headers(headers)
-                .body(body));
+        return (operation.equals("authentication")
+                ? authenticationErrorHandler.handleAuthenticationError(ex, email)
+                : registrationErrorHandler.handleRegistrationError(ex, email))
+                .map(this::buildErrorResponseEntity);
     }
 
     /**
@@ -182,11 +302,15 @@ public class GlobalExceptionHandler {
             Exception ex, ServerWebExchange exchange) {
 
         String email = extractEmailFromRequest(exchange);
-        return errorHandlerService.handleRegistrationError(ex, email)
-                .map(this::buildErrorResponseEntity)
-                .doOnNext(response ->
-                        logger.error("Network error for {}: {}", sanitizeEmail(email), ex.getMessage())
-                );
+        String operation = determineOperation(exchange);
+
+        log.error("Network error during {} for {}: {}",
+                operation, sanitizeEmail(email), ex.getMessage());
+
+        return (operation.equals("authentication")
+                ? authenticationErrorHandler.handleAuthenticationError(ex, email)
+                : registrationErrorHandler.handleRegistrationError(ex, email))
+                .map(this::buildErrorResponseEntity);
     }
 
     /**
@@ -197,22 +321,27 @@ public class GlobalExceptionHandler {
             ConcurrentModificationException ex, ServerWebExchange exchange) {
 
         String email = extractEmailFromRequest(exchange);
+        String operation = determineOperation(exchange);
 
-        return errorHandlerService.handleRegistrationError(ex, email)
-                .map(this::buildErrorResponseEntity)
-                .doOnNext(response ->
-                        logger.warn("Concurrent registration attempt for {}", sanitizeEmail(email))
-                );
+        log.warn("Concurrent {} attempt for {}", operation, sanitizeEmail(email));
+
+        return registrationErrorHandler.handleRegistrationError(ex, email)
+                .map(this::buildErrorResponseEntity);
     }
 
+    // ============================================================================
+    // UNEXPECTED EXCEPTIONS
+    // ============================================================================
+
     /**
-     * Handle null pointer exceptions (should be rare)
+     * Handle null pointer exceptions
      */
     @ExceptionHandler(NullPointerException.class)
     public Mono<ResponseEntity<Map<String, Object>>> handleNullPointerException(
             NullPointerException ex, ServerWebExchange exchange) {
 
-        logger.error("NullPointerException occurred - this indicates a programming error", ex);
+        log.error("NullPointerException - programming error at path {}",
+                exchange.getRequest().getPath().value(), ex);
 
         Map<String, Object> response = new HashMap<>();
         response.put("success", false);
@@ -234,14 +363,20 @@ public class GlobalExceptionHandler {
             Exception ex, ServerWebExchange exchange) {
 
         String email = extractEmailFromRequest(exchange);
+        String operation = determineOperation(exchange);
 
-        // Log unexpected exceptions with full stack trace
-        logger.error("Unexpected exception during request processing for {}: {}",
-                sanitizeEmail(email), ex.getMessage(), ex);
+        log.error("Unexpected exception during {} for {}: {}",
+                operation, sanitizeEmail(email), ex.getMessage(), ex);
 
-        return errorHandlerService.handleRegistrationError(ex, email)
+        return (operation.equals("authentication")
+                ? authenticationErrorHandler.handleAuthenticationError(ex, email)
+                : registrationErrorHandler.handleRegistrationError(ex, email))
                 .map(this::buildErrorResponseEntity);
     }
+
+    // ============================================================================
+    // HELPER METHODS
+    // ============================================================================
 
     /**
      * Build standardized error response entity
@@ -254,12 +389,10 @@ public class GlobalExceptionHandler {
         response.put("message", errorResponse.getMessage());
         response.put("timestamp", errorResponse.getTimestamp());
 
-        // Add field-specific error if present
         if (errorResponse.getField() != null) {
             response.put("field", errorResponse.getField());
         }
 
-        // Add additional info if present
         if (errorResponse.getAdditionalInfo() != null && !errorResponse.getAdditionalInfo().isEmpty()) {
             response.put("additionalInfo", errorResponse.getAdditionalInfo());
         }
@@ -270,20 +403,32 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * Extract email from request for logging purposes
+     * Determine operation type (registration vs authentication) from request path
      */
+    private String determineOperation(ServerWebExchange exchange) {
+        String path = exchange.getRequest().getPath().value().toLowerCase();
+
+        if (path.contains("/login") || path.contains("/logout") || path.contains("/refresh")) {
+            return "authentication";
+        } else if (path.contains("/register")) {
+            return "registration";
+        }
+
+        return "unknown";
+    }
+
     /**
-     * Extract email from request (from body, params, or headers)
+     * Extract email from request
      */
     private String extractEmailFromRequest(ServerWebExchange exchange) {
         try {
-            // Try query parameters first
+            // Try query parameters
             String emailFromQuery = exchange.getRequest().getQueryParams().getFirst("email");
             if (emailFromQuery != null) {
                 return emailFromQuery;
             }
 
-            // Try path variable (if email is in URL)
+            // Try path variable
             String path = exchange.getRequest().getPath().value();
             if (path.contains("email=")) {
                 String[] parts = path.split("email=");
@@ -292,17 +437,15 @@ public class GlobalExceptionHandler {
                 }
             }
 
-            // For POST requests, email is typically in body (handled by service layer)
             return "unknown";
-
         } catch (Exception e) {
-            logger.debug("Could not extract email from request: {}", e.getMessage());
+            log.debug("Could not extract email from request: {}", e.getMessage());
             return "unknown";
         }
-
     }
+
     /**
-     * Sanitize email for logging (mask domain)
+     * Sanitize email for logging
      */
     private String sanitizeEmail(String email) {
         if (email == null || email.equals("unknown")) {
@@ -314,102 +457,40 @@ public class GlobalExceptionHandler {
         }
         return email;
     }
+
     /**
      * Log error response with appropriate level
      */
-    private void logErrorResponse(Exception ex, String email, HttpStatus status) {
+    private void logErrorResponse(Exception ex, String email, HttpStatus status, String operation) {
         String sanitized = sanitizeEmail(email);
 
         // Expected business errors - INFO level
         if (ex instanceof EmailAlreadyExistsException ||
-                ex instanceof RateLimitExceededException) {
-            logger.info("Registration blocked for {}: {} - {}", sanitized, ex.getClass().getSimpleName(), status);
+                ex instanceof RateLimitExceededException ||
+                (ex instanceof AuthException && "INVALID_CREDENTIALS".equals(
+                        ((AuthException) ex).getErrorCode()))) {
+            log.info("{} blocked for {}: {} - {}",
+                    operation, sanitized, ex.getClass().getSimpleName(), status);
         }
         // Validation errors - DEBUG level
         else if (ex instanceof ValidationException ||
                 ex instanceof WeakPasswordException) {
-            logger.debug("Validation error for {}: {}", sanitized, ex.getMessage());
+            log.debug("Validation error for {}: {}", sanitized, ex.getMessage());
         }
         // Security-related - WARN level
         else if (ex instanceof SuspiciousActivityException ||
-                ex instanceof BotDetectedException) {
-            logger.warn("Security event for {}: {}", sanitized, ex.getMessage());
+                ex instanceof BotDetectedException ||
+                ex instanceof AccountLockedException ) {
+            log.warn("Security event for {}: {}", sanitized, ex.getMessage());
         }
         // System errors - ERROR level
         else if (ex instanceof DatabaseException ||
                 ex instanceof ServiceUnavailableException) {
-            logger.error("System error for {}: {}", sanitized, ex.getMessage());
+            log.error("System error for {}: {}", sanitized, ex.getMessage());
         }
-        // Other errors - WARN level
+        // Other errors - INFO level
         else {
-            logger.warn("Error for {}: {} - {}", sanitized, ex.getClass().getSimpleName(), status);
+            log.info("Error for {}: {} - {}", sanitized, ex.getClass().getSimpleName(), status);
         }
-    }
-
-    /// ////////////////////////////////fix code below
-
-    /**
-     * Handle AuthException with custom error codes
-     */
-    @ExceptionHandler(AuthException.class)
-    public Mono<ResponseEntity<Map<String, Object>>> handleRegistrationExceptions(
-            AuthException ex, ServerWebExchange exchange) {
-
-        String email = extractEmailFromRequest(exchange);
-
-        return errorHandlerService.handleRegistrationError(ex, email)
-                .map(this::buildErrorResponseEntity);
-    }
-
-    public Mono<ResponseEntity<Map<String, Object>>> handleAuth(AuthException ex, ServerWebExchange exchange) {
-        log.warn("⚠️ AuthException caught: {} - Status: {} - ErrorCode: {} - Path: {}",
-                ex.getMessage(), ex.getStatus(), ex.getErrorCode(), exchange.getRequest().getPath().value());
-
-        return Mono.just(ResponseEntity
-                .status(ex.getStatus())
-                .body(Map.of(
-                        "message", ex.getMessage(),
-                        "status", ex.getStatus().value(),
-                        "errorCode", ex.getErrorCode(),
-                        "timestamp", ex.getTimestamp().toString(),
-                        "path", exchange.getRequest().getPath().value()
-                )));
-    }
-
-
-    public Mono<ResponseEntity<ErrorDetails>> handleServerError(Exception ex, ServerWebExchange exchange) {
-        String safeMessage = "An internal server error occurred. Please try again later.";
-        ErrorDetails details = new ErrorDetails(
-                new Date(),
-                safeMessage,
-                exchange.getRequest().getPath().value()
-        );
-        log.error("❌ Internal server error on path {}: {}",
-                exchange.getRequest().getPath().value(), ex.getMessage(), ex);
-        return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(details));
-    }
-
-    // ================================================================
-    // HELPER METHODS
-    // ================================================================
-
-    /**
-     * Build a standardized reactive error response
-     */
-    private Mono<ResponseEntity<ErrorDetails>> buildReactiveResponse(
-            Exception ex, ServerWebExchange exchange, HttpStatus status) {
-
-        log.error("{} on path {}: {}",
-                ex.getClass().getSimpleName(),
-                exchange.getRequest().getPath().value(),
-                ex.getMessage(),
-                ex);
-
-        ErrorDetails details = new ErrorDetails(
-                new Date(),
-                ex.getMessage(),
-                exchange.getRequest().getPath().value()
-        );
-        return Mono.just(ResponseEntity.status(status).body(details));
     }
 }

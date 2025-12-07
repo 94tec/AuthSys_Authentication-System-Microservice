@@ -1,8 +1,9 @@
 package com.techStack.authSys.exception;
 
-public class PasswordWarningException extends RuntimeException {
+import org.springframework.http.HttpStatus;
+
+public class PasswordWarningException extends CustomException {
     public PasswordWarningException(String message) {
-        super(message);
+        super(HttpStatus.BAD_REQUEST, message);
     }
 }
-
