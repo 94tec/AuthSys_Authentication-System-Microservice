@@ -13,7 +13,6 @@ import java.util.List;
  * Clean, powerful, and secure validation utility class
  * Provides comprehensive validation methods with meaningful error messages
  */
-@Component
 public class ValidationUtils {
 
     private ValidationUtils() {
