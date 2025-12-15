@@ -98,7 +98,6 @@ public class SuperAdminCreationService {
 
         return admin;
     }
-
     /**
      * Assigns ADMIN and SUPER_ADMIN roles with their permissions.
      */
@@ -170,7 +169,6 @@ public class SuperAdminCreationService {
         return firebaseServiceAuth.rollbackFirebaseUserCreation(email)
                 .then(Mono.error(e));
     }
-
     // ============================================================================
     // UTILITY METHODS
     // ============================================================================
