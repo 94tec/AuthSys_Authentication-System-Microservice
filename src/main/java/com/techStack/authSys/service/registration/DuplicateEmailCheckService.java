@@ -3,7 +3,7 @@ package com.techStack.authSys.service.registration;
 import com.techStack.authSys.dto.UserDTO;
 import com.techStack.authSys.exception.EmailAlreadyExistsException;
 import com.techStack.authSys.service.FirebaseServiceAuth;
-import com.techStack.authSys.service.RedisCacheService;
+import com.techStack.authSys.service.RedisUserCacheService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -20,7 +20,7 @@ import reactor.core.scheduler.Schedulers;
 @RequiredArgsConstructor
 public class DuplicateEmailCheckService {
 
-    private final RedisCacheService redisCacheService;
+    private final RedisUserCacheService redisCacheService;
     private final FirebaseServiceAuth firebaseServiceAuth;
 
     /**

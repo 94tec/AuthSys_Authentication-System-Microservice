@@ -150,6 +150,25 @@ public class BootstrapStateService {
                 .doOnError(e -> log.error("❌ Failed to cache in Redis: {}", e.getMessage()))
                 .then();
     }
+    /**
+     * Resets bootstrap state in both Redis and Firestore.
+     * Use only for development or recovery scenarios.
+     */
+    public Mono<Void> resetBootstrapState() {
+        log.warn("🔄 Resetting bootstrap state - Redis and Firestore");
+
+        return Mono.fromRunnable(() -> {
+                    if (redisTemplate.hasKey(REDIS_BOOTSTRAP_KEY)) {
+                        redisTemplate.delete(REDIS_BOOTSTRAP_KEY);
+                        log.debug("✅ Redis bootstrap key deleted");
+                    }
+                })
+                .subscribeOn(Schedulers.boundedElastic())
+                .then(firebaseServiceAuth.deleteDocument(FIRESTORE_COLLECTION, FIRESTORE_DOCUMENT))
+                .doOnSuccess(v -> log.info("✅ Bootstrap state fully reset"))
+                .doOnError(e -> log.error("❌ Failed to reset bootstrap state: {}", e.getMessage(), e));
+    }
+
 
     /**
      * Backfills Redis cache when Firestore has the state but Redis doesn't.

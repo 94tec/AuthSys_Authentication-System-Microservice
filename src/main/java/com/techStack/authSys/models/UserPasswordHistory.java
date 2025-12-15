@@ -18,7 +18,7 @@ public class UserPasswordHistory {
     @DocumentId
     private String id;
 
-    @NonNull
+    //@NonNull
     private String password;
 
     @NonNull

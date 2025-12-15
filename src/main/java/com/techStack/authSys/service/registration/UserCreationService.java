@@ -25,7 +25,7 @@ public class UserCreationService {
     private final RoleAssignmentService roleAssignmentService;
     private final DeviceVerificationService deviceVerificationService;
     private final RegistrationMetadataService metadataService;
-    private final RedisCacheService redisCacheService;
+    private final RedisUserCacheService redisCacheService;
 
     /**
      * Creates a user with roles and persists all related data.

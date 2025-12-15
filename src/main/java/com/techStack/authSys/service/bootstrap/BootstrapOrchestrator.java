@@ -11,8 +11,8 @@ import reactor.core.publisher.Mono;
 import java.time.Duration;
 
 /**
- * Orchestrates the Super Admin bootstrap process at application startup.
- * Ensures thread-safe, distributed bootstrap execution with proper error handling.
+ * Orchestrates the Super Admin bootstrap process with transactional guarantees.
+ * Ensures only one instance performs bootstrap at a time.
  */
 @Slf4j
 @Component
@@ -22,7 +22,7 @@ public class BootstrapOrchestrator implements CommandLineRunner {
     private final BootstrapLockService lockService;
     private final BootstrapValidationService validationService;
     private final BootstrapStateService stateService;
-    private final SuperAdminCreationService superAdminCreationService;
+    private final TransactionalBootstrapService transactionalBootstrapService;
     private final MetricsService metricsService;
     private final AppConfigProperties appConfig;
 
@@ -48,12 +48,11 @@ public class BootstrapOrchestrator implements CommandLineRunner {
                     log.error("💥 Bootstrap process failed: {}", e.getMessage(), e);
                     metricsService.incrementCounter("bootstrap.failure");
                 })
-                .subscribe(); // Fire and forget - don't block startup
+                .subscribe(); // Non-blocking startup
     }
 
     /**
-     * Attempts to acquire bootstrap lock and execute bootstrap.
-     * If lock is unavailable, waits for another instance to complete.
+     * Acquires bootstrap lock and executes transactional creation.
      */
     private Mono<Void> performBootstrapWithLock() {
         return lockService.acquireBootstrapLock()
@@ -62,19 +61,19 @@ public class BootstrapOrchestrator implements CommandLineRunner {
                         return executeBootstrapProcess()
                                 .doFinally(signal -> lockService.releaseBootstrapLock());
                     } else {
-                        log.info("⏳ Another instance is performing bootstrap. Waiting for completion...");
+                        log.info("⏳ Another instance is performing bootstrap. Waiting...");
                         return stateService.waitForBootstrapCompletion();
                     }
                 })
                 .onErrorResume(e -> {
                     log.error("❌ Bootstrap coordination failed: {}", e.getMessage(), e);
-                    lockService.releaseBootstrapLock(); // Ensure lock is released
+                    lockService.releaseBootstrapLock();
                     return Mono.empty();
                 });
     }
 
     /**
-     * Executes the actual bootstrap process after acquiring lock.
+     * Executes the transactional bootstrap process.
      */
     private Mono<Void> executeBootstrapProcess() {
         return stateService.isBootstrapCompleted()
@@ -84,8 +83,8 @@ public class BootstrapOrchestrator implements CommandLineRunner {
                         return Mono.empty();
                     }
 
-                    log.info("🔐 Creating Super Admin account...");
-                    return superAdminCreationService.createSuperAdminIfAbsent(
+                    log.info("🔐 Creating Super Admin with transactional guarantees...");
+                    return transactionalBootstrapService.createSuperAdminTransactionally(
                             appConfig.getSuperAdminEmail(),
                             appConfig.getSuperAdminPhone()
                     );

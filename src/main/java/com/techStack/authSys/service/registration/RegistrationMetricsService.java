@@ -5,7 +5,7 @@ import com.techStack.authSys.models.ActionType;
 import com.techStack.authSys.models.User;
 import com.techStack.authSys.repository.MetricsService;
 import com.techStack.authSys.service.AuditLogService;
-import com.techStack.authSys.service.RedisCacheService;
+import com.techStack.authSys.service.RedisUserCacheService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -25,7 +25,7 @@ public class RegistrationMetricsService {
 
     private final MetricsService metricsService;
     private final AuditLogService auditLogService;
-    private final RedisCacheService redisCacheService;
+    private final RedisUserCacheService redisCacheService;
     private final ApplicationEventPublisher eventPublisher;
 
     /**

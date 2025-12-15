@@ -61,7 +61,8 @@ public class GlobalExceptionHandler {
             EmailServiceException.class,
             DeviceFingerprintException.class,
             PermissionDeniedException.class,
-            DataIntegrityException.class
+            DataIntegrityException.class,
+            DataMappingException.class
     })
     public Mono<ResponseEntity<Map<String, Object>>> handleRegistrationExceptions(
             Exception ex, ServerWebExchange exchange) {

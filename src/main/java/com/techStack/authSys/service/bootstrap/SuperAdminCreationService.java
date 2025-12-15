@@ -61,12 +61,7 @@ public class SuperAdminCreationService {
      * Checks if Super Admin already exists.
      */
     private Mono<Boolean> checkExistingAdmin(String email) {
-        return firebaseServiceAuth.findByEmail(email)
-                .map(user -> {
-                    log.debug("Super Admin found in database: {}", user.getId());
-                    return true;
-                })
-                .defaultIfEmpty(false);
+        return firebaseServiceAuth.existsByEmail(email);
     }
 
     /**

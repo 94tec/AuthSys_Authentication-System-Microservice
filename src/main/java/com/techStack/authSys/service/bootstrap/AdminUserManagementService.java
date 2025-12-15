@@ -27,7 +27,7 @@ public class AdminUserManagementService {
 
     private final FirebaseServiceAuth firebaseServiceAuth;
     private final DeviceVerificationService deviceVerificationService;
-    private final RedisCacheService redisCacheService;
+    private final RedisUserCacheService redisCacheService;
     private final EmailServiceInstance1 emailService;
     private final AuditLogService auditLogService;
     private final MetricsService metricsService;
@@ -168,7 +168,7 @@ public class AdminUserManagementService {
                     maskEmail(user.getEmail()), duration);
 
             // Audit log
-            auditLogService.logAudit(
+            auditLogService.logAuditEventBootstrap(
                     user,
                     ActionType.ADMIN_CREATED,
                     String.format("Admin created by Super Admin: %s", creatorId),

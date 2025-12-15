@@ -1,5 +1,6 @@
 package com.techStack.authSys.models;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import com.google.cloud.Timestamp;
 import com.google.cloud.firestore.annotation.PropertyName;
 import com.google.cloud.spring.data.firestore.Document;
@@ -53,7 +54,10 @@ public class User implements UserDetails {
 
     //admin setup
     private String createdBy;
+
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss.SSSX", timezone = "UTC")
     private Instant createdAt;
+
     private  Instant updatedAt;
     private boolean forcePasswordChange = false;
     private boolean accountDisabled;

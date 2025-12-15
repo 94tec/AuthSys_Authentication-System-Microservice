@@ -34,7 +34,7 @@ public class DeviceVerificationService {
 
     private final AuditLogService auditLogService;
     private final ThreatDetectionService threatDetectionService;
-    private final RedisService redisService;
+    private final RedisSecurityService redisService;
     private final Firestore firestore;
 
     private static final Pattern IPV4_PATTERN = Pattern.compile(
@@ -238,7 +238,7 @@ public class DeviceVerificationService {
 
 
             // Store in Redis
-            return redisService.storeDeviceInfo(deviceInfo)
+            return redisService.registerDevice(deviceInfo)
                     .then(Mono.fromRunnable(() ->
                             knownDevicesCache.put(buildCacheKey(userId, deviceFingerprint), deviceInfo)
                     ))
@@ -261,7 +261,7 @@ public class DeviceVerificationService {
         }
 
         // Fallback to Redis lookup
-        return redisService.getDeviceInfo(userId, deviceFingerprint)
+        return redisService.getDevice(userId, deviceFingerprint)
                 .map(deviceInfo -> {
                     // Validate device context
                     boolean ipMatches = deviceInfo.getIpAddress().equals(ipAddress);
@@ -287,12 +287,11 @@ public class DeviceVerificationService {
                 })
                 .defaultIfEmpty(false);
     }
-
     /**
      * Enforces maximum devices per user
      */
     private Mono<Void> checkAndEnforceDeviceLimit(String userId) {
-        return redisService.getUserDevices(userId)
+        return redisService.getAllUserDevices(userId)
                 .flatMap(devices -> {
                     if (devices.size() > maxDevicesPerUser) {
                         // Remove oldest device
@@ -302,7 +301,7 @@ public class DeviceVerificationService {
                                 .orElse(null);
 
                         if (oldest != null) {
-                            return redisService.removeDeviceInfo(userId, oldest.getDeviceFingerprint())
+                            return redisService.removeDevice(userId, oldest.getDeviceFingerprint())
                                     .then(Mono.fromRunnable(() ->
                                             knownDevicesCache.remove(buildCacheKey(userId, oldest.getDeviceFingerprint()))
                                     ));

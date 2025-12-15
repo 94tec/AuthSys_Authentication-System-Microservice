@@ -16,6 +16,7 @@ import com.techStack.authSys.exception.*;
 import com.techStack.authSys.models.*;
 import com.techStack.authSys.repository.MetricsService;
 import com.techStack.authSys.repository.PermissionProvider;
+import com.techStack.authSys.util.FirestoreUserMapper;
 import com.techStack.authSys.util.FirestoreUtil;
 import io.jsonwebtoken.io.IOException;
 import org.slf4j.Logger;
@@ -62,7 +63,7 @@ public class FirebaseServiceAuth {
     private final DeviceVerificationService deviceVerificationService;
     private final FirebaseConfig firebaseConfig;
     private final MetricsService metricsService;
-    private final RedisCacheService redisCacheService;
+    private final RedisUserCacheService redisCacheService;
     private final RoleAssignmentService roleAssignmentService;
     private final PermissionProvider permissionProvider;
 
@@ -73,7 +74,7 @@ public class FirebaseServiceAuth {
                                DeviceVerificationService deviceVerificationService,
                                FirebaseConfig firebaseConfig,
                                MetricsService metricsService,
-                               RedisCacheService redisCacheService,
+                               RedisUserCacheService redisCacheService,
                                @Lazy  RoleAssignmentService roleAssignmentService,
                                PermissionProvider permissionProvider) {
         this.firestore = firestore;
@@ -165,7 +166,6 @@ public class FirebaseServiceAuth {
                 .build();
     }
 
-
     public Mono<User> saveUser(User user, String ipAddress, String deviceFingerprint) {
         return saveUserToFirestore(user, ipAddress)
                 .then(deviceVerificationService.saveUserFingerprint(user.getId(), deviceFingerprint))
@@ -175,63 +175,21 @@ public class FirebaseServiceAuth {
     private Mono<User> saveUserToFirestore(User user, String ipAddress) {
         return Mono.defer(() -> {
             try {
+                // Use the reverse mapper for consistency
+                Map<String, Object> userData = FirestoreUserMapper.userToMap(user);
 
-                Map<String, Object> userData = new HashMap<>();
-
-                // Basic Info
-                userData.put("id", user.getId());
-                userData.put("email", user.getEmail());
-                userData.put("firstName", user.getFirstName());
-                userData.put("lastName", user.getLastName());
-                userData.put("username", user.getUsername());
-                userData.put("identityNo", user.getIdentityNo());
-                userData.put("phoneNumber", user.getPhoneNumber());
-
-                // Roles and Permissions
-                // Roles and Permissions - USE ACTUAL PERMISSIONS FROM USER OBJECT
-                userData.put("roleNames", user.getRoleNames());
-                userData.put("permissions", user.getPermissions() != null ? user.getPermissions() : Collections.emptyList());
-                userData.put("department", user.getDepartment());
-                userData.put("status", user.getStatus().name());
-
-                // Security Fields
-                userData.put("createdBy", user.getCreatedBy());
-                userData.put("forcePasswordChange", user.isForcePasswordChange());
-                userData.put("otpSecret", user.getOtpSecret());
-                userData.put("mfaRequired", user.isMfaRequired());
-                userData.put("enabled", user.isEnabled());
-                userData.put("accountLocked", user.isAccountLocked());
-                userData.put("emailVerified", user.isEmailVerified());
-                userData.put("loginAttempts", user.getLoginAttempts());
-                userData.put("failedLoginAttempts", user.getFailedLoginAttempts());
-
-                // Timestamps
-                userData.put("createdAt", Instant.now());
-                userData.put("lastLogin", user.getLastLogin());
-                userData.put("lastLoginTimestamp", user.getLastLoginTimestamp());
-                userData.put("lastLoginIp", user.getLastLoginIp());
-                userData.put("lastLoginIpAddress", user.getLastLoginIpAddress());
-
-                // Verification Tokens
-                userData.put("verificationToken", user.getVerificationToken());
-                userData.put("verificationTokenHash", user.getVerificationTokenHash());
-                userData.put("verificationTokenExpiresAt", user.getVerificationTokenExpiresAt());
-                userData.put("passwordResetToken", user.getPasswordResetToken());
-                userData.put("lastPasswordChangeDate", user.getLastPasswordChangeDate());
-
-                // Profile References
-                userData.put("profilePictureUrl", user.getProfilePictureUrl());
-                userData.put("bio", user.getBio());
-                userData.put("userProfileId", user.getUserProfileId());
-                userData.put("deviceFingerprint", user.getDeviceFingerprint());
+                // Ensure timestamps are set
+                if (userData.get("createdAt") == null) {
+                    userData.put("createdAt", Timestamp.now());
+                }
 
                 // Build UserProfile
                 UserProfile userProfile = UserProfile.builder()
                         .userId(user.getId())
                         .firstName(user.getFirstName())
                         .lastName(user.getLastName())
-                        .profilePictureUrl("")
-                        .bio("")
+                        .profilePictureUrl(user.getProfilePictureUrl() != null ? user.getProfilePictureUrl() : "")
+                        .bio(user.getBio() != null ? user.getBio() : "")
                         .isPublic(true)
                         .build();
 
@@ -241,7 +199,6 @@ public class FirebaseServiceAuth {
                         .createdAt(Instant.now())
                         .changedByIp(ipAddress)
                         .changedByUserAgent(user.getDeviceFingerprint())
-                        //.reason("ACCOUNT_CREATION")
                         .build();
 
                 // Batch write
@@ -476,7 +433,9 @@ public class FirebaseServiceAuth {
                         throw new CustomException(HttpStatus.NOT_FOUND, "User not found");
                     }
 
-                    User user = userDoc.toObject(User.class);
+                    //User user = userDoc.toObject(User.class);
+                    User user = FirestoreUserMapper.documentToUser(userDoc);
+                    //User user = FirestoreUserMapper.mapToUser(userDoc.getData());
                     if (user == null) {
                         logger.error("❗ Failed to deserialize user for userId: {}", userId);
                         throw new CustomException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to deserialize user");
@@ -657,7 +616,7 @@ public class FirebaseServiceAuth {
                 UserRecord user = firebaseAuth.getUserByEmail(email);
                 firebaseAuth.deleteUser(user.getUid());
                 logger.info("Cleaned up failed registration for {}", email);
-                redisCacheService.invalidateEmailRegistration(email);
+                redisCacheService.removeRegisteredEmail(email);
                 metricsService.incrementCounter("user.registration.cleanup");
                 return null;
             } catch (FirebaseAuthException e) {
@@ -667,6 +626,18 @@ public class FirebaseServiceAuth {
             }
         }).subscribeOn(Schedulers.boundedElastic()).then();
     }
+    public Mono<Boolean> existsByEmail(String email) {
+        return Mono.fromCallable(() ->
+                        firestore.collection(COLLECTION_USERS)
+                                .whereEqualTo("email", email)
+                                .limit(1)
+                                .get()
+                ).flatMap(future ->
+                        Mono.fromFuture(FirestoreUtil.toCompletableFuture(future))
+                ).map(snapshot -> !snapshot.isEmpty())
+                .subscribeOn(Schedulers.boundedElastic());
+    }
+
     //Purpose: To retrieve the full application-specific User object stored in your Firestore database.
     //Best Used For: Operations requiring the full user profile data (e.g., retrieving custom metadata, roles, or running business logic).
     public Mono<User> findByEmail(String email) {
@@ -677,87 +648,149 @@ public class FirebaseServiceAuth {
                         .get()
         ).flatMap(apiFuture ->
                 Mono.fromFuture(FirestoreUtil.toCompletableFuture(apiFuture))
-                        .subscribeOn(Schedulers.boundedElastic()) // Offload blocking
+                        .subscribeOn(Schedulers.boundedElastic())
         ).flatMap(querySnapshot -> {
+            // Handle empty results
             if (querySnapshot.isEmpty()) {
-                return Mono.empty();
+                return Mono.error(new UserNotFoundException("User not found with email: " + email));
             }
-            return Mono.just(querySnapshot.getDocuments().get(0).toObject(User.class));
+
+            DocumentSnapshot document = querySnapshot.getDocuments().getFirst();
+
+            // ✅ MUST USE FirestoreUserMapper - remove all toObject(User.class)
+            User user = FirestoreUserMapper.documentToUser(document);
+
+            if (user == null) {
+                return Mono.error(new DataMappingException("Failed to map user document"));
+            }
+
+            // ✅ ALWAYS use .thenReturn(user) - never Mono.empty()
+            return Mono.just(user);
         });
     }
+
     public Mono<User> getUserById(String id) {
-        return Mono.fromCallable(() ->
-                        firestore.collection(COLLECTION_USERS)
-                                .whereEqualTo("id", id)
-                                .limit(1)
-                                .get()
-                ).flatMap(apiFuture ->
-                        Mono.fromFuture(FirestoreUtil.toCompletableFuture(apiFuture))
-                                .subscribeOn(Schedulers.boundedElastic()) // Offload blocking
-                ).flatMap(querySnapshot -> {
-                    if (querySnapshot.isEmpty()) {
-                        logger.warn("User with ID [{}] not found in Firestore", id);
-                        return Mono.empty();
+        // Get document reference
+        DocumentReference userDocRef = firestore.collection(COLLECTION_USERS).document(id);
+
+        return Mono.fromFuture(() ->
+                        FirestoreUtil.toCompletableFuture(userDocRef.get())
+                )
+                .subscribeOn(Schedulers.boundedElastic())
+                .flatMap(documentSnapshot -> {
+                    if (!documentSnapshot.exists()) {
+                        // ✅ Throw exception, never Mono.empty()
+                        return Mono.error(new UserNotFoundException(
+                                "User not found with ID: " + id
+                        ));
                     }
-                    return Mono.just(querySnapshot.getDocuments().get(0).toObject(User.class));
+
+                    // ✅ ALWAYS use FirestoreUserMapper
+                    User user = FirestoreUserMapper.documentToUser(documentSnapshot);
+
+                    if (user == null) {
+                        return Mono.error(new DataMappingException(
+                                "Failed to map user document"
+                        ));
+                    }
+
+                    // ✅ Always return user
+                    return Mono.just(user);
                 })
                 .onErrorResume(ex -> {
+                    if (ex instanceof UserNotFoundException) {
+                        return Mono.error(ex);
+                    }
+
                     logger.error("Error fetching user by ID [{}]: {}", id, ex.getMessage(), ex);
-                    return Mono.error(new AuthException("Failed to fetch user info", HttpStatus.INTERNAL_SERVER_ERROR));
+                    return Mono.error(new AuthException(
+                            "Database error fetching user",
+                            HttpStatus.INTERNAL_SERVER_ERROR
+                    ));
                 });
     }
     public Mono<User> findUserByStatus(User.Status status) {
         return Mono.fromCallable(() ->
                         firestore.collection(COLLECTION_USERS)
-                                .whereEqualTo("status", status.name()) // ✅ match Firestore field naming convention
-                                .limit(1)
-                                .get()
-                )
-                .flatMap(apiFuture ->
-                        Mono.fromFuture(FirestoreUtil.toCompletableFuture(apiFuture))
-                                .subscribeOn(Schedulers.boundedElastic()) // ✅ Offload Firestore I/O to boundedElastic
-                )
-                .flatMap(querySnapshot -> {
-                    if (querySnapshot == null || querySnapshot.isEmpty()) {
-                        logger.warn("⚠️ No user found with status [{}]", status);
-                        return Mono.empty();
-                    }
-
-                    User user = querySnapshot.getDocuments().get(0).toObject(User.class);
-                    if (user == null) {
-                        logger.error("❌ Failed to deserialize User document for status [{}]", status);
-                        return Mono.error(new AuthException("Failed to map Firestore document to User", HttpStatus.INTERNAL_SERVER_ERROR));
-                    }
-
-                    return Mono.just(user);
-                })
-                .onErrorResume(ex -> {
-                    logger.error("🔥 Error fetching user by status [{}]: {}", status, ex.getMessage(), ex);
-                    return Mono.error(new AuthException("Failed to fetch user info from Firestore", HttpStatus.INTERNAL_SERVER_ERROR));
-                });
-    }
-
-    public Flux<User> findAllUsersByStatus(User.Status status) {
-        return Mono.fromCallable(() ->
-                        firestore.collection(COLLECTION_USERS)
                                 .whereEqualTo("status", status.name())
+                                .limit(1)
                                 .get()
                 )
                 .flatMap(apiFuture ->
                         Mono.fromFuture(FirestoreUtil.toCompletableFuture(apiFuture))
                                 .subscribeOn(Schedulers.boundedElastic())
                 )
+                .flatMap(querySnapshot -> {
+                    if (querySnapshot == null || querySnapshot.isEmpty()) {
+                        logger.warn("No user found with status [{}]", status);
+
+                        // ✅ FIX: Throw a specific exception for "not found"
+                        return Mono.error(new UserNotFoundException(
+                                "No user found with status: " + status.name()
+                        ));
+                    }
+
+                    QueryDocumentSnapshot document = querySnapshot.getDocuments().getFirst();
+                    User user = FirestoreUserMapper.documentToUser(document);
+
+                    if (user == null) {
+                        logger.error("❌ Failed to map User document for status [{}]", status);
+                        return Mono.error(new DataMappingException(
+                                "Failed to map Firestore document to User for status: " + status
+                        ));
+                    }
+
+                    // ✅ Always use .thenReturn(user) pattern
+                    return Mono.just(user);
+                })
+                .onErrorResume(ex -> {
+                    // Don't wrap "not found" exceptions - let them propagate
+                    if (ex instanceof UserNotFoundException) {
+                        return Mono.error(ex);
+                    }
+
+                    logger.error("Error fetching user by status [{}]: {}", status, ex.getMessage(), ex);
+                    return Mono.error(new AuthException(
+                            "Failed to fetch user info from Firestore",
+                            HttpStatus.INTERNAL_SERVER_ERROR
+                    ));
+                });
+    }
+
+    public Flux<User> findAllUsersByStatus(User.Status status) {
+        // 1. Define the Firestore operation within a Mono<ApiFuture<QuerySnapshot>>
+        // Use Mono.fromCallable to wrap the blocking Firestore I/O
+        return Mono.fromCallable(() ->
+                        firestore.collection(COLLECTION_USERS)
+                                .whereEqualTo("status", status.name())
+                                .get()
+                )
+                // 2. Convert ApiFuture<QuerySnapshot> to a reactive stream (Mono<QuerySnapshot>)
+                // and schedule the blocking I/O on Schedulers.boundedElastic()
+                .flatMap(apiFuture ->
+                        Mono.fromFuture(FirestoreUtil.toCompletableFuture(apiFuture))
+                                .subscribeOn(Schedulers.boundedElastic()) // ✅ Offload I/O
+                )
+                // 3. Process the QuerySnapshot and transform it into a Flux<User>
                 .flatMapMany(querySnapshot -> {
                     if (querySnapshot == null || querySnapshot.isEmpty()) {
                         logger.warn("⚠️ No users found with status [{}]", status);
+                        // For a Flux, Flux.empty() is the correct, standard reactive signal for "no results."
                         return Flux.empty();
                     }
+
+                    // 4. Map the list of documents to User objects
                     return Flux.fromIterable(querySnapshot.getDocuments())
-                            .map(doc -> doc.toObject(User.class))
+                            // ❌ FIX: Remove doc.toObject(User.class)
+                            // ✅ FIX: Use FirestoreUserMapper
+                            .map(FirestoreUserMapper::documentToUser)
+                            // Filter out any potential null results if the mapper fails for a specific document
                             .filter(Objects::nonNull);
                 })
+                // 5. Error handling
                 .onErrorResume(ex -> {
                     logger.error("🔥 Error fetching users by status [{}]: {}", status, ex.getMessage(), ex);
+                    // The return type must be Flux<User>, so return Flux.error
                     return Flux.error(new AuthException("Failed to fetch user list from Firestore", HttpStatus.INTERNAL_SERVER_ERROR));
                 });
     }
@@ -827,46 +860,86 @@ public class FirebaseServiceAuth {
      *
      * @return Flux of User objects found in the collection.
      */
+    // Your original code with minimal fixes:
     public Flux<User> findAllUsers() {
         return Flux.defer(() -> {
-                    logger.info("🔍 Initiating retrieval of all users from Firestore.");
+                    logger.debug("🔍 Retrieving all users from Firestore"); // Changed to debug
 
-                    // 1. Get a reference to the 'users' collection
                     CollectionReference usersCollection = firestore.collection(COLLECTION_USERS);
-
-                    // 2. Asynchronously retrieve all documents
                     ApiFuture<QuerySnapshot> future = usersCollection.get();
 
-                    // 3. Convert the ApiFuture to a CompletableFuture for reactive integration
                     return Mono.fromFuture(() -> FirestoreUtil.toCompletableFuture(future))
-                            // 4. Map the QuerySnapshot to a Flux of User objects
                             .flatMapMany(querySnapshot -> {
+                                if (querySnapshot.isEmpty()) {
+                                    logger.debug("No users found");
+                                    return Flux.empty(); // ✅ This is OK in Flux context
+                                }
+
                                 List<User> users = new ArrayList<>();
                                 for (DocumentSnapshot document : querySnapshot.getDocuments()) {
                                     try {
-                                        // Map each document to the User domain object
-                                        User user = document.toObject(User.class);
+                                        // ✅ ALWAYS use FirestoreUserMapper
+                                        User user = FirestoreUserMapper.documentToUser(document);
                                         if (user != null) {
                                             users.add(user);
                                         } else {
-                                            logger.warn("⚠️ Failed to deserialize user document with ID: {}", document.getId());
+                                            logger.warn("⚠️ FirestoreUserMapper returned null for document: {}", document.getId());
                                         }
                                     } catch (Exception e) {
-                                        logger.error("❌ Error mapping document {} to User object: {}", document.getId(), e.getMessage(), e);
-                                        // Continue to the next document
+                                        logger.error("❌ Error mapping document {}: {}", document.getId(), e.getMessage());
+                                        // Continue processing other documents
                                     }
                                 }
-                                logger.info("✅ Successfully retrieved {} users.", users.size());
-                                return Flux.fromIterable(users);
+
+                                logger.info("✅ Retrieved {} users", users.size());
+                                return Flux.fromIterable(users); // ✅ Always return Flux with users
                             })
-                            // 5. Handle potential exceptions during the Firestore operation
-                            .onErrorMap(e -> {
-                                logger.error("❌ Failed to fetch all users from Firestore: {}", e.getMessage(), e);
-                                return new CustomException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to retrieve the list of all users.");
+                            .onErrorResume(e -> { // Changed to onErrorResume
+                                logger.error("❌ Failed to fetch users: {}", e.getMessage(), e);
+                                return Flux.error(new CustomException(
+                                        HttpStatus.INTERNAL_SERVER_ERROR,
+                                        "Failed to retrieve users"
+                                ));
                             });
                 })
-                // 6. Ensure the blocking Firestore call runs on a suitable scheduler
                 .subscribeOn(Schedulers.boundedElastic());
+    }
+    public Flux<User> findActiveUsers() {
+        logger.debug("🔍 Retrieving active users from Firestore");
+
+        return Mono.fromCallable(() ->
+                        firestore.collection(COLLECTION_USERS)
+                                .whereEqualTo("status", User.Status.ACTIVE.name())
+                                .whereEqualTo("enabled", true)
+                                .get()
+                )
+                .flatMap(apiFuture ->
+                        Mono.fromFuture(() -> FirestoreUtil.toCompletableFuture(apiFuture))
+                                .subscribeOn(Schedulers.boundedElastic())
+                )
+                .flatMapMany(this::mapQuerySnapshotToUsers)
+                .onErrorResume(this::handleUserRetrievalError);
+    }
+
+    private Flux<User> mapQuerySnapshotToUsers(QuerySnapshot querySnapshot) {
+        if (querySnapshot.isEmpty()) {
+            logger.debug("No active users found");
+            return Flux.empty();
+        }
+
+        List<DocumentSnapshot> documents = new ArrayList<>(querySnapshot.getDocuments());
+        List<User> users = FirestoreUserMapper.mapToUsers(documents);
+
+        logger.info("✅ Retrieved {} active users", users.size());
+        return Flux.fromIterable(users);
+    }
+
+    private Flux<User> handleUserRetrievalError(Throwable e) {
+        logger.error("❌ Error fetching active users: {}", e.getMessage(), e);
+        return Flux.error(new CustomException(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                "Failed to retrieve active users"
+        ));
     }
     /**
      * Deletes a user completely from both Firebase Authentication and Firestore.
@@ -928,6 +1001,20 @@ public class FirebaseServiceAuth {
         return deleteFirebaseAuth
                 .then(deleteFirestoreUser);
     }
+    public Mono<Void> deleteDocument(String collection, String documentId) {
+        logger.warn("🗑️ Deleting Firestore document: {}/{}", collection, documentId);
+
+        DocumentReference docRef = firestore.collection(collection).document(documentId);
+        ApiFuture<WriteResult> future = docRef.delete();
+
+        return Mono.fromFuture(() -> FirestoreUtil.toCompletableFuture(future))
+                .subscribeOn(Schedulers.boundedElastic())
+                .doOnSuccess(result -> logger.info("✅ Deleted document: {}/{}", collection, documentId))
+                .doOnError(error -> logger.error("❌ Failed to delete {}/{}: {}", collection, documentId, error.getMessage()))
+                .onErrorMap(e -> new RuntimeException("Failed to delete Firestore document", e))
+                .then();
+    }
+
     /**
      * Saves or updates the main User document in the Firestore 'users' collection.
      * This is an asynchronous operation using Reactor for non-blocking execution.

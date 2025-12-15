@@ -44,7 +44,7 @@ public class BlacklistServiceImpl implements BlacklistService {
     private static final Marker SECURITY_MARKER = MarkerFactory.getMarker("SECURITY");
     private final Firestore firestore;
     private final AuditLogService auditLogService;
-    private final RedisService redisService;
+    private final RedisSecurityService redisService;
     private final JwtService jwtService;
     private final EncryptionService encryptionService;
     private final RateLimiterService.SessionService sessionService;
@@ -74,22 +74,11 @@ public class BlacklistServiceImpl implements BlacklistService {
             }
 
             // Get the blacklist status from Redis
-            Boolean cachedResult = redisService.getBlacklistStatus(encryptedIp);
+            Boolean cachedResult = redisService.isIpBlacklisted(encryptedIp);
 
-            if (cachedResult != null) {
-                return Mono.just(cachedResult);
-            }
+            return Mono.just(cachedResult);
 
             // Check Firestore if not found in Redis
-            String finalEncryptedIp = encryptedIp;
-            return checkFirestoreBlacklist(ipAddress)  // Use original ipAddress here
-                    .doOnSuccess(isBlacklisted -> {
-                        redisService.setBlacklistStatus(finalEncryptedIp, true, 5);
-                        if (isBlacklisted) {
-                            log.warn("Blacklisted IP access attempt: {}", ipAddress);
-                            auditLogService.logSecurityEvent("BLACKLIST_ACCESS_ATTEMPT", ipAddress, "Attempt from blacklisted IP");
-                        }
-                    });
         }).subscribeOn(Schedulers.boundedElastic());
     }
     @Override
@@ -124,7 +113,7 @@ public class BlacklistServiceImpl implements BlacklistService {
                     Instant expiration = tuple.getT2();
 
                     // Write to Redis cache
-                    redisService.setBlacklistStatus(encryptedIp, true, durationHours);
+                    redisService.updateBlacklistStatus(encryptedIp, true, durationHours);
 
                     // New revokeTokensForIp signature (userId optional here)
                     // We pass null userId because blacklisting is global by IP
@@ -183,7 +172,7 @@ public class BlacklistServiceImpl implements BlacklistService {
                                         )
                                         .doOnSuccess(v -> {
                                             // 4. Parallel cleanup operations
-                                            Mono<Void> redisCleanup = redisService.removeBlacklistStatus(encryptedIp);
+                                            Mono<Void> redisCleanup = redisService.removeIpFromBlacklist(encryptedIp);
 
                                             Mono<Void> cacheCleanup = Mono.fromRunnable(() -> blacklistCache.remove(encryptedIp))
                                                     .doOnTerminate(() -> log.debug("Cache cleanup completed for {}", ipAddress)).then();

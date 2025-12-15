@@ -47,33 +47,68 @@ public class BootstrapNotificationService {
             Best regards,
             Security Team
             """;
-
     /**
      * Sends welcome email with temporary password to Super Admin.
-     * Non-blocking, logs audit trail on both success and failure.
+     * Returns Mono that completes only after email is sent or fails gracefully.
      */
     public Mono<Void> sendWelcomeEmail(String email, String temporaryPassword) {
-        log.info("📨 Sending welcome email to Super Admin: {}", maskEmail(email));
+        log.info("📨 [START] Preparing welcome email for Super Admin: {}", maskEmail(email));
 
-        String emailBody = buildEmailBody(temporaryPassword);
-
-        return emailService.sendEmail(email, WELCOME_EMAIL_SUBJECT, emailBody)
-                .subscribeOn(Schedulers.boundedElastic())
+        // ✅ SIMPLIFIED - Remove double subscribeOn, let EmailService handle it
+        return Mono.fromCallable(() -> buildEmailBody(temporaryPassword))
+                .doOnNext(body -> log.info("🔨 [BUILD] Email body built for {}", maskEmail(email)))
+                .flatMap(emailBody -> {
+                    log.info("📤 [SEND] Calling email service for {}", maskEmail(email));
+                    return emailService.sendEmail(email, WELCOME_EMAIL_SUBJECT, emailBody);
+                })
+                .doOnSubscribe(s ->
+                        log.info("🔗 [SUBSCRIBE] Email service subscribed for {}", maskEmail(email)))
                 .doOnSuccess(v -> {
-                    log.info("✅ Welcome email sent successfully to {}", maskEmail(email));
+                    log.info("✅ [SUCCESS] Welcome email sent successfully to {}", maskEmail(email));
                     logSuccessfulEmailAudit(email);
                 })
                 .doOnError(e -> {
-                    log.error("❌ Failed to send welcome email to {}: {}",
-                            maskEmail(email), e.getMessage());
+                    log.error("❌ [ERROR] Failed to send welcome email to {}: {}",
+                            maskEmail(email), e.getMessage(), e);
                     logFailedEmailAudit(email, e);
                 })
-                .onErrorResume(e -> {
-                    // Don't fail bootstrap if email fails
-                    log.warn("⚠️ Continuing bootstrap despite email failure");
-                    return Mono.empty();
-                })
-                .then();
+                .doOnCancel(() ->
+                        log.warn("🚫 [CANCEL] Email operation cancelled for {}", maskEmail(email)))
+                .doFinally(signal ->
+                        log.info("🏁 [FINALLY] Email operation terminated with signal: {} for {}",
+                                signal, maskEmail(email)));
+    }
+    public Mono<Void> sendPasswordResetLink(String email) {
+        log.info("🔄 Sending password reset link to: {}", maskEmail(email));
+
+        return Mono.fromCallable(() -> {
+            try {
+                String resetLink = com.google.firebase.auth.FirebaseAuth.getInstance()
+                        .generatePasswordResetLink(email);
+
+                String subject = "Reset Your Super Admin Password";
+                String body = String.format("""
+                    Hello,
+                    
+                    A password reset was requested for your Super Admin account.
+                    
+                    Click the link below to reset your password:
+                    %s
+                    
+                    This link expires in 1 hour.
+                    
+                    If you didn't request this, please ignore this email.
+                    
+                    Best regards,
+                    Security Team
+                    """, resetLink);
+
+                emailService.sendEmail(email, subject, body).block();
+                return null;
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to send password reset link", e);
+            }
+        }).subscribeOn(Schedulers.boundedElastic()).then();
     }
 
     /**
@@ -89,7 +124,7 @@ public class BootstrapNotificationService {
      */
     private void logSuccessfulEmailAudit(String email) {
         try {
-            auditLogService.logAudit(
+            auditLogService.logAuditEventBootstrap(
                     null, // No user object yet
                     ActionType.EMAIL_SENT,
                     String.format("Bootstrap welcome email sent to %s", maskEmail(email)),
@@ -105,7 +140,7 @@ public class BootstrapNotificationService {
      */
     private void logFailedEmailAudit(String email, Throwable error) {
         try {
-            auditLogService.logAudit(
+            auditLogService.logAuditEventBootstrap(
                     null,
                     ActionType.EMAIL_FAILURE,
                     String.format("Failed to send bootstrap email to %s", maskEmail(email)),

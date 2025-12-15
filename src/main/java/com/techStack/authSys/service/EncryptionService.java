@@ -66,6 +66,68 @@ public class EncryptionService {
             throw new RuntimeException("Encryption service initialization failed", e);
         }
     }
+    /**
+     * Validates that the provided IP string is a properly formatted AES-encrypted value.
+     * Ensures:
+     * - Base64 format is valid
+     * - Decoded content includes at least a full IV
+     * - Decryption succeeds (optional strict mode)
+     */
+    public void validateEncryptedIp(String encryptedIp) {
+        if (StringUtils.isBlank(encryptedIp)) {
+            logger.warn("Encrypted IP validation failed: value is null or empty");
+            throw new IllegalArgumentException("Encrypted IP cannot be null or empty");
+        }
+
+        // Step 1: Validate Base64 + length
+        if (!isValidEncryptedFormat(encryptedIp)) {
+            logger.warn("Encrypted IP validation failed: invalid Base64 or format [{}]", encryptedIp);
+            throw new IllegalArgumentException("Invalid encrypted IP format");
+        }
+
+        // Step 2: Try decryption — determines structural AES validity
+        try {
+            byte[] decoded = Base64.getDecoder().decode(encryptedIp);
+
+            if (decoded.length < IV_LENGTH + 1) {
+                logger.warn("Encrypted IP validation failed: decoded length too short. Length={}", decoded.length);
+                throw new IllegalArgumentException("Invalid encrypted IP payload length");
+            }
+
+            // Attempt decryption — if it fails, the encrypted data is not valid
+            String decrypted = decrypt(encryptedIp);
+
+            // Optional: Validate decrypted IP format
+            if (StringUtils.isBlank(decrypted)) {
+                logger.warn("Decrypted IP is blank after successful AES decode");
+                throw new IllegalArgumentException("Decrypted IP cannot be blank");
+            }
+
+            // Optional: Ensure it's a valid IPv4/IPv6 format
+            if (!isValidIpFormat(decrypted)) {
+                logger.warn("Decrypted IP failed IP format validation: {}", decrypted);
+                throw new IllegalArgumentException("Decrypted IP is not a valid IP address");
+            }
+
+            logger.debug("Encrypted IP validated successfully");
+        } catch (Exception e) {
+            logger.error("Encrypted IP validation failed — AES decryption error: {}", e.getMessage());
+            throw new IllegalArgumentException("Invalid encrypted IP", e);
+        }
+    }
+
+    /**
+     * Validates IPv4 or IPv6 format.
+     */
+    private boolean isValidIpFormat(String ip) {
+        try {
+            java.net.InetAddress.getByName(ip);
+            return true;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
     // ==================== AES Encryption Methods ====================
 
     public String encrypt(String data) {

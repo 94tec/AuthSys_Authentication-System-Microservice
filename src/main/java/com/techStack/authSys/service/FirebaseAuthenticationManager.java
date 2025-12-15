@@ -44,7 +44,7 @@ public class FirebaseAuthenticationManager implements ReactiveAuthenticationMana
     private final JwtService jwtService;
     private final FirebaseTokenCacheService firebaseTokenCacheService;
     private final FirebaseServiceAuth firebaseServiceAuth;
-    private final RedisCacheService redisCacheService;
+    private final RedisUserCacheService redisCacheService;
 
     @Override
     public Mono<Authentication> authenticate(Authentication authentication) {
@@ -127,7 +127,7 @@ public class FirebaseAuthenticationManager implements ReactiveAuthenticationMana
     }
 
     private Mono<Authentication> authenticateCustomJwt(String token) {
-        return redisCacheService.getCachedClaims(token)
+        return redisCacheService.getTokenClaims(token)
                 .flatMap(this::castToClaimsMap)
                 .switchIfEmpty(Mono.defer(() -> validateAndCacheFreshToken(token)))
                 .flatMap(this::buildAuthentication)
@@ -162,7 +162,7 @@ public class FirebaseAuthenticationManager implements ReactiveAuthenticationMana
     }
 
     private Mono<Map<String, Object>> cacheClaimsWithFallback(String token, Map<String, Object> claims) {
-        return redisCacheService.cacheClaims(token, claims)
+        return redisCacheService.cacheTokenClaims(token, claims)
                 .onErrorResume(e -> {
                     log.warn("Failed to cache claims", e);
                     return Mono.empty(); // Continue with claims even if caching fails

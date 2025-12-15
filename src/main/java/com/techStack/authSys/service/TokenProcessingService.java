@@ -33,7 +33,7 @@ public class TokenProcessingService {
     private static final String CLAIM_TYPE_ACCESS = "access";
 
     private final FirebaseTokenCacheService firebaseTokenCacheService;
-    private final RedisCacheService redisCacheService;
+    private final RedisUserCacheService redisCacheService;
     private final JwtService jwtValidationService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -123,7 +123,7 @@ public class TokenProcessingService {
     }
 
     private Mono<TokenProcessingResult> processJwtToken(SafeToken safeToken) {
-        return redisCacheService.getCachedClaims(safeToken.getToken())
+        return redisCacheService.getTokenClaims(safeToken.getToken())
                 .flatMap(this::createMutableClaimsMap)
                 .switchIfEmpty(Mono.defer(() -> validateAndCacheJwtToken(safeToken)))
                 .map(this::createJwtTokenResult)
@@ -145,7 +145,7 @@ public class TokenProcessingService {
     }
 
     private Mono<Map<String, Object>> cacheClaimsWithFallback(String token, Map<String, Object> claims) {
-        return redisCacheService.cacheClaims(token, claims)
+        return redisCacheService.cacheTokenClaims(token, claims)
                 .onErrorResume(e -> {
                     log.warn("Failed to cache claims", e);
                     return Mono.empty(); // Continue with claims even if caching fails

@@ -17,6 +17,7 @@ import reactor.core.scheduler.Schedulers;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
@@ -42,6 +43,92 @@ public class AuditLogService {
         this.clock = clock;
         this.currentUserProvider = currentUserProvider;
     }
+    /**
+     * Logs a transaction failure with rollback details.
+     */
+    public void logTransactionFailure(
+            String operation,
+            String userId,
+            String error,
+            Map<String, Object> context) {
+
+        Map<String, Object> auditData = new HashMap<>();
+        auditData.put("timestamp", LocalDateTime.now().toString());
+        auditData.put("operation", operation);
+        auditData.put("userId", userId);
+        auditData.put("status", "ROLLBACK_TRIGGERED");
+        auditData.put("error", error);
+        auditData.put("context", context);
+        auditData.put("severity", "CRITICAL");
+
+        try {
+            firestore.collection("audit_rollbacks")
+                    .document(UUID.randomUUID().toString())
+                    .set(auditData)
+                    .get();
+            logger.warn("📋 Critical rollback logged for operation: {}", operation);
+        } catch (Exception e) {
+            logger.error("❌ Failed to log rollback: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Logs partial save scenarios requiring manual cleanup.
+     */
+    public void logPartialSave(
+            String userId,
+            Map<String, String> savedCollections,
+            String failedCollection) {
+
+        Map<String, Object> partialSaveData = new HashMap<>();
+        partialSaveData.put("timestamp", LocalDateTime.now().toString());
+        partialSaveData.put("userId", userId);
+        partialSaveData.put("savedCollections", savedCollections);
+        partialSaveData.put("failedCollection", failedCollection);
+        partialSaveData.put("action", "REQUIRES_MANUAL_CLEANUP");
+        partialSaveData.put("severity", "HIGH");
+
+        try {
+            firestore.collection("audit_partial_saves")
+                    .document(UUID.randomUUID().toString())
+                    .set(partialSaveData)
+                    .get();
+            logger.warn("⚠️ Partial save logged - manual cleanup required");
+        } catch (Exception e) {
+            logger.error("❌ Failed to log partial save: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Logs successful bootstrap completion.
+     */
+    public Mono<Void> logBootstrapSuccess(String email, long durationMs) {
+        Map<String, Object> auditData = Map.of(
+                "timestamp", LocalDateTime.now().toString(),
+                "operation", "SUPER_ADMIN_BOOTSTRAP",
+                "status", "SUCCESS",
+                "email", maskEmail(email),
+                "durationMs", durationMs
+        );
+
+        return Mono.fromRunnable(() -> {
+            try {
+                firestore.collection("audit_bootstrap")
+                        .document(UUID.randomUUID().toString())
+                        .set(auditData)
+                        .get();
+            } catch (Exception e) {
+                logger.error("Failed to log bootstrap success: {}", e.getMessage());
+            }
+        });
+    }
+
+    private String maskEmail(String email) {
+        if (email == null || !email.contains("@")) return "***";
+        String[] parts = email.split("@");
+        return parts[0].substring(0, Math.min(3, parts[0].length())) + "***@" + parts[1];
+    }
+
     public Mono<Void> logEventLog(AuditEventLog event) {
         try {
             logger.info("🛡️ [AUDIT] Action={} | PerformedBy={} | Target={} | Meta={} | Time={}",
@@ -112,6 +199,34 @@ public class AuditLogService {
                 .doOnError(e -> logger.error("❌ Error saving audit log", e))
                 .then();
 
+    }
+    /**
+     * Logs a standard audit event.
+     */
+    public Mono<Void> logAuditEventBootstrap(
+            User user,
+            ActionType action,
+            String details,
+            String ipAddress) {
+
+        Map<String, Object> auditData = new HashMap<>();
+        auditData.put("timestamp", LocalDateTime.now().toString());
+        auditData.put("userId", user != null ? user.getId() : null);
+        auditData.put("email", user != null ? user.getEmail() : null);
+        auditData.put("action", action.name());
+        auditData.put("details", details);
+        auditData.put("ipAddress", ipAddress);
+
+        return Mono.fromRunnable(() -> {
+            try {
+                firestore.collection("audit_logs")
+                        .document(UUID.randomUUID().toString())
+                        .set(auditData)
+                        .get();
+            } catch (Exception e) {
+                logger.error("Failed to save audit log: {}", e.getMessage());
+            }
+        });
     }
 
     public void logAuthFailure(String email, String ipAddress, String deviceFingerprint, String errorMessage) {

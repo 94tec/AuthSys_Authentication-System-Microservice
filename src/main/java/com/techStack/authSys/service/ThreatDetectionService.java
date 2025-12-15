@@ -22,7 +22,7 @@ public class ThreatDetectionService {
     private static final Logger logger = LoggerFactory.getLogger(ThreatDetectionService.class);
 
     private final WebClient webClient;
-    private final RedisService redisService;
+    private final RedisSecurityService redisService;
     private final AuditLogService auditLogService;
     private final RateLimiterService rateLimiterService;
     private final MetricsService metricsService;
@@ -70,7 +70,7 @@ public class ThreatDetectionService {
                                     callThreatDetectionApi(deviceFingerprint, ipAddress)
                                             .doOnNext(result -> {
                                                 // Cache results
-                                                redisService.cacheThreatInfo(cacheKey, result, cacheTtlSeconds)
+                                                redisService.cacheThreatResult(cacheKey, result, cacheTtlSeconds)
                                                         .subscribeOn(Schedulers.boundedElastic())
                                                         .subscribe();
                                                 threatCache.put(cacheKey, result);
@@ -128,7 +128,7 @@ public class ThreatDetectionService {
      * Checks if request pattern is suspicious
      */
     public Mono<Boolean> detectSuspiciousPattern(String userId, String endpoint, String ipAddress) {
-        return redisService.getUserRequestPattern(userId, endpoint)
+        return redisService.getRequestPattern(userId, endpoint)
                 .map(pattern -> {
                     // Implement your anomaly detection logic here
                     boolean isSuspicious = pattern.getRequestCount() > 100 &&
