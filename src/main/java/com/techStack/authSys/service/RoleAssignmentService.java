@@ -411,14 +411,6 @@ public class RoleAssignmentService {
                 .collect(Collectors.toSet());
     }
 
-    private Mono<User> handleApprovalRequired(User user, Roles requestedRole, String ipAddress, String deviceFingerprint) {
-        user.setStatus(User.Status.PENDING_APPROVAL);
-        user.setRequestedRole(requestedRole);
-
-        return firebaseServiceAuth.saveUser(user, ipAddress, deviceFingerprint)
-                .doOnSuccess(savedUser -> logger.info("Approval required for user {} requesting role {}", savedUser.getId(), requestedRole));
-    }
-
     public Mono<User> approveRoleRequest(String userId) {
         return firebaseServiceAuth.getUserById(userId)
                 .flatMap(user -> {

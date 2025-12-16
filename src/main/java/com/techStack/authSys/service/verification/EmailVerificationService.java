@@ -5,8 +5,10 @@ import com.google.cloud.firestore.FieldValue;
 import com.google.cloud.firestore.Firestore;
 import com.google.cloud.firestore.WriteResult;
 import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseAuthException;
 import com.google.firebase.auth.UserRecord;
 import com.techStack.authSys.exception.CustomException;
+import com.techStack.authSys.exception.UserNotFoundException;
 import com.techStack.authSys.models.ActionType;
 import com.techStack.authSys.models.TokenClaims;
 import com.techStack.authSys.models.User;
@@ -19,6 +21,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 /**
  * Handles email verification and resend operations.
@@ -52,23 +55,46 @@ public class EmailVerificationService {
                 .doOnError(e -> logVerificationError(e, ipAddress));
     }
 
-    /**
-     * Resends verification email to a user.
-     */
     public Mono<Void> resendVerificationEmail(String email, String ipAddress) {
-        return firebaseServiceAuth.getUserByEmail(email)
-                .map(this::mapUserRecordToUser)
-                .flatMap(user -> {
-                    if (user.isEmailVerified()) {
-                        return Mono.error(new CustomException(
-                                HttpStatus.BAD_REQUEST,
-                                "Email is already verified"
-                        ));
-                    }
+        return Mono.zip(
+                // Get verification status from Firebase Auth
+                Mono.fromCallable(() -> FirebaseAuth.getInstance().getUserByEmail(email))
+                        .subscribeOn(Schedulers.boundedElastic())
+                        .map(UserRecord::isEmailVerified),
 
-                    return emailOrchestrator.sendVerificationEmailSafely(user, ipAddress)
-                            .then();
-                });
+                // Get user details from Firestore
+                firebaseServiceAuth.findByEmail(email)
+        ).flatMap(tuple -> {
+            boolean isVerified = tuple.getT1();
+            User user = tuple.getT2();
+
+            if (isVerified) {
+                return Mono.error(new CustomException(
+                        HttpStatus.BAD_REQUEST,
+                        "Email is already verified"
+                ));
+            }
+
+            return emailOrchestrator.sendVerificationEmailSafely(user, ipAddress)
+                    .then();
+        }).onErrorResume(e -> {
+            if (e instanceof FirebaseAuthException) {
+                return Mono.error(new CustomException(
+                        HttpStatus.NOT_FOUND,
+                        "User not found in authentication system"
+                ));
+            }
+            if (e instanceof UserNotFoundException) {
+                return Mono.error(new CustomException(
+                        HttpStatus.NOT_FOUND,
+                        "User not found in database"
+                ));
+            }
+            return Mono.error(new CustomException(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Failed to resend verification email"
+            ));
+        });
     }
 
     /**
@@ -164,17 +190,6 @@ public class EmailVerificationService {
             log.error("Email verification failed for IP {}: {}",
                     ipAddress, e.getMessage(), e);
         }
-    }
-
-    /**
-     * Maps Firebase UserRecord to domain User model.
-     */
-    private User mapUserRecordToUser(UserRecord userRecord) {
-        User user = new User();
-        user.setId(userRecord.getUid());
-        user.setEmail(userRecord.getEmail());
-        user.setEmailVerified(userRecord.isEmailVerified());
-        return user;
     }
 
     /**
