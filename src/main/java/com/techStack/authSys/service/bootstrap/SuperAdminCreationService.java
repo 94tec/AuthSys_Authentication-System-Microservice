@@ -17,8 +17,6 @@ import java.time.Instant;
 /**
  * Handles Super Admin account creation during bootstrap.
  * Ensures idempotent creation with proper error handling and rollback.
- *
- * IMPROVEMENTS:
  * - Added retry logic for transient failures
  * - Better error categorization
  * - Enhanced logging with structured context
@@ -314,9 +312,22 @@ public class SuperAdminCreationService {
     }
 
     private String maskEmail(String email) {
-        if (email == null || !email.contains("@")) return "***";
-        String[] parts = email.split("@");
-        int maskLength = Math.min(3, parts[0].length());
-        return parts[0].substring(0, maskLength) + "***@" + parts[1];
+        if (email == null || email.trim().isEmpty()) return "***";
+
+        String trimmedEmail = email.trim();
+        int atIndex = trimmedEmail.indexOf('@');
+        if (atIndex <= 0) return "***";
+
+        String localPart = trimmedEmail.substring(0, atIndex);
+        String domain = trimmedEmail.substring(atIndex + 1);
+
+        if (localPart.length() == 1) {
+            return localPart + "***@" + domain;
+        } else if (localPart.length() == 2) {
+            return localPart.charAt(0) + "***" + localPart.charAt(1) + "@" + domain;
+        } else {
+            // a***c@gmail.com format
+            return localPart.charAt(0) + "***" + localPart.charAt(localPart.length() - 1) + "@" + domain;
+        }
     }
 }

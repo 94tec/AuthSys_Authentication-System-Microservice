@@ -48,7 +48,7 @@ public class CredentialValidationService {
      * Fetches user record from Firebase Auth.
      */
     private Mono<UserRecord> fetchUserRecord(String email) {
-        return firebaseServiceAuth.getUserByEmail(email)
+        return firebaseServiceAuth.getUserRecord(email)
                 .subscribeOn(Schedulers.boundedElastic());
     }
 

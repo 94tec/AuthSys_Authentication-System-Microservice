@@ -3,6 +3,7 @@ package com.techStack.authSys.service.bootstrap;
 import com.google.cloud.firestore.*;
 import com.google.firebase.auth.FirebaseAuthException;
 import com.techStack.authSys.models.User;
+import com.techStack.authSys.repository.MetricsService;
 import com.techStack.authSys.service.*;
 import com.techStack.authSys.util.PasswordUtils;
 import lombok.RequiredArgsConstructor;
@@ -19,8 +20,6 @@ import java.util.concurrent.TimeoutException;
 
 /**
  * Transactional Super Admin creation with automatic rollback.
- *
- * ENHANCEMENTS:
  * - Added retry logic for transient failures
  * - Input validation
  * - Better error categorization
@@ -38,6 +37,7 @@ public class TransactionalBootstrapService {
     private final BootstrapNotificationService notificationService;
     private final BootstrapStateService stateService;
     private final AuditLogService auditLogService;
+    private final MetricsService metricsService;
     private final Firestore firestore;
 
     private static final String SYSTEM_CREATOR = "BOOTSTRAP_SYSTEM";
@@ -71,24 +71,21 @@ public class TransactionalBootstrapService {
         TransactionContext ctx = new TransactionContext();
         ctx.startTime = System.currentTimeMillis();
 
-        log.info("🚀 Bootstrap transaction initiated for: {}", maskEmail(finalEmail));
+        log.info("🚀 Bootstrap transaction initiated at {} for: {}",ctx.startTime, maskEmail(finalEmail));
 
         return checkExistingAdmin(finalEmail)
                 .flatMap(exists -> {
                     if (exists) {
-                        log.info("⚠️ Super Admin already exists: {}", maskEmail(finalEmail));
-                        return stateService.markBootstrapComplete()
-                                .doOnSuccess(v -> logAlreadyExists(finalEmail, ctx));
+                        return handleExistingAdmin(finalEmail, ctx);
                     }
-
-                    log.info("🔐 Starting transactional Super Admin creation for: {}",
-                            maskEmail(finalEmail));
-
                     return executeTransactionalCreation(finalEmail, finalPhone, ctx);
                 })
                 .doOnError(e -> performRollback(ctx, finalEmail, e))
                 .onErrorResume(e -> handleFinalError(finalEmail, ctx, e));
     }
+    // ============================================================================
+    // EXISTENCE CHECK
+    // ============================================================================
 
     /**
      * Checks if Super Admin already exists with retry logic.
@@ -105,6 +102,25 @@ public class TransactionalBootstrapService {
                 .onErrorResume(e -> {
                     log.error("❌ Failed to check admin existence: {}", e.getMessage());
                     return Mono.error(new RuntimeException("Cannot verify admin existence", e));
+                });
+    }
+
+    /**
+     * Handles scenario where admin already exists.
+     */
+    private Mono<Void> handleExistingAdmin(String email, TransactionContext ctx) {
+        log.info("⚠️ Super Admin already exists: {}", maskEmail(email));
+
+        return stateService.markBootstrapComplete()
+                .doOnSuccess(v -> {
+                    ctx.endTime = System.currentTimeMillis();
+                    log.info("✅ Bootstrap verification completed in {}ms - Admin exists",
+                            ctx.getTotalDuration());
+                    recordMetric("bootstrap.super_admin.already_exists");
+                })
+                .onErrorResume(e -> {
+                    log.warn("⚠️ Failed to mark bootstrap complete: {}", e.getMessage());
+                    return Mono.empty();
                 });
     }
 
@@ -132,36 +148,38 @@ public class TransactionalBootstrapService {
                     return createFirebaseUserAtomically(superAdmin, password, ctx)
                             .doOnSuccess(u -> {
                                 log.info("✓ Step 1/4: Firebase user created atomically");
-                                ctx.completedSteps.add("FIREBASE_USER_CREATION");
+                                logStepComplete(1, "Firebase user created", ctx);
                             })
 
                             // STEP 2: Cache email in Redis
                             .flatMap(user -> cacheEmailRegistration(user, ctx)
                                     .doOnSuccess(u -> {
                                         log.info("✓ Step 2/4: Email cached in Redis");
-                                        ctx.completedSteps.add("REDIS_CACHE");
+                                        logStepComplete(2, "Email cached", ctx);
                                     }))
 
                             // STEP 3: Mark bootstrap complete
-                            .flatMap(user -> markBootstrapCompleteTransactionally(ctx)
+                            .flatMap(user -> markBootstrapComplete(ctx)
                                     .doOnSuccess(v -> {
                                         log.info("✓ Step 3/4: Bootstrap marked complete");
-                                        ctx.completedSteps.add("BOOTSTRAP_FLAG");
+                                        logStepComplete(3, "Bootstrap marked complete", ctx);
                                     })
                                     .thenReturn(user))
 
                             // STEP 4: Send notification email
                             .flatMap(user -> {
                                 log.info("▶ Step 4/4: Sending notification email to {}", maskEmail(email));
-                                return sendNotificationWithFallback(email, password)
+                                return sendNotificationWithFallback(email, password, ctx)
                                         .doOnSuccess(x -> {
                                             log.info("✓ Step 4/4: Notification completed");
-                                            ctx.completedSteps.add("EMAIL_NOTIFICATION");
+                                            logStepComplete(4, "Notification sent", ctx);
                                         });
                             })
-
-                            // SUCCESS: Log completion
-                            .doOnSuccess(v -> logSuccessfulBootstrap(email, ctx))
+                            // SUCCESS: Log and record metrics
+                            .doOnSuccess(v -> {
+                                logSuccessfulBootstrap(email, ctx);
+                                recordSuccessMetrics(ctx);
+                            })
 
                             .then(); // Ensure void return
                 })
@@ -177,6 +195,9 @@ public class TransactionalBootstrapService {
                             signal, ctx.getTotalDuration());
                 });
     }
+    // ============================================================================
+    // STEP 1: ATOMIC FIREBASE CREATION
+    // ============================================================================
 
     /**
      * Creates Firebase Auth user with ATOMIC Firestore batch write.
@@ -195,11 +216,10 @@ public class TransactionalBootstrapService {
                                 log.warn("⚠️ Retrying user creation, attempt: {}",
                                         signal.totalRetries() + 1)))
                 .doOnSuccess(createdUser -> {
+                    log.debug("✅ Atomic creation: userId={}", ctx.firebaseUserId);
                     ctx.firebaseUserId = createdUser.getId();
                     ctx.firebaseUserEmail = createdUser.getEmail();
-                    ctx.userSavedToFirestore = true;
-                    ctx.rolesAssigned = true;
-                    ctx.permissionsResolved = true;
+                    ctx.atomicCreationComplete = true;
                     log.info("✅ Step 1/4: Atomic creation completed - User ID: {}", ctx.firebaseUserId);
                 })
                 .doOnError(e -> {
@@ -207,6 +227,9 @@ public class TransactionalBootstrapService {
                     ctx.failurePoint = "ATOMIC_USER_CREATION";
                 });
     }
+    // ============================================================================
+    // STEP 2: REDIS CACHE
+    // ============================================================================
 
     /**
      * Caches email in Redis with rollback support.
@@ -227,11 +250,14 @@ public class TransactionalBootstrapService {
                 .thenReturn(user)
                 .onErrorReturn(user); // Redis failure is non-fatal
     }
+    // ============================================================================
+    // STEP 3: BOOTSTRAP STATE
+    // ============================================================================
 
     /**
      * Marks bootstrap as complete atomically with retry.
      */
-    private Mono<Void> markBootstrapCompleteTransactionally(TransactionContext ctx) {
+    private Mono<Void> markBootstrapComplete(TransactionContext ctx) {
         return stateService.markBootstrapComplete()
                 .retryWhen(Retry.backoff(MAX_RETRIES, RETRY_DELAY)
                         .filter(this::isRetryableError)
@@ -248,12 +274,15 @@ public class TransactionalBootstrapService {
                     ctx.failurePoint = "MARK_BOOTSTRAP_COMPLETE";
                 });
     }
+    // ============================================================================
+    // STEP 4: EMAIL NOTIFICATION
+    // ============================================================================
 
     /**
      * Sends welcome email with CRITICAL fallback logging.
      * SECURITY: Only logs password to console if email completely fails.
      */
-    private Mono<Void> sendNotificationWithFallback(String email, String password) {
+    private Mono<Void> sendNotificationWithFallback(String email, String password, TransactionContext ctx) {
         log.info("🚀 [INIT] Starting email notification for {}", maskEmail(email));
 
         return notificationService.sendWelcomeEmail(email, password)
@@ -266,6 +295,7 @@ public class TransactionalBootstrapService {
                                 log.warn("⚠️ Retrying email send, attempt: {}",
                                         signal.totalRetries() + 1)))
                 .doOnSuccess(v -> {
+                    ctx.emailSent = true;
                     log.info("✅ [SUCCESS] Welcome email sent successfully to {}", maskEmail(email));
                 })
                 .doOnError(TimeoutException.class, e -> {
@@ -279,6 +309,7 @@ public class TransactionalBootstrapService {
                                 maskEmail(email), e.getClass().getSimpleName());
                         log.error("❌ Error details: {}", e.getMessage(), e);
                         logEmergencyPassword(email, password, e);
+                        auditEmailFailure(email, e);
                     }
                 })
                 .doOnCancel(() ->
@@ -314,33 +345,32 @@ public class TransactionalBootstrapService {
         log.error("║  4. Fix email configuration before next bootstrap          ║");
         log.error("╚════════════════════════════════════════════════════════════╝");
 
-        logEmailFailure(email, e);
+        //logEmailFailure(email, e);
     }
-
     /**
      * Logs email failure to audit trail (WITHOUT password).
      */
-    private void logEmailFailure(String email, Throwable error) {
-        try {
-            Map<String, Object> auditData = Map.of(
-                    "timestamp", Instant.now().toString(),
-                    "operation", "BOOTSTRAP_EMAIL_DELIVERY",
-                    "status", "FAILED",
-                    "email", maskEmail(email),
-                    "error", error.getMessage(),
-                    "errorType", error.getClass().getSimpleName(),
-                    "severity", "CRITICAL",
-                    "actionRequired", "Fix email configuration and resend credentials"
-            );
+    private void auditEmailFailure(String email, Throwable error) {
+        Mono.fromRunnable(() -> {
+            try {
+                Map<String, Object> auditData = Map.of(
+                        "timestamp", Instant.now().toString(),
+                        "operation", "BOOTSTRAP_EMAIL_DELIVERY",
+                        "status", "FAILED",
+                        "email", maskEmail(email),
+                        "error", error.getMessage(),
+                        "errorType", error.getClass().getSimpleName(),
+                        "severity", "CRITICAL"
+                );
 
-            firestore.collection("audit_email_failures")
-                    .document(UUID.randomUUID().toString())
-                    .set(auditData)
-                    .get();
-
-        } catch (Exception e) {
-            log.error("Failed to log email failure to audit: {}", e.getMessage());
-        }
+                firestore.collection("audit_email_failures")
+                        .document(UUID.randomUUID().toString())
+                        .set(auditData)
+                        .get();
+            } catch (Exception e) {
+                log.warn("Failed to audit email failure: {}", e.getMessage());
+            }
+        }).subscribeOn(Schedulers.boundedElastic()).subscribe();
     }
 
     // ============================================================================
@@ -363,38 +393,22 @@ public class TransactionalBootstrapService {
         List<String> rollbackFailures = new ArrayList<>();
 
         try {
-            // Rollback in reverse order
+            // Rollback Step 3: Bootstrap flag
             if (ctx.bootstrapMarkedComplete) {
-                try {
-                    rollbackBootstrapFlag();
-                    rollbackSteps.add("bootstrap_flag");
-                } catch (Exception e) {
-                    log.error("Failed to rollback bootstrap flag: {}", e.getMessage());
-                    rollbackFailures.add("bootstrap_flag: " + e.getMessage());
-                }
+                rollbackBootstrapFlag(rollbackSteps, rollbackFailures);
             }
 
+            // Rollback Step 2: Redis cache
             if (ctx.emailCachedInRedis) {
-                try {
-                    rollbackRedisCache(email);
-                    rollbackSteps.add("redis_cache");
-                } catch (Exception e) {
-                    log.error("Failed to rollback Redis cache: {}", e.getMessage());
-                    rollbackFailures.add("redis_cache: " + e.getMessage());
-                }
+                rollbackRedisCache(email, rollbackSteps, rollbackFailures);
             }
 
-            // UNIFIED: One rollback for atomic Firebase creation
+            // Rollback Step 1: Firebase (Auth + Firestore)
             if (ctx.firebaseUserId != null) {
-                try {
-                    rollbackFirebaseUserAndData(email, ctx.firebaseUserId);
-                    rollbackSteps.add("firebase_auth_and_firestore");
-                } catch (Exception e) {
-                    log.error("Failed to rollback Firebase data: {}", e.getMessage());
-                    rollbackFailures.add("firebase_data: " + e.getMessage());
-                }
+                rollbackFirebaseData(email, ctx.firebaseUserId, rollbackSteps, rollbackFailures);
             }
 
+            // Log rollback results
             if (rollbackFailures.isEmpty()) {
                 log.info("✅ Rollback completed successfully. Cleaned: {}", rollbackSteps);
             } else {
@@ -403,101 +417,127 @@ public class TransactionalBootstrapService {
             }
 
         } catch (Exception rollbackError) {
-            log.error("💥 CRITICAL: Rollback failed: {}", rollbackError.getMessage(), rollbackError);
+            log.error("💥 CRITICAL: Rollback exception: {}", rollbackError.getMessage(), rollbackError);
             logCriticalRollbackFailure(ctx, error, rollbackError, rollbackSteps, rollbackFailures);
         }
 
         logTransactionFailure(ctx, email, error, rollbackSteps, rollbackFailures);
+        recordMetric("bootstrap.super_admin.failed");
     }
+    /**
+     * Rollback bootstrap flag (non-blocking).
+     */
+    private void rollbackBootstrapFlag(List<String> steps, List<String> failures) {
+        try {
+            Mono.fromCallable(() -> {
+                        firestore.collection("system_flags")
+                                .document("bootstrap_admin")
+                                .delete()
+                                .get();
+                        return null;
+                    })
+                    .timeout(ROLLBACK_TIMEOUT)
+                    .subscribeOn(Schedulers.boundedElastic())
+                    .block();
 
-    private void rollbackBootstrapFlag() {
-        Mono.fromCallable(() -> {
-                    firestore.collection("system_flags")
-                            .document("bootstrap_admin")
-                            .delete()
-                            .get();
-                    log.debug("🔄 Rolled back bootstrap flag");
-                    return null;
-                })
-                .onErrorResume(e -> {
-                    log.warn("⚠️ Failed to rollback bootstrap flag: {}", e.getMessage());
-                    return Mono.empty();
-                })
-                .subscribeOn(Schedulers.boundedElastic());
-    }
-    private void rollbackRedisCache(String email) {
-        redisCacheService.removeRegisteredEmail(email)
-                .timeout(Duration.ofSeconds(5))
-                .block();
-        log.debug("🔄 Rolled back Redis email cache");
+            steps.add("bootstrap_flag");
+            log.debug("🔄 Rolled back bootstrap flag");
+        } catch (Exception e) {
+            failures.add("bootstrap_flag: " + e.getMessage());
+            log.error("Failed to rollback bootstrap flag: {}", e.getMessage());
+        }
     }
 
     /**
-     * UNIFIED ROLLBACK with timeout protection.
+     * Rollback Redis cache (non-blocking, FIXED).
      */
-    private void rollbackFirebaseUserAndData(String email, String userId) {
-        // Delete Firebase Auth user with timeout
-        firebaseServiceAuth.rollbackFirebaseUserCreation(email)
-                .timeout(ROLLBACK_TIMEOUT)
-                .doOnSuccess(v -> log.debug("🔄 Rolled back Firebase Auth user"))
-                .doOnError(e -> log.error("Failed to rollback Firebase Auth: {}", e.getMessage()))
-                .onErrorResume(e -> Mono.empty())
-                .block();
+    private void rollbackRedisCache(String email, List<String> steps, List<String> failures) {
+        try {
+            redisCacheService.removeRegisteredEmail(email)
+                    .timeout(Duration.ofSeconds(5))
+                    .subscribeOn(Schedulers.boundedElastic())
+                    .block();
+
+            steps.add("redis_cache");
+            log.debug("🔄 Rolled back Redis cache");
+        } catch (Exception e) {
+            failures.add("redis_cache: " + e.getMessage());
+            log.warn("Failed to rollback Redis: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Rollback Firebase Auth + Firestore subcollections (FIXED).
+     */
+    private void rollbackFirebaseData(String email, String userId,
+                                      List<String> steps, List<String> failures) {
+        // Delete Firebase Auth user
+        try {
+            firebaseServiceAuth.rollbackFirebaseUserCreation(email)
+                    .timeout(ROLLBACK_TIMEOUT)
+                    .subscribeOn(Schedulers.boundedElastic())
+                    .block();
+
+            steps.add("firebase_auth");
+            log.debug("🔄 Rolled back Firebase Auth");
+        } catch (Exception e) {
+            failures.add("firebase_auth: " + e.getMessage());
+            log.error("Failed to rollback Firebase Auth: {}", e.getMessage());
+        }
 
         // Delete Firestore subcollections
         try {
             deleteFirestoreSubcollections(userId);
+            steps.add("firestore_subcollections");
             log.debug("🔄 Rolled back Firestore subcollections");
         } catch (Exception e) {
-            log.error("Failed to delete subcollections: {}", e.getMessage());
-            throw e;
+            failures.add("firestore_subcollections: " + e.getMessage());
+            log.error("Failed to rollback subcollections: {}", e.getMessage());
         }
+    }
+    /**
+     * Deletes Firestore subcollections (FIXED path handling).
+     */
+    private void deleteFirestoreSubcollections(String userId) {
+        DocumentReference userDoc = firestore.collection("users").document(userId);
+
+        // Delete user_profiles subcollection
+        deleteSubcollectionDocument(userDoc, "user_profiles", "profile");
+
+        // Delete user_permissions subcollection
+        deleteSubcollectionDocument(userDoc, "user_permissions", "active_permissions");
+
+        // Delete password history
+        userDoc.collection("user_password_history")
+                .listDocuments()
+                .forEach(this::deleteDocumentSafely);
+
+        log.debug("🔄 Cleaned Firestore subcollections for user: {}", userId);
     }
 
     /**
-     * Deletes all subcollections created during atomic user creation.
+     * Safely deletes a document in a subcollection.
      */
-    private void deleteFirestoreSubcollections(String userId) {
+    private void deleteSubcollectionDocument(DocumentReference parentDoc,
+                                             String subcollection,
+                                             String documentId) {
         try {
-            // Delete user_profiles subcollection
-            deleteDocumentSafely("users/" + userId + "/user_profiles", "profile");
-
-            // Delete user_permissions subcollection
-            deleteDocumentSafely("users/" + userId + "/user_permissions", "active_permissions");
-
-            // Delete password history entries
-            firestore.collection("users")
-                    .document(userId)
-                    .collection("user_password_history")
-                    .listDocuments()
-                    .forEach(doc -> deleteDocumentSafely(doc));
-
-            log.debug("🔄 Cleaned up Firestore subcollections for user: {}", userId);
-
+            parentDoc.collection(subcollection)
+                    .document(documentId)
+                    .delete()
+                    .get();
         } catch (Exception e) {
-            log.error("Failed to delete subcollections: {}", e.getMessage());
-            throw new RuntimeException("Subcollection deletion failed", e);
+            log.warn("Failed to delete {}/{}: {}", subcollection, documentId, e.getMessage());
         }
     }
-
-    private void deleteDocumentSafely(String collectionPath, String documentId) {
-        try {
-            String[] parts = collectionPath.split("/");
-            CollectionReference collection = parts.length == 2
-                    ? firestore.collection(parts[0]).document(parts[1]).collection(parts[2])
-                    : firestore.collection(collectionPath);
-
-            collection.document(documentId).delete().get();
-        } catch (Exception e) {
-            log.warn("Failed to delete document {}/{}: {}", collectionPath, documentId, e.getMessage());
-        }
-    }
-
+    /**
+     * Safely deletes a document reference.
+     */
     private void deleteDocumentSafely(DocumentReference doc) {
         try {
             doc.delete().get();
         } catch (Exception e) {
-            log.warn("Failed to delete document {}: {}", doc.getId(), e.getMessage());
+            log.warn("Failed to delete {}: {}", doc.getId(), e.getMessage());
         }
     }
 
@@ -507,29 +547,30 @@ public class TransactionalBootstrapService {
             Exception rollbackError,
             List<String> rollbackSteps,
             List<String> rollbackFailures) {
-
-        Map<String, Object> criticalData = new HashMap<>();
-        criticalData.put("timestamp", Instant.now().toString());
-        criticalData.put("operation", "SUPER_ADMIN_BOOTSTRAP");
-        criticalData.put("originalError", originalError.getMessage());
-        criticalData.put("originalErrorType", originalError.getClass().getSimpleName());
-        criticalData.put("rollbackError", rollbackError.getMessage());
-        criticalData.put("failurePoint", ctx.failurePoint);
-        criticalData.put("completedSteps", ctx.completedSteps);
-        criticalData.put("rollbackStepsCompleted", rollbackSteps);
-        criticalData.put("rollbackFailures", rollbackFailures);
-        criticalData.put("context", ctx.toMap());
-        criticalData.put("severity", "CRITICAL");
-        criticalData.put("requiresManualCleanup", true);
-
-        try {
-            firestore.collection("audit_critical_failures")
-                    .document(UUID.randomUUID().toString())
-                    .set(criticalData)
-                    .get();
-        } catch (Exception e) {
-            log.error("💥 FATAL: Cannot log critical failure: {}", e.getMessage());
-        }
+        Mono.fromCallable(() -> {
+            try {
+                Map<String, Object> criticalData = new HashMap<>();
+                criticalData.put("timestamp", Instant.now().toString());
+                criticalData.put("operation", "SUPER_ADMIN_BOOTSTRAP");
+                criticalData.put("originalError", originalError.getMessage());
+                criticalData.put("originalErrorType", originalError.getClass().getSimpleName());
+                criticalData.put("rollbackError", rollbackError.getMessage());
+                criticalData.put("failurePoint", ctx.failurePoint);
+                criticalData.put("completedSteps", ctx.completedSteps);
+                criticalData.put("rollbackStepsCompleted", rollbackSteps);
+                criticalData.put("rollbackFailures", rollbackFailures);
+                criticalData.put("context", ctx.toMap());
+                criticalData.put("severity", "CRITICAL");
+                criticalData.put("requiresManualCleanup", true);
+                firestore.collection("audit_critical_failures")
+                        .document(UUID.randomUUID().toString())
+                        .set(criticalData)
+                        .get();
+            } catch (Exception e) {
+                log.error("💥 FATAL: Cannot log critical failure: {}", e.getMessage());
+            }
+            return null;
+        }).subscribeOn(Schedulers.boundedElastic()).subscribe();
     }
 
     private void logTransactionFailure(
@@ -627,12 +668,30 @@ public class TransactionalBootstrapService {
         admin.setDeviceFingerprint(DEVICE_FINGERPRINT);
         return admin;
     }
+    private void logStepComplete(int step, String message, TransactionContext ctx) {
+        log.info("✓ Step {}/4: {}", step, message);
+        ctx.completedSteps.add(String.format("STEP_%d_%s", step, message.toUpperCase().replace(" ", "_")));
+    }
 
     private void logSuccessfulBootstrap(String email, TransactionContext ctx) {
-        long duration = ctx.getTotalDuration();
-        log.info("✅ Super Admin bootstrap completed successfully in {}ms for {}",
-                duration, maskEmail(email));
+        log.info("✅ Super Admin bootstrap completed in {}ms for {}",
+                ctx.getTotalDuration(), maskEmail(email));
         log.info("📊 Completed steps: {}", ctx.completedSteps);
+    }
+
+    private void recordSuccessMetrics(TransactionContext ctx) {
+        recordMetric("bootstrap.super_admin.created");
+        recordMetric("user.registration.success");
+        metricsService.recordTimer("bootstrap.creation.time",
+                Duration.ofMillis(ctx.getTotalDuration()));
+    }
+
+    private void recordMetric(String metricName) {
+        try {
+            metricsService.incrementCounter(metricName);
+        } catch (Exception e) {
+            log.warn("Failed to record metric {}: {}", metricName, e.getMessage());
+        }
     }
 
     private void logAlreadyExists(String email, TransactionContext ctx) {
@@ -655,10 +714,23 @@ public class TransactionalBootstrapService {
     }
 
     private String maskEmail(String email) {
-        if (email == null || !email.contains("@")) return "***";
-        String[] parts = email.split("@");
-        int maskLength = Math.min(3, parts[0].length());
-        return parts[0].substring(0, maskLength) + "***@" + parts[1];
+        if (email == null || email.trim().isEmpty()) return "***";
+
+        String trimmedEmail = email.trim();
+        int atIndex = trimmedEmail.indexOf('@');
+        if (atIndex <= 0) return "***";
+
+        String localPart = trimmedEmail.substring(0, atIndex);
+        String domain = trimmedEmail.substring(atIndex + 1);
+
+        if (localPart.length() == 1) {
+            return localPart + "***@" + domain;
+        } else if (localPart.length() == 2) {
+            return localPart.charAt(0) + "***" + localPart.charAt(1) + "@" + domain;
+        } else {
+            // a***c@gmail.com format
+            return localPart.charAt(0) + "***" + localPart.charAt(localPart.length() - 1) + "@" + domain;
+        }
     }
 
     // ============================================================================
@@ -666,24 +738,21 @@ public class TransactionalBootstrapService {
     // ============================================================================
 
     /**
-     * Enhanced transaction context for better tracking and observability.
+     * Transaction context for tracking state and timing.
      */
     private static class TransactionContext {
         String firebaseUserId;
         String firebaseUserEmail;
-        boolean rolesAssigned = false;
-        boolean permissionsResolved = false;
-        boolean userSavedToFirestore = false;
+        boolean atomicCreationComplete = false;
         boolean emailCachedInRedis = false;
         boolean bootstrapMarkedComplete = false;
+        boolean emailSent = false;
         String failurePoint = "UNKNOWN";
 
-        // Timing information
         long startTime;
         long failureTime;
         long endTime;
 
-        // Step tracking
         List<String> completedSteps = new ArrayList<>();
 
         long getTotalDuration() {
@@ -693,28 +762,22 @@ public class TransactionalBootstrapService {
         long getFailureDuration() {
             return (failureTime > 0 ? failureTime : System.currentTimeMillis()) - startTime;
         }
-
         Map<String, Object> toMap() {
             Map<String, Object> map = new HashMap<>();
             map.put("firebaseUserId", firebaseUserId);
-            map.put("firebaseUserEmail", maskEmailStatic(firebaseUserEmail));
-            map.put("rolesAssigned", rolesAssigned);
-            map.put("permissionsResolved", permissionsResolved);
-            map.put("userSavedToFirestore", userSavedToFirestore);
+            map.put("firebaseUserEmail", firebaseUserEmail);
+            map.put("atomicCreationComplete", atomicCreationComplete);
             map.put("emailCachedInRedis", emailCachedInRedis);
             map.put("bootstrapMarkedComplete", bootstrapMarkedComplete);
+            map.put("emailSent", emailSent);
             map.put("failurePoint", failurePoint);
+            map.put("startTime", startTime);
+            map.put("failureTime", failureTime);
+            map.put("endTime", endTime);
             map.put("completedSteps", completedSteps);
             map.put("totalDuration", getTotalDuration());
-            map.put("failureDuration", getFailureDuration());
+            map.put("failureDuration", failureTime > 0 ? getFailureDuration() : null);
             return map;
-        }
-
-        private static String maskEmailStatic(String email) {
-            if (email == null || !email.contains("@")) return "***";
-            String[] parts = email.split("@");
-            int maskLength = Math.min(3, parts[0].length());
-            return parts[0].substring(0, maskLength) + "***@" + parts[1];
         }
     }
 }

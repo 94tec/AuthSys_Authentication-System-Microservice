@@ -43,9 +43,6 @@ import java.util.stream.Collectors;
 
 /**
  * Firebase Authentication and User Management Service
- *
- * Key Improvements:
- * - Removed duplicate methods (mapFirebaseUserToDomain, createSuperAdmin)
  * - Consolidated permission logic
  * - Better error handling and logging
  * - Consistent document structure
@@ -409,7 +406,7 @@ public class FirebaseServiceAuth {
                 .onErrorMap(this::translateFirebaseException);
     }
 
-    private Mono<UserRecord> getUserRecord(String email) {
+    public Mono<UserRecord> getUserRecord(String email) {
         return Mono.fromFuture(FirestoreUtil.toCompletableFuture(
                         FirebaseAuth.getInstance().getUserByEmailAsync(email)))
                 .onErrorResume(e -> Mono.error(new AuthenticationException("User not found")));
