@@ -5,6 +5,7 @@ import com.google.firebase.auth.FirebaseAuthException;
 import com.techStack.authSys.models.User;
 import com.techStack.authSys.repository.MetricsService;
 import com.techStack.authSys.service.*;
+import com.techStack.authSys.util.FirestoreUtils;
 import com.techStack.authSys.util.PasswordUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -373,56 +374,82 @@ public class TransactionalBootstrapService {
         }).subscribeOn(Schedulers.boundedElastic()).subscribe();
     }
 
-    // ============================================================================
-    // ROLLBACK SYSTEM
-    // ============================================================================
-
     /**
-     * Performs comprehensive rollback on failure.
-     * Enhanced with timeout protection and better error handling.
+     * Fully reactive rollback implementation.
      */
     private void performRollback(TransactionContext ctx, String email, Throwable error) {
         long duration = ctx.getFailureDuration();
 
-        log.error("🔄 ROLLBACK INITIATED at step: {} after {}ms",
+        log.error("🔄 [REACTIVE-ROLLBACK] Initiated at step: {} after {}ms",
                 ctx.failurePoint, duration);
-        log.error("🔄 Error: {} - {}", error.getClass().getSimpleName(), error.getMessage());
-        log.error("🔄 Completed steps before failure: {}", ctx.completedSteps);
 
-        List<String> rollbackSteps = new ArrayList<>();
-        List<String> rollbackFailures = new ArrayList<>();
+        // We create a list to track what actually got cleaned up for logging purposes
+        List<String> cleanedSteps = Collections.synchronizedList(new ArrayList<>());
 
-        try {
-            // Rollback Step 3: Bootstrap flag
-            if (ctx.bootstrapMarkedComplete) {
-                rollbackBootstrapFlag(rollbackSteps, rollbackFailures);
-            }
+        Mono.defer(() -> {
+                    // 1. Rollback Step 3: Bootstrap flag
+                    Mono<Void> rollbackState = ctx.bootstrapMarkedComplete ?
+                            rollbackBootstrapFlagReactive(cleanedSteps) : Mono.empty();
 
-            // Rollback Step 2: Redis cache
-            if (ctx.emailCachedInRedis) {
-                rollbackRedisCache(email, rollbackSteps, rollbackFailures);
-            }
+                    // 2. Rollback Step 2: Redis
+                    Mono<Void> rollbackRedis = ctx.emailCachedInRedis ?
+                            rollbackRedisCacheReactive(email, cleanedSteps) : Mono.empty();
 
-            // Rollback Step 1: Firebase (Auth + Firestore)
-            if (ctx.firebaseUserId != null) {
-                rollbackFirebaseData(email, ctx.firebaseUserId, rollbackSteps, rollbackFailures);
-            }
+                    // 3. Rollback Step 1: Firebase Auth & Firestore
+                    Mono<Void> rollbackFirebase = (ctx.firebaseUserId != null) ?
+                            rollbackFirebaseDataReactive(email, ctx.firebaseUserId, cleanedSteps) : Mono.empty();
 
-            // Log rollback results
-            if (rollbackFailures.isEmpty()) {
-                log.info("✅ Rollback completed successfully. Cleaned: {}", rollbackSteps);
-            } else {
-                log.error("⚠️ Rollback completed with {} failures. Cleaned: {}, Failed: {}",
-                        rollbackFailures.size(), rollbackSteps, rollbackFailures);
-            }
+                    // Execute sequentially: State -> Redis -> Firebase
+                    return rollbackState
+                            .then(rollbackRedis)
+                            .then(rollbackFirebase);
+                })
+                .subscribeOn(Schedulers.boundedElastic())
+                .doOnSuccess(v -> log.info("✅ Rollback completed. Cleaned: {}", cleanedSteps))
+                .doOnError(rollbackError -> {
+                    log.error("💥 CRITICAL: Rollback failed: {}", rollbackError.getMessage());
+                    logCriticalRollbackFailure(ctx, error, (Exception) rollbackError, cleanedSteps, List.of(rollbackError.getMessage()));
+                })
+                .then(Mono.fromRunnable(() -> logTransactionFailure(ctx, email, error, cleanedSteps, List.of())))
+                .then();
+    }
 
-        } catch (Exception rollbackError) {
-            log.error("💥 CRITICAL: Rollback exception: {}", rollbackError.getMessage(), rollbackError);
-            logCriticalRollbackFailure(ctx, error, rollbackError, rollbackSteps, rollbackFailures);
-        }
+    private Mono<Void> rollbackBootstrapFlagReactive(List<String> steps) {
+        return FirestoreUtils.apiFutureToMono(firestore.collection("system_flags").document("bootstrap_admin").delete())
+                .doOnSuccess(v -> steps.add("bootstrap_flag"))
+                .onErrorResume(e -> {
+                    log.error("Failed to rollback flag: {}", e.getMessage());
+                    return Mono.empty();
+                })
+                .then();
+    }
 
-        logTransactionFailure(ctx, email, error, rollbackSteps, rollbackFailures);
-        recordMetric("bootstrap.super_admin.failed");
+    private Mono<Void> rollbackRedisCacheReactive(String email, List<String> steps) {
+        return redisCacheService.removeRegisteredEmail(email)
+                .timeout(Duration.ofSeconds(5))
+                .doOnSuccess(v -> steps.add("redis_cache"))
+                .onErrorResume(e -> {
+                    log.warn("Failed to rollback Redis: {}", e.getMessage());
+                    return Mono.empty();
+                }).then();
+    }
+
+    private Mono<Void> rollbackFirebaseDataReactive(String email, String userId, List<String> steps) {
+        // Delete Auth User
+        Mono<Void> deleteAuth = firebaseServiceAuth.rollbackFirebaseUserCreation(email)
+                .doOnSuccess(v -> steps.add("firebase_auth"))
+                .onErrorResume(e -> {
+                    log.error("Failed to delete Firebase Auth user: {}", e.getMessage());
+                    return Mono.empty();
+                });
+
+        // Delete Firestore Collections
+        Mono<Void> deleteFirestore = Mono.fromRunnable(() -> deleteFirestoreSubcollections(userId))
+                .subscribeOn(Schedulers.boundedElastic())
+                .doOnSuccess(v -> steps.add("firestore_subcollections"))
+                .then();
+
+        return deleteAuth.then(deleteFirestore);
     }
     /**
      * Rollback bootstrap flag (non-blocking).
