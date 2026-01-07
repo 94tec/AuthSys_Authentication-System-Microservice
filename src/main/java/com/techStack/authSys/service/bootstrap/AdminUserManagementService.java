@@ -7,6 +7,7 @@ import com.techStack.authSys.models.ActionType;
 import com.techStack.authSys.models.User;
 import com.techStack.authSys.repository.MetricsService;
 import com.techStack.authSys.service.*;
+import com.techStack.authSys.util.HelperUtils;
 import com.techStack.authSys.util.PasswordUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -48,7 +49,7 @@ public class AdminUserManagementService {
         return extractCreatorId(exchange)
                 .flatMap(creatorId -> {
                     log.info("🔐 Super Admin {} creating Admin for: {}",
-                            creatorId, maskEmail(userDto.getEmail()));
+                            creatorId, HelperUtils.maskEmail(userDto.getEmail()));
 
                     return validateAndCreateAdmin(
                             userDto, creatorId, ipAddress, deviceFingerprint, startTime);
@@ -145,7 +146,7 @@ public class AdminUserManagementService {
         return Mono.fromRunnable(() ->
                 emailService.sendEmail(user.getEmail(), subject, body)
                         .doOnSuccess(v -> log.info("✅ Welcome email sent to {}",
-                                maskEmail(user.getEmail())))
+                                HelperUtils.maskEmail(user.getEmail())))
                         .doOnError(e -> log.error("❌ Failed to send welcome email: {}",
                                 e.getMessage()))
                         .subscribe()
@@ -165,7 +166,7 @@ public class AdminUserManagementService {
 
         return Mono.fromRunnable(() -> {
             log.info("✅ Admin registration completed for {} in {} ms",
-                    maskEmail(user.getEmail()), duration);
+                    HelperUtils.maskEmail(user.getEmail()), duration);
 
             // Audit log
             auditLogService.logAuditEventBootstrap(
@@ -192,7 +193,7 @@ public class AdminUserManagementService {
         long duration = System.currentTimeMillis() - startTime;
 
         log.error("❌ Admin registration failed for {} after {} ms: {}",
-                maskEmail(email), duration, e.getMessage());
+                HelperUtils.maskEmail(email), duration, e.getMessage());
 
         metricsService.incrementCounter("user.admin.creation.failure");
 
@@ -202,7 +203,7 @@ public class AdminUserManagementService {
 
             firebaseServiceAuth.cleanupFailedRegistration(email)
                     .doOnSuccess(v -> log.info("Cleaned up failed registration for {}",
-                            maskEmail(email)))
+                            HelperUtils.maskEmail(email)))
                     .subscribe();
         }
     }
@@ -221,14 +222,4 @@ public class AdminUserManagementService {
                         "Unable to extract creator ID from token")));
     }
 
-    /**
-     * Masks email for logging (GDPR compliance).
-     */
-    private String maskEmail(String email) {
-        if (email == null || !email.contains("@")) {
-            return "***";
-        }
-        String[] parts = email.split("@");
-        return parts[0].substring(0, Math.min(3, parts[0].length())) + "***@" + parts[1];
-    }
 }

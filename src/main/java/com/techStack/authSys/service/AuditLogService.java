@@ -8,6 +8,7 @@ import com.techStack.authSys.dto.AuditLogDTO;
 import com.techStack.authSys.models.*;
 import com.techStack.authSys.security.CurrentUserProvider;
 import com.techStack.authSys.util.FirestoreUtils;
+import com.techStack.authSys.util.HelperUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.RedisHash;
@@ -107,7 +108,7 @@ public class AuditLogService {
                 "timestamp", LocalDateTime.now().toString(),
                 "operation", "SUPER_ADMIN_BOOTSTRAP",
                 "status", "SUCCESS",
-                "email", maskEmail(email),
+                "email", HelperUtils.maskEmail(email),
                 "durationMs", durationMs
         );
 
@@ -121,12 +122,6 @@ public class AuditLogService {
                 logger.error("Failed to log bootstrap success: {}", e.getMessage());
             }
         });
-    }
-
-    private String maskEmail(String email) {
-        if (email == null || !email.contains("@")) return "***";
-        String[] parts = email.split("@");
-        return parts[0].substring(0, Math.min(3, parts[0].length())) + "***@" + parts[1];
     }
 
     public Mono<Void> logEventLog(AuditEventLog event) {

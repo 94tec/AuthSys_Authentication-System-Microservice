@@ -6,7 +6,7 @@ import com.techStack.authSys.exception.ServiceUnavailableException;
 import com.techStack.authSys.models.User;
 import com.techStack.authSys.service.*;
 import com.techStack.authSys.service.verification.EmailVerificationOrchestrator;
-import com.techStack.authSys.util.RetryUtils;
+import com.techStack.authSys.util.HelperUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -35,7 +35,6 @@ public class UserRegistrationOrchestrator {
     private final RegistrationErrorHandlerService errorHandlerService;
     private final DeviceVerificationService deviceVerificationService;
     private final ApplicationEventPublisher eventPublisher;
-    private final RetryUtils retryUtils;
 
     /**
      * Main registration entry point.
@@ -102,7 +101,7 @@ public class UserRegistrationOrchestrator {
 
     private Retry buildRetryPolicy() {
         return Retry.backoff(3, Duration.ofMillis(200))
-                .filter(retryUtils::isRetryableError)
+                .filter(HelperUtils::isRetryableError)
                 .doBeforeRetry(retrySignal ->
                         log.info("🔄 Retrying registration attempt #{}",
                                 retrySignal.totalRetriesInARow() + 1))

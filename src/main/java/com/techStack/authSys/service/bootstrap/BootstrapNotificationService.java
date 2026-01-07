@@ -3,6 +3,7 @@ package com.techStack.authSys.service.bootstrap;
 import com.techStack.authSys.models.ActionType;
 import com.techStack.authSys.service.AuditLogService;
 import com.techStack.authSys.service.EmailServiceInstance1;
+import com.techStack.authSys.util.HelperUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -52,34 +53,34 @@ public class BootstrapNotificationService {
      * Returns Mono that completes only after email is sent or fails gracefully.
      */
     public Mono<Void> sendWelcomeEmail(String email, String temporaryPassword) {
-        log.info("📨 [START] Preparing welcome email for Super Admin: {}", maskEmail(email));
+        log.info("📨 [START] Preparing welcome email for Super Admin: {}", HelperUtils.maskEmail(email));
 
         // ✅ SIMPLIFIED - Remove double subscribeOn, let EmailService handle it
         return Mono.fromCallable(() -> buildEmailBody(temporaryPassword))
-                .doOnNext(body -> log.info("🔨 [BUILD] Email body built for {}", maskEmail(email)))
+                .doOnNext(body -> log.info("🔨 [BUILD] Email body built for {}", HelperUtils.maskEmail(email)))
                 .flatMap(emailBody -> {
-                    log.info("📤 [SEND] Calling email service for {}", maskEmail(email));
+                    log.info("📤 [SEND] Calling email service for {}", HelperUtils.maskEmail(email));
                     return emailService.sendEmail(email, WELCOME_EMAIL_SUBJECT, emailBody);
                 })
                 .doOnSubscribe(s ->
-                        log.info("🔗 [SUBSCRIBE] Email service subscribed for {}", maskEmail(email)))
+                        log.info("🔗 [SUBSCRIBE] Email service subscribed for {}", HelperUtils.maskEmail(email)))
                 .doOnSuccess(v -> {
-                    log.info("✅ [SUCCESS] Welcome email sent successfully to {}", maskEmail(email));
+                    log.info("✅ [SUCCESS] Welcome email sent successfully to {}", HelperUtils.maskEmail(email));
                     logSuccessfulEmailAudit(email);
                 })
                 .doOnError(e -> {
                     log.error("❌ [ERROR] Failed to send welcome email to {}: {}",
-                            maskEmail(email), e.getMessage(), e);
+                            HelperUtils.maskEmail(email), e.getMessage(), e);
                     logFailedEmailAudit(email, e);
                 })
                 .doOnCancel(() ->
-                        log.warn("🚫 [CANCEL] Email operation cancelled for {}", maskEmail(email)))
+                        log.warn("🚫 [CANCEL] Email operation cancelled for {}", HelperUtils.maskEmail(email)))
                 .doFinally(signal ->
                         log.info("🏁 [FINALLY] Email operation terminated with signal: {} for {}",
-                                signal, maskEmail(email)));
+                                signal, HelperUtils.maskEmail(email)));
     }
     public Mono<Void> sendPasswordResetLink(String email) {
-        log.info("🔄 Sending password reset link to: {}", maskEmail(email));
+        log.info("🔄 Sending password reset link to: {}", HelperUtils.maskEmail(email));
 
         return Mono.fromCallable(() -> {
             try {
@@ -127,7 +128,7 @@ public class BootstrapNotificationService {
             auditLogService.logAuditEventBootstrap(
                     null, // No user object yet
                     ActionType.EMAIL_SENT,
-                    String.format("Bootstrap welcome email sent to %s", maskEmail(email)),
+                    String.format("Bootstrap welcome email sent to %s", HelperUtils.maskEmail(email)),
                     "BOOTSTRAP_SYSTEM"
             ).subscribe();
         } catch (Exception e) {
@@ -143,7 +144,7 @@ public class BootstrapNotificationService {
             auditLogService.logAuditEventBootstrap(
                     null,
                     ActionType.EMAIL_FAILURE,
-                    String.format("Failed to send bootstrap email to %s", maskEmail(email)),
+                    String.format("Failed to send bootstrap email to %s", HelperUtils.maskEmail(email)),
                     error.getMessage()
             ).subscribe();
         } catch (Exception e) {
@@ -160,14 +161,4 @@ public class BootstrapNotificationService {
         return "https://your-app.com/login";
     }
 
-    /**
-     * Masks email for logging (GDPR compliance).
-     */
-    private String maskEmail(String email) {
-        if (email == null || !email.contains("@")) {
-            return "***";
-        }
-        String[] parts = email.split("@");
-        return parts[0].substring(0, Math.min(3, parts[0].length())) + "***@" + parts[1];
-    }
 }

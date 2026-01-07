@@ -6,6 +6,7 @@ import com.techStack.authSys.models.User;
 import com.techStack.authSys.repository.MetricsService;
 import com.techStack.authSys.service.*;
 import com.techStack.authSys.util.FirestoreUtils;
+import com.techStack.authSys.util.HelperUtils;
 import com.techStack.authSys.util.PasswordUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -41,7 +42,6 @@ public class TransactionalBootstrapService {
     private final MetricsService metricsService;
     private final Firestore firestore;
 
-    private static final String SYSTEM_CREATOR = "BOOTSTRAP_SYSTEM";
     private static final String SYSTEM_IP = "127.0.0.1";
     private static final String DEVICE_FINGERPRINT = "BOOTSTRAP_DEVICE";
 
@@ -63,8 +63,8 @@ public class TransactionalBootstrapService {
             return Mono.error(new IllegalArgumentException("Email is required"));
         }
 
-        email = normalizeEmail(email);
-        phone = normalizePhone(phone);
+        email = HelperUtils.normalizeEmail(email);
+        phone = HelperUtils.normalizePhone(phone);
 
         String finalEmail = email;
         String finalPhone = phone;
@@ -72,7 +72,7 @@ public class TransactionalBootstrapService {
         TransactionContext ctx = new TransactionContext();
         ctx.startTime = System.currentTimeMillis();
 
-        log.info("🚀 Bootstrap transaction initiated at {} for: {}",ctx.startTime, maskEmail(finalEmail));
+        log.info("🚀 Bootstrap transaction initiated at {} for: {}",ctx.startTime, HelperUtils.maskEmail(finalEmail));
 
         return checkExistingAdmin(finalEmail)
                 .flatMap(exists -> {
@@ -94,14 +94,18 @@ public class TransactionalBootstrapService {
     private Mono<Boolean> checkExistingAdmin(String email) {
         return firebaseServiceAuth.existsByEmail(email)
                 .retryWhen(Retry.backoff(MAX_RETRIES, RETRY_DELAY)
-                        .filter(this::isRetryableError)
+                        .filter(HelperUtils::isRetryableError)  // Use injected RetryUtils
                         .doBeforeRetry(signal ->
-                                log.warn("⚠️ Retrying existence check, attempt: {}",
-                                        signal.totalRetries() + 1)))
+                                log.warn("⚠️ Retrying existence check for {} (attempt: {})",
+                                        HelperUtils.maskEmail(email), signal.totalRetries() + 1)))
                 .timeout(Duration.ofSeconds(10))
-                .doOnSuccess(exists -> log.debug("📊 Admin existence check result: {}", exists))
+                .doOnSuccess(exists -> {
+                    log.debug("📊 Admin existence check result for {}: {}", HelperUtils.maskEmail(email), exists);
+                    metricsService.incrementCounter("bootstrap.admin.check.success");
+                })
+                .doOnError(e -> metricsService.incrementCounter("bootstrap.admin.check.error"))
                 .onErrorResume(e -> {
-                    log.error("❌ Failed to check admin existence: {}", e.getMessage());
+                    log.error("❌ Failed to check admin existence for {}: {}", HelperUtils.maskEmail(email), e.getMessage(), e);
                     return Mono.error(new RuntimeException("Cannot verify admin existence", e));
                 });
     }
@@ -110,7 +114,7 @@ public class TransactionalBootstrapService {
      * Handles scenario where admin already exists.
      */
     private Mono<Void> handleExistingAdmin(String email, TransactionContext ctx) {
-        log.info("⚠️ Super Admin already exists: {}", maskEmail(email));
+        log.info("⚠️ Super Admin already exists: {}", HelperUtils.maskEmail(email));
 
         return stateService.markBootstrapComplete()
                 .doOnSuccess(v -> {
@@ -140,9 +144,9 @@ public class TransactionalBootstrapService {
             TransactionContext ctx) {
 
         String password = PasswordUtils.generateSecurePassword(16);
-        User superAdmin = buildSuperAdminUser(email, phone, password);
+        User superAdmin = HelperUtils.buildSuperAdminUser(email, phone, password);
 
-        log.info("🔄 [TX-START] Beginning transactional creation for {}", maskEmail(email));
+        log.info("🔄 [TX-START] Beginning transactional creation for {}", HelperUtils.maskEmail(email));
 
         return Mono.defer(() -> {
                     // STEP 1: Create Firebase user (ATOMIC: Auth + Firestore + Roles + Permissions)
@@ -169,7 +173,7 @@ public class TransactionalBootstrapService {
 
                             // STEP 4: Send notification email
                             .flatMap(user -> {
-                                log.info("▶ Step 4/4: Sending notification email to {}", maskEmail(email));
+                                log.info("▶ Step 4/4: Sending notification email to {}", HelperUtils.maskEmail(email));
                                 return sendNotificationWithFallback(email, password, ctx)
                                         .doOnSuccess(x -> {
                                             log.info("✓ Step 4/4: Notification completed");
@@ -212,7 +216,7 @@ public class TransactionalBootstrapService {
                         DEVICE_FINGERPRINT
                 )
                 .retryWhen(Retry.backoff(MAX_RETRIES, RETRY_DELAY)
-                        .filter(this::isRetryableError)
+                        .filter(HelperUtils::isRetryableError)
                         .doBeforeRetry(signal ->
                                 log.warn("⚠️ Retrying user creation, attempt: {}",
                                         signal.totalRetries() + 1)))
@@ -261,7 +265,7 @@ public class TransactionalBootstrapService {
     private Mono<Void> markBootstrapComplete(TransactionContext ctx) {
         return stateService.markBootstrapComplete()
                 .retryWhen(Retry.backoff(MAX_RETRIES, RETRY_DELAY)
-                        .filter(this::isRetryableError)
+                        .filter(HelperUtils::isRetryableError)
                         .doBeforeRetry(signal ->
                                 log.warn("⚠️ Retrying bootstrap complete, attempt: {}",
                                         signal.totalRetries() + 1)))
@@ -284,40 +288,40 @@ public class TransactionalBootstrapService {
      * SECURITY: Only logs password to console if email completely fails.
      */
     private Mono<Void> sendNotificationWithFallback(String email, String password, TransactionContext ctx) {
-        log.info("🚀 [INIT] Starting email notification for {}", maskEmail(email));
+        log.info("🚀 [INIT] Starting email notification for {}", HelperUtils.maskEmail(email));
 
         return notificationService.sendWelcomeEmail(email, password)
                 .doOnSubscribe(s ->
-                        log.debug("🔗 [SUBSCRIBED] Email operation subscribed for {}", maskEmail(email)))
+                        log.debug("🔗 [SUBSCRIBED] Email operation subscribed for {}", HelperUtils.maskEmail(email)))
                 .timeout(EMAIL_TIMEOUT)
                 .retryWhen(Retry.fixedDelay(2, Duration.ofSeconds(5))
-                        .filter(this::isRetryableError)
+                        .filter(HelperUtils::isRetryableError)
                         .doBeforeRetry(signal ->
                                 log.warn("⚠️ Retrying email send, attempt: {}",
                                         signal.totalRetries() + 1)))
                 .doOnSuccess(v -> {
                     ctx.emailSent = true;
-                    log.info("✅ [SUCCESS] Welcome email sent successfully to {}", maskEmail(email));
+                    log.info("✅ [SUCCESS] Welcome email sent successfully to {}", HelperUtils.maskEmail(email));
                 })
                 .doOnError(TimeoutException.class, e -> {
                     log.error("⏱️ [TIMEOUT] Email operation timed out after {}s for {}",
-                            EMAIL_TIMEOUT.getSeconds(), maskEmail(email));
+                            EMAIL_TIMEOUT.getSeconds(), HelperUtils.maskEmail(email));
                     logEmergencyPassword(email, password, e);
                 })
                 .doOnError(e -> {
                     if (!(e instanceof TimeoutException)) {
                         log.error("❌ [ERROR] Email delivery failed for {}: {}",
-                                maskEmail(email), e.getClass().getSimpleName());
+                                HelperUtils.maskEmail(email), e.getClass().getSimpleName());
                         log.error("❌ Error details: {}", e.getMessage(), e);
                         logEmergencyPassword(email, password, e);
                         auditEmailFailure(email, e);
                     }
                 })
                 .doOnCancel(() ->
-                        log.warn("🚫 [CANCELLED] Email operation was cancelled for {}", maskEmail(email)))
+                        log.warn("🚫 [CANCELLED] Email operation was cancelled for {}", HelperUtils.maskEmail(email)))
                 .doFinally(signalType ->
                         log.debug("🏁 [FINALLY] Email operation completed with signal: {} for {}",
-                                signalType, maskEmail(email)))
+                                signalType, HelperUtils.maskEmail(email)))
                 .onErrorResume(e -> {
                     log.warn("⚠️ [RESUME] Continuing bootstrap despite email failure - password logged above");
                     return Mono.empty();
@@ -358,7 +362,7 @@ public class TransactionalBootstrapService {
                         "timestamp", Instant.now().toString(),
                         "operation", "BOOTSTRAP_EMAIL_DELIVERY",
                         "status", "FAILED",
-                        "email", maskEmail(email),
+                        "email", HelperUtils.maskEmail(email),
                         "error", error.getMessage(),
                         "errorType", error.getClass().getSimpleName(),
                         "severity", "CRITICAL"
@@ -609,7 +613,7 @@ public class TransactionalBootstrapService {
 
         try {
             Map<String, Object> context = new HashMap<>();
-            context.put("email", maskEmail(email));
+            context.put("email", HelperUtils.maskEmail(email));
             context.put("duration", ctx.getFailureDuration());
             context.put("failurePoint", ctx.failurePoint);
             context.put("completedSteps", ctx.completedSteps);
@@ -636,7 +640,7 @@ public class TransactionalBootstrapService {
      * Final error handler after rollback.
      */
     private Mono<Void> handleFinalError(String email, TransactionContext ctx, Throwable e) {
-        log.error("💥 Bootstrap failed after rollback for {}: {}", maskEmail(email), e.getMessage());
+        log.error("💥 Bootstrap failed after rollback for {}: {}", HelperUtils.maskEmail(email), e.getMessage());
 
         // Handle specific error cases
         if (e instanceof FirebaseAuthException) {
@@ -656,45 +660,10 @@ public class TransactionalBootstrapService {
         return Mono.empty();
     }
 
-    /**
-     * Determines if an error is retryable.
-     */
-    private boolean isRetryableError(Throwable e) {
-        return e instanceof java.net.SocketException
-                || e instanceof java.net.SocketTimeoutException
-                || e instanceof java.io.IOException
-                || e instanceof TimeoutException
-                || (e.getMessage() != null && (
-                e.getMessage().contains("timeout")
-                        || e.getMessage().contains("temporarily unavailable")
-                        || e.getMessage().contains("connection reset")
-                        || e.getMessage().contains("UNAVAILABLE")));
-    }
-
     // ============================================================================
     // HELPER METHODS
     // ============================================================================
 
-    private User buildSuperAdminUser(String email, String phone, String password) {
-        Instant now = Instant.now();
-        User admin = new User();
-        admin.setCreatedAt(now);
-        admin.setUpdatedAt(now);
-        admin.setCreatedBy(SYSTEM_CREATOR);
-        admin.setEmail(email);
-        admin.setEmailVerified(true);
-        admin.setPhoneNumber(phone);
-        admin.setPassword(password);
-        admin.setStatus(User.Status.ACTIVE);
-        admin.setEnabled(true);
-        admin.setForcePasswordChange(true);
-        admin.setAccountLocked(false);
-        admin.setFirstName("Super");
-        admin.setLastName("Admin");
-        admin.setUsername("superadmin");
-        admin.setDeviceFingerprint(DEVICE_FINGERPRINT);
-        return admin;
-    }
     private void logStepComplete(int step, String message, TransactionContext ctx) {
         log.info("✓ Step {}/4: {}", step, message);
         ctx.completedSteps.add(String.format("STEP_%d_%s", step, message.toUpperCase().replace(" ", "_")));
@@ -702,7 +671,7 @@ public class TransactionalBootstrapService {
 
     private void logSuccessfulBootstrap(String email, TransactionContext ctx) {
         log.info("✅ Super Admin bootstrap completed in {}ms for {}",
-                ctx.getTotalDuration(), maskEmail(email));
+                ctx.getTotalDuration(), HelperUtils.maskEmail(email));
         log.info("📊 Completed steps: {}", ctx.completedSteps);
     }
 
@@ -724,40 +693,7 @@ public class TransactionalBootstrapService {
     private void logAlreadyExists(String email, TransactionContext ctx) {
         long duration = ctx.getTotalDuration();
         log.info("✅ Bootstrap verification completed in {}ms - Admin already exists: {}",
-                duration, maskEmail(email));
-    }
-
-    private String normalizeEmail(String email) {
-        return email != null ? email.trim().toLowerCase() : null;
-    }
-
-    private String normalizePhone(String phone) {
-        if (phone == null || phone.isBlank()) return null;
-        phone = phone.trim().replaceAll("\\s+", "");
-        if (phone.startsWith("0")) return "+254" + phone.substring(1);
-        if (phone.startsWith("254")) return "+" + phone;
-        if (!phone.startsWith("+")) return "+" + phone;
-        return phone;
-    }
-
-    private String maskEmail(String email) {
-        if (email == null || email.trim().isEmpty()) return "***";
-
-        String trimmedEmail = email.trim();
-        int atIndex = trimmedEmail.indexOf('@');
-        if (atIndex <= 0) return "***";
-
-        String localPart = trimmedEmail.substring(0, atIndex);
-        String domain = trimmedEmail.substring(atIndex + 1);
-
-        if (localPart.length() == 1) {
-            return localPart + "***@" + domain;
-        } else if (localPart.length() == 2) {
-            return localPart.charAt(0) + "***" + localPart.charAt(1) + "@" + domain;
-        } else {
-            // a***c@gmail.com format
-            return localPart.charAt(0) + "***" + localPart.charAt(localPart.length() - 1) + "@" + domain;
-        }
+                duration, HelperUtils.maskEmail(email));
     }
 
     // ============================================================================

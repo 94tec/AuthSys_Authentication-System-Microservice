@@ -6,6 +6,7 @@ import com.techStack.authSys.service.*;
 import com.techStack.authSys.service.authentication.AuthenticationOrchestrator;
 import com.techStack.authSys.service.authentication.LoginResponseBuilder;
 import com.techStack.authSys.service.authentication.LogoutService;
+import com.techStack.authSys.util.HelperUtils;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -119,7 +120,7 @@ public class AuthController {
         String deviceFingerprint = deviceVerificationService.generateDeviceFingerprint(
                 ipAddress, userAgent);
 
-        log.info("Login attempt for: {} from IP: {}", maskEmail(loginRequest.getEmail()), ipAddress);
+        log.info("Login attempt for: {} from IP: {}", HelperUtils.maskEmail(loginRequest.getEmail()), ipAddress);
 
         return authenticationOrchestrator.authenticate(
                         loginRequest.getEmail(),
@@ -132,7 +133,7 @@ public class AuthController {
                 .flatMap(authResult -> handleLoginResult(authResult, loginRequest.getEmail(),
                         ipAddress, deviceFingerprint))
                 .doOnSuccess(res -> log.info("✅ Login successful for: {}",
-                        maskEmail(loginRequest.getEmail())));
+                        HelperUtils.maskEmail(loginRequest.getEmail())));
 
         // Error handling delegated to GlobalExceptionHandler
         // No .onErrorResume() needed here - keeps controller clean!
@@ -201,7 +202,7 @@ public class AuthController {
      * Handles login attempt with unverified email.
      */
     private Mono<ResponseEntity<AuthResponse>> handleUnverifiedEmail(User user, String ipAddress) {
-        log.warn("Login attempt with unverified email: {}", maskEmail(user.getEmail()));
+        log.warn("Login attempt with unverified email: {}", HelperUtils.maskEmail(user.getEmail()));
 
         return authService.resendVerificationEmail(user.getEmail(), ipAddress)
                 .then(Mono.just(ResponseEntity
@@ -244,16 +245,6 @@ public class AuthController {
      */
     private String extractToken(String authHeader) {
         return authHeader.startsWith("Bearer ") ? authHeader.substring(7) : authHeader;
-    }
-
-    /**
-     * Masks email for logging (GDPR compliance).
-     */
-    private String maskEmail(String email) {
-        if (email == null || !email.contains("@")) {
-            return "unknown";
-        }
-        return email.replaceAll("@.*", "@***");
     }
 
 }

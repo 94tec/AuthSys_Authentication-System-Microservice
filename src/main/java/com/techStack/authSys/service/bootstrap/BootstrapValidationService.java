@@ -1,6 +1,7 @@
 package com.techStack.authSys.service.bootstrap;
 
 import com.techStack.authSys.config.AppConfigProperties;
+import com.techStack.authSys.util.HelperUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
@@ -42,7 +43,7 @@ public class BootstrapValidationService {
         String email = config.getSuperAdminEmail();
         if (!validateEmail(email)) {
             log.error("❌ Invalid or missing Super Admin email: {}",
-                    maskEmail(email));
+                    HelperUtils.maskEmail(email));
             return false;
         }
 
@@ -55,7 +56,7 @@ public class BootstrapValidationService {
         }
 
         log.info("✅ Bootstrap configuration validated successfully");
-        log.debug("  Email: {}", maskEmail(email));
+        log.debug("  Email: {}", HelperUtils.maskEmail(email));
         log.debug("  Phone: {}", maskPhone(phone));
 
         return true;
@@ -128,20 +129,6 @@ public class BootstrapValidationService {
         }
 
         return phone;
-    }
-
-    /**
-     * Masks email for logging (GDPR compliance).
-     */
-    private String maskEmail(String email) {
-        if (email == null) {
-            return "null";
-        }
-        if (!email.contains("@")) {
-            return "***";
-        }
-        String[] parts = email.split("@");
-        return parts[0].substring(0, Math.min(3, parts[0].length())) + "***@" + parts[1];
     }
 
     /**

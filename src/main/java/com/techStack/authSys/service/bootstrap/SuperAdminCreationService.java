@@ -4,6 +4,7 @@ import com.google.firebase.auth.FirebaseAuthException;
 import com.techStack.authSys.models.User;
 import com.techStack.authSys.repository.MetricsService;
 import com.techStack.authSys.service.*;
+import com.techStack.authSys.util.HelperUtils;
 import com.techStack.authSys.util.PasswordUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -33,7 +34,6 @@ public class SuperAdminCreationService {
     private final BootstrapStateService stateService;
     private final MetricsService metricsService;
 
-    private static final String SYSTEM_CREATOR = "BOOTSTRAP_SYSTEM";
     private static final String SYSTEM_IP = "127.0.0.1";
     private static final String DEVICE_FINGERPRINT = "BOOTSTRAP_DEVICE";
 
@@ -52,25 +52,25 @@ public class SuperAdminCreationService {
             return Mono.error(new IllegalArgumentException("Email is required"));
         }
 
-        email = normalizeEmail(email);
-        phone = normalizePhone(phone);
+        email = HelperUtils.normalizeEmail(email);
+        phone = HelperUtils.normalizePhone(phone);
 
         String finalEmail = email;
         String finalPhone = phone;
 
         long startTime = System.currentTimeMillis();
 
-        log.info("🚀 Bootstrap initiated for Super Admin: {}", maskEmail(finalEmail));
+        log.info("🚀 Bootstrap initiated for Super Admin: {}", HelperUtils.maskEmail(finalEmail));
 
         return checkExistingAdmin(finalEmail)
                 .flatMap(exists -> {
                     if (exists) {
-                        log.info("⚠️ Super Admin already exists: {}", maskEmail(finalEmail));
+                        log.info("⚠️ Super Admin already exists: {}", HelperUtils.maskEmail(finalEmail));
                         return stateService.markBootstrapComplete()
                                 .doOnSuccess(v -> log.info("✅ Bootstrap state verified"));
                     }
 
-                    log.info("🔐 Creating new Super Admin account: {}", maskEmail(finalEmail));
+                    log.info("🔐 Creating new Super Admin account: {}", HelperUtils.maskEmail(finalEmail));
                     return createSuperAdmin(finalEmail, finalPhone, startTime);
                 })
                 .doOnSuccess(v -> {
@@ -91,7 +91,7 @@ public class SuperAdminCreationService {
     private Mono<Boolean> checkExistingAdmin(String email) {
         return firebaseServiceAuth.existsByEmail(email)
                 .retryWhen(Retry.backoff(MAX_RETRIES, RETRY_DELAY)
-                        .filter(this::isRetryableError)
+                        .filter(HelperUtils::isRetryableError)
                         .doBeforeRetry(signal ->
                                 log.warn("⚠️ Retrying existence check, attempt: {}",
                                         signal.totalRetries() + 1))
@@ -108,9 +108,9 @@ public class SuperAdminCreationService {
      */
     private Mono<Void> createSuperAdmin(String email, String phone, long startTime) {
         String password = PasswordUtils.generateSecurePassword(16);
-        User superAdmin = buildSuperAdminUser(email, phone, password);
+        User superAdmin = HelperUtils.buildSuperAdminUser(email, phone, password);
 
-        log.info("🔄 Starting Super Admin creation for {}", maskEmail(email));
+        log.info("🔄 Starting Super Admin creation for {}", HelperUtils.maskEmail(email));
 
         return firebaseServiceAuth.createSuperAdmin(
                         superAdmin,
@@ -124,39 +124,13 @@ public class SuperAdminCreationService {
     }
 
     /**
-     * Builds Super Admin user object with all required fields.
-     */
-    private User buildSuperAdminUser(String email, String phone, String password) {
-        Instant now = Instant.now();
-
-        User admin = new User();
-        admin.setCreatedAt(now);
-        admin.setUpdatedAt(now);
-        admin.setCreatedBy(SYSTEM_CREATOR);
-        admin.setEmail(email);
-        admin.setEmailVerified(true);
-        admin.setPhoneNumber(phone);
-        admin.setPassword(password);
-        admin.setStatus(User.Status.ACTIVE);
-        admin.setEnabled(true);
-        admin.setForcePasswordChange(true);
-        admin.setAccountLocked(false);
-        admin.setFirstName("Super");
-        admin.setLastName("Admin");
-        admin.setUsername("superadmin");
-        admin.setDeviceFingerprint(DEVICE_FINGERPRINT);
-
-        return admin;
-    }
-
-    /**
      * Finalizes bootstrap: marks complete, sends email, records metrics.
      * Enhanced with fallback handling for email failures.
      */
     private Mono<Void> finalizeBootstrap(User user, String password, long startTime) {
         long duration = System.currentTimeMillis() - startTime;
 
-        log.info("📧 Finalizing bootstrap for {}", maskEmail(user.getEmail()));
+        log.info("📧 Finalizing bootstrap for {}", HelperUtils.maskEmail(user.getEmail()));
 
         return Mono.when(
                         stateService.markBootstrapComplete()
@@ -175,7 +149,7 @@ public class SuperAdminCreationService {
                                         e.getMessage()))
                 )
                 .doOnSuccess(v -> log.info("✅ Super Admin bootstrap completed in {}ms for {}",
-                        duration, maskEmail(user.getEmail())))
+                        duration, HelperUtils.maskEmail(user.getEmail())))
                 .doOnError(e -> log.error("❌ Failed to finalize bootstrap: {}", e.getMessage()));
     }
 
@@ -187,13 +161,13 @@ public class SuperAdminCreationService {
         return notificationService.sendWelcomeEmail(email, password)
                 .timeout(Duration.ofSeconds(30))
                 .retryWhen(Retry.fixedDelay(2, Duration.ofSeconds(5))
-                        .filter(this::isRetryableError)
+                        .filter(HelperUtils::isRetryableError)
                         .doBeforeRetry(signal ->
                                 log.warn("⚠️ Retrying email send, attempt: {}",
                                         signal.totalRetries() + 1)))
                 .onErrorResume(e -> {
                     log.error("❌ Email delivery failed after retries for {}: {}",
-                            maskEmail(email), e.getMessage());
+                            HelperUtils.maskEmail(email), e.getMessage());
                     logEmergencyPassword(email, password, e);
                     // Don't fail bootstrap due to email failure
                     return Mono.empty();
@@ -232,7 +206,7 @@ public class SuperAdminCreationService {
                 metricsService.incrementCounter("user.registration.success");
                 metricsService.recordTimer("bootstrap.creation.time", Duration.ofMillis(duration));
 
-                log.info("📊 Bootstrap metrics recorded for {}", maskEmail(user.getEmail()));
+                log.info("📊 Bootstrap metrics recorded for {}", HelperUtils.maskEmail(user.getEmail()));
             } catch (Exception e) {
                 log.warn("⚠️ Failed to record metrics: {}", e.getMessage());
             }
@@ -242,7 +216,7 @@ public class SuperAdminCreationService {
      * Handles creation errors with intelligent rollback.
      */
     private Mono<Void> handleCreationError(String email, Throwable e) {
-        log.error("🚨 Super Admin creation failed for {}: {}", maskEmail(email), e.getMessage(), e);
+        log.error("🚨 Super Admin creation failed for {}: {}", HelperUtils.maskEmail(email), e.getMessage(), e);
 
         // Record failure metric
         try {
@@ -264,10 +238,10 @@ public class SuperAdminCreationService {
         }
 
         // Attempt rollback for other errors
-        log.warn("🔄 Attempting rollback for {}", maskEmail(email));
+        log.warn("🔄 Attempting rollback for {}", HelperUtils.maskEmail(email));
         return firebaseServiceAuth.rollbackFirebaseUserCreation(email)
                 .timeout(Duration.ofSeconds(10))
-                .doOnSuccess(v -> log.info("✅ Rollback completed for {}", maskEmail(email)))
+                .doOnSuccess(v -> log.info("✅ Rollback completed for {}", HelperUtils.maskEmail(email)))
                 .doOnError(rollbackError ->
                         log.error("❌ Rollback failed: {}", rollbackError.getMessage()))
                 .onErrorResume(rollbackError -> {
@@ -277,57 +251,4 @@ public class SuperAdminCreationService {
                 .then(Mono.error(e)); // Re-throw original error after rollback
     }
 
-    /**
-     * Determines if an error is retryable (transient network/database issues).
-     */
-    private boolean isRetryableError(Throwable e) {
-        return e instanceof java.net.SocketException
-                || e instanceof java.net.SocketTimeoutException
-                || e instanceof java.io.IOException
-                || e.getMessage() != null && (
-                e.getMessage().contains("timeout")
-                        || e.getMessage().contains("temporarily unavailable")
-                        || e.getMessage().contains("connection reset"));
-    }
-
-    // ============================================================================
-    // UTILITY METHODS
-    // ============================================================================
-
-    private String normalizeEmail(String email) {
-        return email != null ? email.trim().toLowerCase() : null;
-    }
-
-    private String normalizePhone(String phone) {
-        if (phone == null || phone.isBlank()) return null;
-
-        phone = phone.trim().replaceAll("\\s+", "");
-
-        // Kenyan phone normalization
-        if (phone.startsWith("0")) return "+254" + phone.substring(1);
-        if (phone.startsWith("254")) return "+" + phone;
-        if (!phone.startsWith("+")) return "+" + phone;
-
-        return phone;
-    }
-
-    private String maskEmail(String email) {
-        if (email == null || email.trim().isEmpty()) return "***";
-
-        String trimmedEmail = email.trim();
-        int atIndex = trimmedEmail.indexOf('@');
-        if (atIndex <= 0) return "***";
-
-        String localPart = trimmedEmail.substring(0, atIndex);
-        String domain = trimmedEmail.substring(atIndex + 1);
-
-        if (localPart.length() == 1) {
-            return localPart + "***@" + domain;
-        } else if (localPart.length() == 2) {
-            return localPart.charAt(0) + "***" + localPart.charAt(1) + "@" + domain;
-        } else {
-            // a***c@gmail.com format
-            return localPart.charAt(0) + "***" + localPart.charAt(localPart.length() - 1) + "@" + domain;
-        }
-    }
 }

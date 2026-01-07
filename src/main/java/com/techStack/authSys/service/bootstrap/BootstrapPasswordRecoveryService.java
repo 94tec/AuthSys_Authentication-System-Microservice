@@ -2,6 +2,7 @@ package com.techStack.authSys.service.bootstrap;
 
 import com.google.firebase.auth.FirebaseAuth;
 import com.techStack.authSys.service.EmailServiceInstance1;
+import com.techStack.authSys.util.HelperUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -25,7 +26,7 @@ public class BootstrapPasswordRecoveryService {
      */
     public Mono<Void> sendPasswordResetLink(String email) {
         return Mono.fromCallable(() -> {
-            log.info("🔄 Sending Firebase password reset link to: {}", maskEmail(email));
+            log.info("🔄 Sending Firebase password reset link to: {}", HelperUtils.maskEmail(email));
 
             try {
                 // Generate Firebase password reset link
@@ -89,11 +90,5 @@ public class BootstrapPasswordRecoveryService {
         return emailService.sendEmail(email, subject, body)
                 .doOnSuccess(v -> log.info("✅ Manual reset instructions sent"))
                 .doOnError(e -> log.error("❌ Failed to send instructions: {}", e.getMessage()));
-    }
-
-    private String maskEmail(String email) {
-        if (email == null || !email.contains("@")) return "***";
-        String[] parts = email.split("@");
-        return parts[0].substring(0, Math.min(3, parts[0].length())) + "***@" + parts[1];
     }
 }

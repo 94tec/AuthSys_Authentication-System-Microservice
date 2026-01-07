@@ -1,6 +1,7 @@
 package com.techStack.authSys.controller;
 
 import com.techStack.authSys.service.bootstrap.*;
+import com.techStack.authSys.util.HelperUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -66,7 +67,7 @@ public class BootstrapDiagnosticController {
     public Mono<ResponseEntity<Map<String, String>>> resendWelcomeEmail(
             @RequestParam String email) {
 
-        log.warn("🚨 ADMIN resending credentials via Firebase password reset: {}", maskEmail(email));
+        log.warn("🚨 ADMIN resending credentials via Firebase password reset: {}", HelperUtils.maskEmail(email));
 
         return notificationService.sendPasswordResetLink(email)
                 .then(Mono.fromCallable(() -> {
@@ -196,9 +197,4 @@ public class BootstrapDiagnosticController {
                 }));
     }
 
-    private String maskEmail(String email) {
-        if (email == null || !email.contains("@")) return "***";
-        String[] parts = email.split("@");
-        return parts[0].substring(0, Math.min(3, parts[0].length())) + "***@" + parts[1];
-    }
 }

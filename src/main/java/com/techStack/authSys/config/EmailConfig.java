@@ -1,5 +1,6 @@
 package com.techStack.authSys.config;
 
+import com.techStack.authSys.util.HelperUtils;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -65,8 +66,8 @@ public class EmailConfig {
         log.info("║  Host: {}║", String.format("%-51s", host));
         log.info("║  Port: {}║", String.format("%-51s", port));
         log.info("║  Protocol: {}║", String.format("%-47s", protocol));
-        log.info("║  Username: {}║", String.format("%-47s", maskEmail(username)));
-        log.info("║  From Address: {}║", String.format("%-43s", maskEmail(fromAddress)));
+        log.info("║  Username: {}║", String.format("%-47s", HelperUtils.maskEmail(username)));
+        log.info("║  From Address: {}║", String.format("%-43s", HelperUtils.maskEmail(fromAddress)));
         log.info("║  SMTP Auth: {}║", String.format("%-46s", smtpAuth));
         log.info("║  StartTLS: {}║", String.format("%-47s", starttls));
         log.info("╠════════════════════════════════════════════════════════════╣");
@@ -106,12 +107,6 @@ public class EmailConfig {
             log.error("║  4. Firewall blocking port 587                            ║");
         }
         log.info("╚════════════════════════════════════════════════════════════╝");
-    }
-
-    private String maskEmail(String email) {
-        if (email == null || !email.contains("@")) return "***";
-        String[] parts = email.split("@");
-        return parts[0].substring(0, Math.min(2, parts[0].length())) + "***@" + parts[1];
     }
 
     @Bean

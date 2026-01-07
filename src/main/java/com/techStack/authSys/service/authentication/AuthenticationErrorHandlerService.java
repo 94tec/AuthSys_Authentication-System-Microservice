@@ -4,6 +4,7 @@ import com.auth0.jwt.exceptions.TokenExpiredException;
 import com.google.firebase.auth.FirebaseAuthException;
 import com.techStack.authSys.dto.ErrorResponse;
 import com.techStack.authSys.exception.*;
+import com.techStack.authSys.util.HelperUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -24,7 +25,7 @@ public class AuthenticationErrorHandlerService {
      * Main method to handle authentication errors and return appropriate user response.
      */
     public Mono<ErrorResponse> handleAuthenticationError(Throwable error, String email) {
-        log.debug("Handling authentication error for email: {}", maskEmail(email));
+        log.debug("Handling authentication error for email: {}", HelperUtils.maskEmail(email));
 
         return Mono.fromCallable(() -> {
             ErrorResponse response = determineErrorResponse(error, email);
@@ -245,7 +246,7 @@ public class AuthenticationErrorHandlerService {
         }
 
         // 15. Unknown/Unexpected Errors (Fallback)
-        log.error("Unexpected authentication error for {}", maskEmail(email), error);
+        log.error("Unexpected authentication error for {}", HelperUtils.maskEmail(email), error);
         return new ErrorResponse(
                 HttpStatus.INTERNAL_SERVER_ERROR,
                 "UNEXPECTED_ERROR",
@@ -378,7 +379,7 @@ public class AuthenticationErrorHandlerService {
      * Log error with appropriate severity level.
      */
     private void logError(Throwable error, String email, ErrorResponse response) {
-        String maskedEmail = maskEmail(email);
+        String maskedEmail = HelperUtils.maskEmail(email);
 
         // Expected business errors - INFO/DEBUG level
         if (error instanceof AuthException && "INVALID_CREDENTIALS".equals(response.getErrorCode())) {
@@ -406,19 +407,5 @@ public class AuthenticationErrorHandlerService {
             log.info("Login error for {}: {} - {}", maskedEmail,
                     error.getClass().getSimpleName(), response.getErrorCode());
         }
-    }
-
-    /**
-     * Mask email for logging (GDPR compliance).
-     */
-    private String maskEmail(String email) {
-        if (email == null || email.equals("unknown")) {
-            return "unknown";
-        }
-        if (email.contains("@")) {
-            String[] parts = email.split("@");
-            return parts[0] + "@***";
-        }
-        return email;
     }
 }

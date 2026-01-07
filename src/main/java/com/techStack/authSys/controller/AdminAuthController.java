@@ -7,6 +7,7 @@ import com.techStack.authSys.service.authentication.LoginResponseBuilder;
 import com.techStack.authSys.service.bootstrap.AdminUserManagementService;
 import com.techStack.authSys.service.bootstrap.SuperAdminCreationService;
 import com.techStack.authSys.service.verification.EmailVerificationService;
+import com.techStack.authSys.util.HelperUtils;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -51,7 +52,7 @@ public class AdminAuthController {
             @RequestParam String email,
             @RequestParam String phone) {
 
-        log.warn("🚨 Manual Super Admin registration initiated for: {}", maskEmail(email));
+        log.warn("🚨 Manual Super Admin registration initiated for: {}", HelperUtils.maskEmail(email));
 
         return superAdminCreationService.createSuperAdminIfAbsent(email, phone)
                 .then(Mono.just(ResponseEntity
@@ -89,7 +90,7 @@ public class AdminAuthController {
                 ipAddress, userAgent);
 
         log.info("Admin login attempt for: {} from IP: {}",
-                maskEmail(loginRequest.getEmail()), ipAddress);
+                HelperUtils.maskEmail(loginRequest.getEmail()), ipAddress);
         // Determine permissions for admin login
         Set<String> permissions = getAdminPermissions();
 
@@ -103,7 +104,7 @@ public class AdminAuthController {
                 )
                 .flatMap(authResult -> handleAdminLoginResult(authResult, ipAddress))
                 .doOnSuccess(res -> log.info("✅ Admin login successful for: {}",
-                        maskEmail(loginRequest.getEmail())));
+                        HelperUtils.maskEmail(loginRequest.getEmail())));
 
         // Error handling delegated to GlobalExceptionHandler
     }
@@ -122,7 +123,7 @@ public class AdminAuthController {
         String deviceFingerprint = deviceVerificationService.generateDeviceFingerprint(
                 ipAddress, userDto.getUserAgent());
 
-        log.info("Admin registration by Super Admin for: {}", maskEmail(userDto.getEmail()));
+        log.info("Admin registration by Super Admin for: {}", HelperUtils.maskEmail(userDto.getEmail()));
 
         return adminUserManagementService.createAdminUser(userDto, exchange, ipAddress, deviceFingerprint)
                 .map(user -> ResponseEntity
@@ -162,7 +163,7 @@ public class AdminAuthController {
             com.techStack.authSys.models.User user,
             String ipAddress) {
 
-        log.warn("Admin login attempt with unverified email: {}", maskEmail(user.getEmail()));
+        log.warn("Admin login attempt with unverified email: {}", HelperUtils.maskEmail(user.getEmail()));
 
         return emailVerificationService.resendVerificationEmail(user.getEmail(), ipAddress)
                 .then(Mono.just(ResponseEntity
@@ -187,16 +188,6 @@ public class AdminAuthController {
                 });
     }
 
-    /**
-     * Masks email for logging (GDPR compliance).
-     */
-    private String maskEmail(String email) {
-        if (email == null || !email.contains("@")) {
-            return "***";
-        }
-        String[] parts = email.split("@");
-        return parts[0].substring(0, Math.min(3, parts[0].length())) + "***@" + parts[1];
-    }
     // Helper method to get admin permissions
     private Set<String> getAdminPermissions() {
         return Set.of(

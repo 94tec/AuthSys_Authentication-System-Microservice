@@ -2,6 +2,7 @@ package com.techStack.authSys.service;
 
 import com.techStack.authSys.exception.EmailSendingException;
 import com.techStack.authSys.repository.MetricsService;
+import com.techStack.authSys.util.HelperUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -40,11 +41,11 @@ public class EmailServiceInstance1 {
 
     // ✅ FIXED - Unified email sending core with proper error handling
     private Mono<Void> sendEmailInternal(String email, String subject, String body) {
-        logger.info("📧 [EMAIL-INTERNAL] Preparing to send email to: {}", maskEmail(email));
+        logger.info("📧 [EMAIL-INTERNAL] Preparing to send email to: {}", HelperUtils.maskEmail(email));
 
         return Mono.fromCallable(() -> { // ✅ Changed from fromRunnable to fromCallable
                     logger.info("📤 [EMAIL-SEND] Sending email - To: {}, Subject: {}",
-                            maskEmail(email), subject);
+                            HelperUtils.maskEmail(email), subject);
 
                     SimpleMailMessage message = new SimpleMailMessage();
                     message.setFrom(fromAddress); // ✅ ADD THIS - Critical!
@@ -55,24 +56,24 @@ public class EmailServiceInstance1 {
                     mailSender.send(message); // This throws exceptions that we'll catch
 
                     logger.info("✅ [EMAIL-SENT] JavaMailSender.send() completed for {}",
-                            maskEmail(email));
+                            HelperUtils.maskEmail(email));
                     return null; // Return value for Callable
                 })
                 .subscribeOn(emailScheduler)
                 .doOnSuccess(__ -> {
-                    logger.info("✅ [EMAIL-SUCCESS] Email successfully sent to {}", maskEmail(email));
+                    logger.info("✅ [EMAIL-SUCCESS] Email successfully sent to {}", HelperUtils.maskEmail(email));
                     metricsService.incrementCounter("email.success");
                 })
                 .doOnError(e -> {
                     logger.error("❌ [EMAIL-ERROR] Email failed to {}: {} - {}",
-                            maskEmail(email), e.getClass().getSimpleName(), e.getMessage());
+                            HelperUtils.maskEmail(email), e.getClass().getSimpleName(), e.getMessage());
                     logger.error("❌ [EMAIL-STACKTRACE] Full error:", e); // ✅ Full stack trace
                     metricsService.incrementCounter("email.failure");
                 })
                 .onErrorMap(e -> {
                     // ✅ Map to custom exception with context
                     String errorMsg = String.format("Failed to send email to %s: %s",
-                            maskEmail(email), e.getMessage());
+                            HelperUtils.maskEmail(email), e.getMessage());
                     return new EmailSendingException(errorMsg, e);
                 })
                 .then();
@@ -92,7 +93,7 @@ public class EmailServiceInstance1 {
 
     public Mono<Void> sendEmail(String email, String subject, String message) {
         logger.info("📬 [EMAIL-API] sendEmail called - To: {}, Subject: {}",
-                maskEmail(email), subject);
+                HelperUtils.maskEmail(email), subject);
         return sendEmailInternal(email, subject, message);
     }
 
@@ -163,10 +164,4 @@ public class EmailServiceInstance1 {
         return sendEmailInternal(email, subject, body);
     }
 
-    // ✅ ADD THIS - Helper method
-    private String maskEmail(String email) {
-        if (email == null || !email.contains("@")) return "***";
-        String[] parts = email.split("@");
-        return parts[0].substring(0, Math.min(2, parts[0].length())) + "***@" + parts[1];
-    }
 }
