@@ -1,7 +1,7 @@
 package com.techStack.authSys;
 
-import com.techStack.authSys.config.AppConfigProperties;
-import com.techStack.authSys.config.JwtConfig;
+import com.techStack.authSys.config.core.AppConfigProperties;
+import com.techStack.authSys.config.security.JwtConfig;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan;

@@ -1,8 +1,21 @@
 package com.techStack.authSys.service.registration;
 
 import com.google.firebase.auth.FirebaseAuthException;
-import com.techStack.authSys.dto.ErrorResponse;
-import com.techStack.authSys.exception.*;
+import com.techStack.authSys.dto.response.ErrorResponse;
+import com.techStack.authSys.exception.authorization.PermissionDeniedException;
+import com.techStack.authSys.exception.data.CacheException;
+import com.techStack.authSys.exception.data.DataIntegrityException;
+import com.techStack.authSys.exception.data.DatabaseException;
+import com.techStack.authSys.exception.domain.InactiveDomainException;
+import com.techStack.authSys.exception.domain.InvalidDomainException;
+import com.techStack.authSys.exception.email.EmailAlreadyExistsException;
+import com.techStack.authSys.exception.email.EmailServiceException;
+import com.techStack.authSys.exception.password.CommonPasswordException;
+import com.techStack.authSys.exception.password.WeakPasswordException;
+import com.techStack.authSys.exception.security.*;
+import com.techStack.authSys.exception.service.CustomException;
+import com.techStack.authSys.exception.service.ServiceUnavailableException;
+import com.techStack.authSys.exception.validation.ValidationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;

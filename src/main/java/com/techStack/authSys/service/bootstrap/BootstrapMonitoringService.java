@@ -37,7 +37,7 @@ public class BootstrapMonitoringService {
             BootstrapHealthReport report = new BootstrapHealthReport();
 
             // Check if bootstrap is complete
-            report.isComplete = stateService.isBootstrapCompleted().block();
+            report.isComplete = Boolean.TRUE.equals(stateService.isBootstrapCompleted().block());
 
             // Count critical failures
             report.criticalFailures = countCriticalFailures();

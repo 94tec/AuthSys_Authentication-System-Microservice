@@ -1,0 +1,20 @@
+package com.techStack.authSys.exception.security;
+
+import com.techStack.authSys.exception.service.CustomException;
+import lombok.Getter;
+import org.springframework.http.HttpStatus;
+
+/**
+ * Rate limit exceeded exception
+ */
+@Getter
+public class RateLimitExceededException extends CustomException {
+    private final int retryAfterMinutes;
+
+    public RateLimitExceededException(int retryAfterMinutes) {
+        super(HttpStatus.TOO_MANY_REQUESTS,
+                "Too many registration attempts. Please try again later.");
+        this.retryAfterMinutes = retryAfterMinutes;
+    }
+
+}

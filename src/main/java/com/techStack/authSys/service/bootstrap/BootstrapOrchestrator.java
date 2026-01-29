@@ -1,7 +1,7 @@
 package com.techStack.authSys.service.bootstrap;
 
-import com.techStack.authSys.config.AppConfigProperties;
-import com.techStack.authSys.repository.MetricsService;
+import com.techStack.authSys.config.core.AppConfigProperties;
+import com.techStack.authSys.repository.metrics.MetricsService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;

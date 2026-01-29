@@ -1,11 +1,11 @@
 package com.techStack.authSys.service.bootstrap;
 
 import com.google.firebase.auth.FirebaseAuthException;
-import com.techStack.authSys.models.User;
-import com.techStack.authSys.repository.MetricsService;
-import com.techStack.authSys.service.*;
-import com.techStack.authSys.util.HelperUtils;
-import com.techStack.authSys.util.PasswordUtils;
+import com.techStack.authSys.models.user.User;
+import com.techStack.authSys.repository.metrics.MetricsService;
+import com.techStack.authSys.service.auth.FirebaseServiceAuth;
+import com.techStack.authSys.util.validation.HelperUtils;
+import com.techStack.authSys.util.password.PasswordUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -13,7 +13,6 @@ import reactor.core.publisher.Mono;
 import reactor.util.retry.Retry;
 
 import java.time.Duration;
-import java.time.Instant;
 
 /**
  * Handles Super Admin account creation during bootstrap.

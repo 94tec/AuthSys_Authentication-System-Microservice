@@ -1,7 +1,7 @@
 package com.techStack.authSys.event;
 
 
-import com.techStack.authSys.models.User;
+import com.techStack.authSys.models.user.User;
 import lombok.Getter;
 import org.springframework.context.ApplicationEvent;
 

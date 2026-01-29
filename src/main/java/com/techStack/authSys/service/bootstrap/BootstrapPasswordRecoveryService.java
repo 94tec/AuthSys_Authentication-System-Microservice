@@ -1,8 +1,8 @@
 package com.techStack.authSys.service.bootstrap;
 
 import com.google.firebase.auth.FirebaseAuth;
-import com.techStack.authSys.service.EmailServiceInstance1;
-import com.techStack.authSys.util.HelperUtils;
+import com.techStack.authSys.service.notification.EmailServiceInstance1;
+import com.techStack.authSys.util.validation.HelperUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;

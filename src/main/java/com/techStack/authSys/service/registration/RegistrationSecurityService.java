@@ -1,8 +1,11 @@
 package com.techStack.authSys.service.registration;
 
-import com.techStack.authSys.dto.UserDTO;
-import com.techStack.authSys.exception.CustomException;
-import com.techStack.authSys.service.*;
+import com.techStack.authSys.dto.response.UserDTO;
+import com.techStack.authSys.exception.service.CustomException;
+import com.techStack.authSys.service.security.DomainValidationService;
+import com.techStack.authSys.service.security.GeoLocationService;
+import com.techStack.authSys.service.security.SuspiciousActivityService;
+import com.techStack.authSys.service.user.PasswordPolicyService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;

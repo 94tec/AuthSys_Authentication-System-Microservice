@@ -1,8 +1,9 @@
 package com.techStack.authSys.service.registration;
 
-import com.techStack.authSys.dto.UserDTO;
-import com.techStack.authSys.models.User;
-import com.techStack.authSys.service.*;
+import com.techStack.authSys.dto.response.UserDTO;
+import com.techStack.authSys.models.user.User;
+import com.techStack.authSys.service.auth.FirebaseServiceAuth;
+import com.techStack.authSys.service.cache.RedisUserCacheService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;

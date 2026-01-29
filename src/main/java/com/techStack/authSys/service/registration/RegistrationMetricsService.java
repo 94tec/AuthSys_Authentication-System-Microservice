@@ -1,11 +1,11 @@
 package com.techStack.authSys.service.registration;
 
 import com.techStack.authSys.event.UserRegisteredEvent;
-import com.techStack.authSys.models.ActionType;
-import com.techStack.authSys.models.User;
-import com.techStack.authSys.repository.MetricsService;
-import com.techStack.authSys.service.AuditLogService;
-import com.techStack.authSys.service.RedisUserCacheService;
+import com.techStack.authSys.models.audit.ActionType;
+import com.techStack.authSys.models.user.User;
+import com.techStack.authSys.repository.metrics.MetricsService;
+import com.techStack.authSys.service.observability.AuditLogService;
+import com.techStack.authSys.service.cache.RedisUserCacheService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;

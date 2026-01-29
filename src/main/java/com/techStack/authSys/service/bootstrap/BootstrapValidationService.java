@@ -1,7 +1,7 @@
 package com.techStack.authSys.service.bootstrap;
 
-import com.techStack.authSys.config.AppConfigProperties;
-import com.techStack.authSys.util.HelperUtils;
+import com.techStack.authSys.config.core.AppConfigProperties;
+import com.techStack.authSys.util.validation.HelperUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;

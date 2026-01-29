@@ -1,6 +1,6 @@
 package com.techStack.authSys.service.bootstrap;
 
-import com.techStack.authSys.service.RedisUserCacheService;
+import com.techStack.authSys.service.cache.RedisUserCacheService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
