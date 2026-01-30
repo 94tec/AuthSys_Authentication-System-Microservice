@@ -2,6 +2,7 @@ package com.techStack.authSys.service.auth;
 
 import com.auth0.jwt.exceptions.TokenExpiredException;
 import com.google.firebase.auth.FirebaseAuthException;
+import com.techStack.authSys.constants.SecurityConstants;
 import com.techStack.authSys.dto.response.ErrorResponse;
 import com.techStack.authSys.exception.account.AccountDisabledException;
 import com.techStack.authSys.exception.account.AccountLockedException;
@@ -21,8 +22,12 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.TimeoutException;
+
+import static com.techStack.authSys.dto.response.ErrorCode.*;
 
 /**
  * Centralized error handling service for authentication operations.
@@ -31,6 +36,12 @@ import java.util.concurrent.TimeoutException;
 @Slf4j
 @Service
 public class AuthenticationErrorHandlerService {
+
+    private final Clock clock;
+
+    public AuthenticationErrorHandlerService(Clock clock) {
+        this.clock = clock;
+    }
 
     /**
      * Main method to handle authentication errors and return appropriate user response.
@@ -49,341 +60,235 @@ public class AuthenticationErrorHandlerService {
      * Determine the appropriate error response based on exception type.
      */
     private ErrorResponse determineErrorResponse(Throwable error, String email) {
-
-        // 1. Invalid Credentials (Most Common)
-        if (error instanceof AuthException) {
-            return handleAuthException((AuthException) error);
-        }
-
-        // 2. Account Status Issues
-        if (error instanceof AccountLockedException) {
-            AccountLockedException lockedException = (AccountLockedException) error;
-            return new ErrorResponse(
-                    HttpStatus.FORBIDDEN,
-                    "ACCOUNT_LOCKED",
-                    String.format("Your account has been locked due to multiple failed login attempts. " +
-                                    "Please try again in %d minutes or contact support.",
-                            lockedException.getLockoutMinutes()),
-                    null,
-                    Map.of(
-                            "lockoutMinutes", lockedException.getLockoutMinutes(),
-                            "unlockTime", lockedException.getUnlockTime(),
-                            "contactSupport", true
-                    )
-            );
-        }
-
-        if (error instanceof AccountDisabledException) {
-            return new ErrorResponse(
-                    HttpStatus.FORBIDDEN,
-                    "ACCOUNT_DISABLED",
-                    "Your account has been disabled. Please contact support for assistance.",
-                    null,
-                    Map.of("contactSupport", true)
-            );
-        }
-
-        // 3. Email Verification Required
-        if (error instanceof EmailNotVerifiedException) {
-            return new ErrorResponse(
-                    HttpStatus.FORBIDDEN,
-                    "EMAIL_NOT_VERIFIED",
-                    "Please verify your email address before logging in. Check your inbox for the verification link.",
-                    null,
-                    Map.of(
-                            "action", "verify_email",
-                            "resendAvailable", true
-                    )
-            );
-        }
-
-        // 4. Password Expiry
-        if (error instanceof PasswordExpiredException) {
-            PasswordExpiredException pwdError = (PasswordExpiredException) error;
-            return new ErrorResponse(
-                    HttpStatus.FORBIDDEN,
-                    "PASSWORD_EXPIRED",
-                    String.format("Your password expired %d days ago. Please reset your password to continue.",
-                            pwdError.getDaysExpired()),
-                    null,
-                    Map.of(
-                            "action", "reset_password",
-                            "daysExpired", pwdError.getDaysExpired()
-                    )
-            );
-        }
-
-        // 5. Rate Limiting
-        if (error instanceof RateLimitExceededException) {
-            RateLimitExceededException rateLimitError = (RateLimitExceededException) error;
-            return new ErrorResponse(
-                    HttpStatus.TOO_MANY_REQUESTS,
-                    "RATE_LIMIT_EXCEEDED",
-                    String.format("Too many login attempts. Please try again in %d minutes.",
-                            rateLimitError.getRetryAfterMinutes()),
-                    null,
-                    Map.of(
-                            "retryAfter", rateLimitError.getRetryAfterMinutes(),
-                            "reason", "security_protection"
-                    )
-            );
-        }
-
-        // 6. MFA Required
-        //if (error instanceof MfaRequiredException) {
-            //return new ErrorResponse(
-                    //HttpStatus.FORBIDDEN,
-                    //"MFA_REQUIRED",
-                    //"Multi-factor authentication is required. Please complete MFA verification.",
-                    //null,
-                    //Map.of(
-                            //"action", "complete_mfa",
-                            //"mfaSessionId", ((MfaRequiredException) error).getSessionId()
-                    //)
-            //);
-       // }
-
-        // 7. Session/Token Errors
-        if (error instanceof InvalidTokenException) {
-            return new ErrorResponse(
-                    HttpStatus.UNAUTHORIZED,
-                    "INVALID_TOKEN",
-                    "Your session has expired. Please log in again.",
-                    null,
-                    Map.of("action", "relogin")
-            );
-        }
-
-        if (error instanceof TokenExpiredException) {
-            return new ErrorResponse(
-                    HttpStatus.UNAUTHORIZED,
-                    "TOKEN_EXPIRED",
-                    "Your session has expired. Please log in again.",
-                    null,
-                    Map.of("action", "relogin")
-            );
-        }
-
-        // 8. Device Verification
-        //if (error instanceof UnrecognizedDeviceException) {
-            //return new ErrorResponse(
-                    //HttpStatus.FORBIDDEN,
-                    //"UNRECOGNIZED_DEVICE",
-                    //"We detected a login from an unrecognized device. Please verify your identity through the link sent to your email.",
-                    //null,
-                    //Map.of(
-                            //"action", "verify_device",
-                            //"emailSent", true
-                    //)
-            //);
-        //}
-
-        // 9. Network & Timeout Errors
-        if (error instanceof TimeoutException) {
-            return new ErrorResponse(
-                    HttpStatus.REQUEST_TIMEOUT,
-                    "REQUEST_TIMEOUT",
-                    "Login is taking longer than expected. Please try again in a moment.",
-                    null,
-                    Map.of("retryable", true)
-            );
-        }
-
-        if (error instanceof NetworkException ||
-                error instanceof java.net.ConnectException ||
-                error instanceof java.net.UnknownHostException) {
-            return new ErrorResponse(
-                    HttpStatus.SERVICE_UNAVAILABLE,
-                    "NETWORK_ERROR",
-                    "Unable to connect to authentication service. Please check your internet connection and try again.",
-                    null,
-                    Map.of("retryable", true)
-            );
-        }
-
-        // 10. Service Unavailable
-        if (error instanceof ServiceUnavailableException) {
-            return new ErrorResponse(
-                    HttpStatus.SERVICE_UNAVAILABLE,
-                    "SERVICE_UNAVAILABLE",
-                    "Our authentication service is temporarily unavailable. Please try again in a few minutes.",
-                    null,
-                    Map.of(
-                            "retryable", true,
-                            "estimatedRetryTime", "5 minutes"
-                    )
-            );
-        }
-
-        // 11. Database/Firestore Errors
-        if (error instanceof DatabaseException ||
-                error.getMessage().contains("UNAVAILABLE") ||
-                error.getMessage().contains("DEADLINE_EXCEEDED")) {
-            return new ErrorResponse(
-                    HttpStatus.SERVICE_UNAVAILABLE,
-                    "DATABASE_ERROR",
-                    "We're experiencing technical difficulties. Please try again shortly.",
-                    null,
-                    Map.of("retryable", true)
-            );
-        }
-
-        // 12. Firebase Authentication Errors
-        if (error instanceof FirebaseAuthException) {
-            return handleFirebaseAuthError((FirebaseAuthException) error);
-        }
-
-        // 13. Transient Errors (Retryable)
-        if (error instanceof TransientAuthenticationException) {
-            return new ErrorResponse(
-                    HttpStatus.SERVICE_UNAVAILABLE,
-                    "TRANSIENT_ERROR",
-                    "A temporary error occurred. Please try again.",
-                    null,
-                    Map.of("retryable", true)
-            );
-        }
-
-        // 14. Generic CustomException
-        if (error instanceof CustomException) {
-            CustomException customError = (CustomException) error;
-            return new ErrorResponse(
-                    customError.getStatus(),
-                    customError.getCode() != null ? customError.getCode() : "AUTH_ERROR",
-                    customError.getMessage(),
-                    customError.getField(),
-                    null
-            );
-        }
-
-        // 15. Unknown/Unexpected Errors (Fallback)
-        log.error("Unexpected authentication error for {}", HelperUtils.maskEmail(email), error);
-        return new ErrorResponse(
-                HttpStatus.INTERNAL_SERVER_ERROR,
-                "UNEXPECTED_ERROR",
-                "An unexpected error occurred during login. Please try again later or contact support if the problem persists.",
-                null,
-                Map.of(
-                        "retryable", true,
-                        "contactSupport", true
-                )
-        );
+        Instant now = clock.instant();
+        if (error instanceof AuthException authError) {
+            return handleAuthException(authError, now);
+        } if (error instanceof AccountLockedException lockedException) {
+            return ErrorResponse.builder()
+                    .status(HttpStatus.FORBIDDEN)
+                    .errorCode(ACCOUNT_LOCKED.getCode())
+                    .message(String
+                            .format("Your account has been locked due to multiple failed login attempts. " + "Please try again in %d minutes or contact support.",
+                                    lockedException.getLockoutMinutes()))
+                    .details(
+                            Map.of( "lockoutMinutes", lockedException.getLockoutMinutes(), "unlockTime", lockedException.getUnlockTime(), "contactSupport", true ))
+                    .severity(SecurityConstants.SEVERITY_WARN)
+                    .traceId(generateTraceId())
+                    .timestamp(now)
+                    .build();
+        } if (error instanceof AccountDisabledException) {
+            return ErrorResponse.builder()
+                    .status(HttpStatus.FORBIDDEN)
+                    .errorCode(ACCOUNT_DISABLED.getCode())
+                    .message("Your account has been disabled. Please contact support for assistance.")
+                    .details(Map.of("contactSupport", true))
+                    .severity(SecurityConstants.SEVERITY_ERROR)
+                    .traceId(generateTraceId())
+                    .timestamp(now)
+                    .build();
+        } if (error instanceof EmailNotVerifiedException) {
+            return ErrorResponse.builder()
+                    .status(HttpStatus.FORBIDDEN)
+                    .errorCode(EMAIL_NOT_VERIFIED.getCode())
+                    .message("Please verify your email address before logging in. Check your inbox for the verification link.")
+                    .details(Map.of( "action", "verify_email", "resendAvailable", true ))
+                    .severity(SecurityConstants.SEVERITY_WARN)
+                    .traceId(generateTraceId())
+                    .timestamp(now)
+                    .build();
+        } if (error instanceof PasswordExpiredException pwdError) {
+            return ErrorResponse.builder()
+                    .status(HttpStatus.FORBIDDEN)
+                    .errorCode(PASSWORD_EXPIRED.getCode())
+                    .message(String.format("Your password expired %d days ago. Please reset your password to continue.", pwdError.getDaysExpired()))
+                    .details(Map.of( "action", "reset_password", "daysExpired", pwdError.getDaysExpired() ))
+                    .severity(SecurityConstants.SEVERITY_ERROR)
+                    .traceId(generateTraceId())
+                    .timestamp(now)
+                    .build();
+        } if (error instanceof RateLimitExceededException rateLimitError) {
+            return ErrorResponse.builder()
+                    .status(HttpStatus.TOO_MANY_REQUESTS)
+                    .errorCode(RATE_LIMIT_EXCEEDED.getCode())
+                    .message(String.format("Too many login attempts. Please try again in %d minutes.", rateLimitError.getRetryAfterMinutes()))
+                    .details(Map.of( "retryAfter", rateLimitError.getRetryAfterMinutes(), "reason", "security_protection" ))
+                    .severity(SecurityConstants.SEVERITY_WARN) .traceId(generateTraceId())
+                    .timestamp(now)
+                    .build();
+        } if (error instanceof InvalidTokenException || error instanceof TokenExpiredException) {
+            return ErrorResponse.builder()
+                    .status(HttpStatus.UNAUTHORIZED)
+                    .errorCode(error instanceof InvalidTokenException ? INVALID_TOKEN.getCode() : TOKEN_EXPIRED.getCode())
+                    .message("Your session has expired. Please log in again.")
+                    .details(Map.of("action", "relogin"))
+                    .severity(SecurityConstants.SEVERITY_ERROR)
+                    .traceId(generateTraceId()) .timestamp(now)
+                    .build();
+        } if (error instanceof TimeoutException) {
+            return ErrorResponse.builder()
+                    .status(HttpStatus.REQUEST_TIMEOUT)
+                    .errorCode(REQUEST_TIMEOUT.getCode())
+                    .message("Login is taking longer than expected. Please try again in a moment.")
+                    .details(Map.of("retryable", true))
+                    .severity(SecurityConstants.SEVERITY_WARN)
+                    .traceId(generateTraceId())
+                    .timestamp(now)
+                    .build();
+        } if (error instanceof NetworkException || error instanceof java.net.ConnectException || error instanceof java.net.UnknownHostException) {
+            return ErrorResponse.builder()
+                    .status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .errorCode(NETWORK_ERROR.getCode())
+                    .message("Unable to connect to authentication service. Please check your internet connection and try again.")
+                    .details(Map.of("retryable", true))
+                    .severity(SecurityConstants.SEVERITY_WARN)
+                    .traceId(generateTraceId())
+                    .timestamp(now)
+                    .build();
+        } if (error instanceof ServiceUnavailableException) {
+            return ErrorResponse.builder()
+                    .status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .errorCode(SERVICE_UNAVAILABLE.getCode())
+                    .message("Our authentication service is temporarily unavailable. Please try again in a few minutes.")
+                    .details(Map.of( "retryable", true, "estimatedRetryTime", "5 minutes" ))
+                    .severity(SecurityConstants.SEVERITY_WARN)
+                    .traceId(generateTraceId())
+                    .timestamp(now)
+                    .build();
+        } if (error instanceof DatabaseException || error.getMessage().contains("UNAVAILABLE") || error.getMessage().contains("DEADLINE_EXCEEDED")) {
+            return ErrorResponse.builder()
+                    .status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .errorCode(DATABASE_ERROR.getCode())
+                    .message("We're experiencing technical difficulties. Please try again shortly.")
+                    .details(Map.of("retryable", true))
+                    .severity(SecurityConstants.SEVERITY_ERROR)
+                    .traceId(generateTraceId())
+                    .timestamp(now)
+                    .build();
+        } if (error instanceof FirebaseAuthException firebaseError) { return handleFirebaseAuthError(firebaseError, now); } if (error instanceof TransientAuthenticationException) {
+            return ErrorResponse.builder()
+                    .status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .errorCode(TRANSIENT_ERROR.getCode())
+                    .message("A temporary error occurred. Please try again.") .details(Map.of("retryable", true))
+                    .severity(SecurityConstants.SEVERITY_WARN)
+                    .traceId(generateTraceId())
+                    .timestamp(now)
+                    .build();
+        } if (error instanceof CustomException customError) {
+            return ErrorResponse.builder()
+                    .status(customError.getStatus())
+                    .errorCode(customError.getCode() != null ? customError.getCode() : AUTH_ERROR.getCode())
+                    .message(customError.getMessage())
+                    .field(customError.getField())
+                    .severity(SecurityConstants.SEVERITY_ERROR)
+                    .traceId(generateTraceId())
+                    .timestamp(now)
+                    .build();
+        } log.error("Unexpected authentication error for {}", HelperUtils.maskEmail(email), error);
+        return ErrorResponse.builder()
+                .status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .errorCode(UNEXPECTED_ERROR.getCode())
+                .message("An unexpected error occurred during login. Please try again later or contact support if the problem persists.")
+                .details(Map.of( "retryable", true, "contactSupport", true ))
+                .severity(SecurityConstants.SEVERITY_CRITICAL)
+                .traceId(generateTraceId())
+                .timestamp(now)
+                .build();
     }
 
     /**
      * Handle AuthException with specific error codes.
      */
-    private ErrorResponse handleAuthException(AuthException error) {
-        String errorCode = error.getErrorCode() != null ? error.getErrorCode() : "AUTH_ERROR";
+    private ErrorResponse handleAuthException(AuthException error, Instant now) {
+        String code = error.getErrorCode() != null ? error.getErrorCode() : AUTH_ERROR.getCode();
 
-        // Map common authentication error codes
-        switch (errorCode) {
+        switch (code) {
             case "INVALID_CREDENTIALS":
             case "USER_NOT_FOUND":
-                return new ErrorResponse(
-                        HttpStatus.UNAUTHORIZED,
-                        "INVALID_CREDENTIALS",
-                        "Invalid email or password. Please check your credentials and try again.",
-                        null,
-                        Map.of(
+                return ErrorResponse.builder()
+                        .status(HttpStatus.UNAUTHORIZED)
+                        .errorCode(INVALID_CREDENTIALS.getCode())
+                        .message("Invalid email or password. Please check your credentials and try again.")
+                        .details(Map.of(
                                 "action", "retry_or_reset"
-                                //"remainingAttempts", error.getAdditionalInfo().getOrDefault("remainingAttempts", 3)
-                        )
-                );
+                                // "remainingAttempts", error.getAdditionalInfo().getOrDefault("remainingAttempts", 3)
+                        ))
+                        .severity(SecurityConstants.SEVERITY_ERROR)
+                        .traceId(generateTraceId())
+                        .timestamp(now)
+                        .build();
 
             case "ACCOUNT_LOCKED":
-                return new ErrorResponse(
-                        HttpStatus.FORBIDDEN,
-                        "ACCOUNT_LOCKED",
-                        error.getMessage(),
-                        null
-                        //error.getAdditionalInfo()
-                );
+                return ErrorResponse.builder()
+                        .status(HttpStatus.FORBIDDEN)
+                        .errorCode(ACCOUNT_LOCKED.getCode())
+                        .message(error.getMessage())
+                        .severity(SecurityConstants.SEVERITY_WARN)
+                        .traceId(generateTraceId())
+                        .timestamp(now)
+                        .build();
 
             case "EMAIL_NOT_VERIFIED":
-                return new ErrorResponse(
-                        HttpStatus.FORBIDDEN,
-                        "EMAIL_NOT_VERIFIED",
-                        error.getMessage(),
-                        null,
-                        Map.of("action", "verify_email")
-                );
+                return ErrorResponse.builder()
+                        .status(HttpStatus.FORBIDDEN)
+                        .errorCode(EMAIL_NOT_VERIFIED.getCode())
+                        .message(error.getMessage())
+                        .details(Map.of("action", "verify_email"))
+                        .severity(SecurityConstants.SEVERITY_WARN)
+                        .traceId(generateTraceId())
+                        .timestamp(now)
+                        .build();
 
             default:
-                return new ErrorResponse(
-                        error.getStatus(),
-                        errorCode,
-                        error.getMessage(),
-                        null
-                        //error.getAdditionalInfo()
-                );
+                return ErrorResponse.builder()
+                        .status(error.getStatus())
+                        .errorCode(code)
+                        .message(error.getMessage())
+                        .severity(SecurityConstants.SEVERITY_ERROR)
+                        .traceId(generateTraceId())
+                        .timestamp(now)
+                        .build();
         }
     }
-
     /**
      * Handle Firebase-specific authentication errors.
      */
-    private ErrorResponse handleFirebaseAuthError(FirebaseAuthException error) {
-        String errorCode = error.getAuthErrorCode().name();
+    private ErrorResponse handleFirebaseAuthError(FirebaseAuthException error, Instant now) {
+        long timestamp = now.toEpochMilli();
 
-        switch (errorCode) {
-            case "USER_NOT_FOUND":
-            case "INVALID_PASSWORD":
-                return new ErrorResponse(
-                        HttpStatus.UNAUTHORIZED,
-                        "INVALID_CREDENTIALS",
-                        "Invalid email or password. Please check your credentials and try again.",
-                        null,
-                        Map.of("action", "retry_or_reset")
-                );
+        return switch (String.valueOf(error.getErrorCode())) {
+            case "EMAIL_EXISTS" -> ErrorResponse.builder()
+                    .status(HttpStatus.CONFLICT)
+                    .errorCode(EMAIL_ALREADY_EXISTS.getCode())
+                    .message("This email address is already registered.")
+                    .field(SecurityConstants.FIELD_EMAIL)
+                    .details(Map.of(
+                            SecurityConstants.DETAIL_ACTION,
+                            SecurityConstants.ACTION_LOGIN_OR_RESET
+                    ))
+                    .severity(SecurityConstants.SEVERITY_ERROR)
+                    .timestamp(Instant.ofEpochSecond(timestamp))
+                    .build();
 
-            case "USER_DISABLED":
-                return new ErrorResponse(
-                        HttpStatus.FORBIDDEN,
-                        "ACCOUNT_DISABLED",
-                        "Your account has been disabled. Please contact support for assistance.",
-                        null,
-                        Map.of("contactSupport", true)
-                );
+            case "WEAK_PASSWORD" -> ErrorResponse.builder()
+                    .status(HttpStatus.BAD_REQUEST)
+                    .errorCode(WEAK_PASSWORD.getCode())
+                    .message("Password does not meet security requirements.")
+                    .field(SecurityConstants.FIELD_PASSWORD)
+                    .severity(SecurityConstants.SEVERITY_ERROR)
+                    .timestamp(Instant.ofEpochSecond(timestamp))
+                    .build();
 
-            case "TOO_MANY_ATTEMPTS_TRY_LATER":
-                return new ErrorResponse(
-                        HttpStatus.TOO_MANY_REQUESTS,
-                        "TOO_MANY_ATTEMPTS",
-                        "Too many login attempts. Please try again in 15 minutes.",
-                        null,
-                        Map.of("retryAfter", 15)
-                );
-
-            case "INVALID_EMAIL":
-                return new ErrorResponse(
-                        HttpStatus.BAD_REQUEST,
-                        "INVALID_EMAIL_FORMAT",
-                        "Please provide a valid email address.",
-                        "email",
-                        null
-                );
-
-            case "CONFIGURATION_NOT_FOUND":
-            case "INTERNAL_ERROR":
-                return new ErrorResponse(
-                        HttpStatus.INTERNAL_SERVER_ERROR,
-                        "FIREBASE_CONFIGURATION_ERROR",
-                        "Authentication service is experiencing issues. Please try again later.",
-                        null,
-                        Map.of("retryable", true)
-                );
-
-            default:
-                log.warn("Unhandled Firebase auth error code: {}", errorCode);
-                return new ErrorResponse(
-                        HttpStatus.INTERNAL_SERVER_ERROR,
-                        "FIREBASE_ERROR",
-                        "Authentication service error. Please try again or contact support.",
-                        null,
-                        Map.of("retryable", true, "contactSupport", true)
-                );
-        }
+            default -> ErrorResponse.builder()
+                    .status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .errorCode(FIREBASE_ERROR.getCode())
+                    .message("Authentication service error. Please try again.")
+                    .details(Map.of(
+                            SecurityConstants.DETAIL_RETRYABLE, true
+                    ))
+                    .severity(SecurityConstants.SEVERITY_WARN)
+                    .timestamp(Instant.ofEpochSecond(timestamp))
+                    .build();
+        };
     }
 
     /**
@@ -418,5 +323,8 @@ public class AuthenticationErrorHandlerService {
             log.info("Login error for {}: {} - {}", maskedEmail,
                     error.getClass().getSimpleName(), response.getErrorCode());
         }
+    }
+    private String generateTraceId() {
+        return java.util.UUID.randomUUID().toString();
     }
 }

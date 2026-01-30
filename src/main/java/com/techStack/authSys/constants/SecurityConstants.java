@@ -6,6 +6,21 @@ import java.util.regex.Pattern;
 public final class SecurityConstants {
 
     private SecurityConstants() {}
+    // Severity levels
+    public static final String SEVERITY_ERROR = "ERROR";
+    public static final String SEVERITY_WARN = "WARN";
+    public static final String SEVERITY_CRITICAL = "CRITICAL";
+
+    // Common detail keys
+    public static final String DETAIL_ACTION = "action";
+    public static final String DETAIL_RETRYABLE = "retryable";
+    public static final String DETAIL_CONTACT_SUPPORT = "contactSupport";
+    public static final String DETAIL_REASON = "reason";
+    public static final String DETAIL_RETRY_AFTER = "retryAfter";
+
+    // Common actions
+    public static final String ACTION_LOGIN_OR_RESET = "login_or_reset";
+    public static final String ACTION_SECURITY_PROTECTION = "security_protection";
 
     // JWT Configuration
     public static final int ACCESS_TOKEN_TTL_SECONDS = 900; // 15 minutes

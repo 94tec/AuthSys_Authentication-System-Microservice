@@ -2,6 +2,7 @@ package com.techStack.authSys.controller.auth;
 
 import com.techStack.authSys.dto.internal.AuthResult;
 import com.techStack.authSys.dto.request.LoginRequest;
+import com.techStack.authSys.dto.request.UserRegistrationDTO;
 import com.techStack.authSys.dto.response.ApiResponse;
 import com.techStack.authSys.dto.response.AuthResponse;
 import com.techStack.authSys.dto.response.UserDTO;
@@ -49,7 +50,7 @@ public class AuthController {
     // Register a new user
     @PostMapping("/register")
     public Mono<ResponseEntity<ApiResponse<User>>> registerUser(
-            @Valid @RequestBody UserDTO userDto,
+            @Valid @RequestBody UserRegistrationDTO userDto,
             ServerWebExchange exchange) {
 
         logger.info("Registration request received for email: {}",
