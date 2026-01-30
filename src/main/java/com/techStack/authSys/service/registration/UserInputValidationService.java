@@ -1,6 +1,7 @@
 package com.techStack.authSys.service.registration;
 
-import com.techStack.authSys.dto.response.UserDTO;
+import com.techStack.authSys.constants.SecurityConstants;
+import com.techStack.authSys.dto.request.UserRegistrationDTO;
 import com.techStack.authSys.exception.service.CustomException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -8,132 +9,150 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import reactor.core.publisher.Mono;
 
-import java.util.regex.Pattern;
-
+/**
+ * User Input Validation Service
+ *
+ * Centralized validation using SecurityConstants
+ */
 @Slf4j
 @Service
 public class UserInputValidationService {
 
-    // ===========================
-    // EMAIL REGEX
-    // ===========================
-    private static final Pattern EMAIL_PATTERN = Pattern.compile(
-            "^[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}$",
-            Pattern.CASE_INSENSITIVE
-    );
+    /* =========================
+       Master Validation Method
+       ========================= */
 
-    // ===========================
-    // PASSWORD RULES (Optional)
-    // ===========================
-    private static final Pattern STRONG_PASSWORD_PATTERN = Pattern.compile(
-            "^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z]).{8,}$"
-    );
-
-    // ===========================
-    // FIELD CONSTANTS
-    // ===========================
-    private static final String FIELD_EMAIL = "email";
-    private static final String FIELD_PASSWORD = "password";
-    private static final String FIELD_FIRST_NAME = "firstName";
-    private static final String FIELD_LAST_NAME = "lastName";
-    private static final String FIELD_PAYLOAD = "payload";
-
-    // ===========================
-    // ERROR CODE CONSTANTS
-    // ===========================
-    private static final String ERROR_REQUEST_INVALID = "REQUEST_INVALID";
-    private static final String ERROR_EMAIL_REQUIRED = "EMAIL_REQUIRED";
-    private static final String ERROR_EMAIL_INVALID = "EMAIL_INVALID";
-    private static final String ERROR_PASSWORD_REQUIRED = "PASSWORD_REQUIRED";
-    private static final String ERROR_PASSWORD_WEAK = "PASSWORD_WEAK";
-    private static final String ERROR_FIRSTNAME_REQUIRED = "FIRSTNAME_REQUIRED";
-    private static final String ERROR_LASTNAME_REQUIRED = "LASTNAME_REQUIRED";
-
-    // ===========================
-    // MASTER VALIDATION METHOD
-    // ===========================
-    public Mono<UserDTO> validateUserInput(UserDTO userDto) {
+    public Mono<UserRegistrationDTO> validateUserInput(UserRegistrationDTO userDto) {
         return Mono.defer(() -> {
-
             if (userDto == null) {
                 return Mono.error(createValidationError(
-                        "Invalid request payload", FIELD_PAYLOAD, ERROR_REQUEST_INVALID));
+                        "Invalid request payload",
+                        SecurityConstants.FIELD_PAYLOAD,
+                        SecurityConstants.ERROR_REQUEST_INVALID
+                ));
             }
 
             return validateEmail(userDto.getEmail())
                     .then(validatePassword(userDto.getPassword()))
                     .then(validateFirstName(userDto.getFirstName()))
                     .then(validateLastName(userDto.getLastName()))
+                    .then(validateIdentityNo(userDto.getIdentityNo()))
+                    .then(validatePhoneNumber(userDto.getPhoneNumber()))
                     .thenReturn(userDto);
         });
     }
 
-    // ===========================
-    // EMAIL VALIDATION
-    // ===========================
-    private Mono<Void> validateEmail(String email) {
+    /* =========================
+       Individual Validations
+       ========================= */
 
+    private Mono<Void> validateEmail(String email) {
         if (!StringUtils.hasText(email)) {
             return Mono.error(createValidationError(
-                    "Email is required", FIELD_EMAIL, ERROR_EMAIL_REQUIRED));
-        }
-
-        if (!EMAIL_PATTERN.matcher(email).matches()) {
-            return Mono.error(createValidationError(
-                    "Invalid email format", FIELD_EMAIL, ERROR_EMAIL_INVALID));
-        }
-
-        return Mono.empty();
-    }
-
-    // ===========================
-    // PASSWORD VALIDATION
-    // ===========================
-    private Mono<Void> validatePassword(String password) {
-        if (!StringUtils.hasText(password)) {
-            return Mono.error(createValidationError(
-                    "Password is required", FIELD_PASSWORD, ERROR_PASSWORD_REQUIRED));
-        }
-
-        // OPTIONAL: enforce strong password
-        if (!STRONG_PASSWORD_PATTERN.matcher(password).matches()) {
-            return Mono.error(createValidationError(
-                    "Password must be at least 8 chars, contain lowercase, uppercase, and number",
-                    FIELD_PASSWORD,
-                    ERROR_PASSWORD_WEAK
+                    "Email is required",
+                    SecurityConstants.FIELD_EMAIL,
+                    SecurityConstants.ERROR_EMAIL_REQUIRED
             ));
         }
 
+        if (!SecurityConstants.EMAIL_PATTERN.matcher(email).matches()) {
+            return Mono.error(createValidationError(
+                    "Invalid email format",
+                    SecurityConstants.FIELD_EMAIL,
+                    SecurityConstants.ERROR_EMAIL_INVALID
+            ));
+        }
 
         return Mono.empty();
     }
 
-    // ===========================
-    // FIRST NAME VALIDATION
-    // ===========================
+    private Mono<Void> validatePassword(String password) {
+        if (!StringUtils.hasText(password)) {
+            return Mono.error(createValidationError(
+                    "Password is required",
+                    SecurityConstants.FIELD_PASSWORD,
+                    SecurityConstants.ERROR_PASSWORD_REQUIRED
+            ));
+        }
+
+        if (!SecurityConstants.STRONG_PASSWORD_PATTERN.matcher(password).matches()) {
+            return Mono.error(createValidationError(
+                    "Password does not meet strength requirements",
+                    SecurityConstants.FIELD_PASSWORD,
+                    SecurityConstants.ERROR_PASSWORD_WEAK
+            ));
+        }
+
+        return Mono.empty();
+    }
+
     private Mono<Void> validateFirstName(String firstName) {
-        if (!StringUtils.hasText(firstName)) {
+        if (!StringUtils.hasText(firstName) || firstName.trim().length() < 2) {
             return Mono.error(createValidationError(
-                    "First name is required", FIELD_FIRST_NAME, ERROR_FIRSTNAME_REQUIRED));
+                    "First name must be at least 2 characters",
+                    SecurityConstants.FIELD_FIRST_NAME,
+                    SecurityConstants.ERROR_FIRSTNAME_REQUIRED
+            ));
         }
+
         return Mono.empty();
     }
 
-    // ===========================
-    // LAST NAME VALIDATION
-    // ===========================
     private Mono<Void> validateLastName(String lastName) {
-        if (!StringUtils.hasText(lastName)) {
+        if (!StringUtils.hasText(lastName) || lastName.trim().length() < 2) {
             return Mono.error(createValidationError(
-                    "Last name is required", FIELD_LAST_NAME, ERROR_LASTNAME_REQUIRED));
+                    "Last name must be at least 2 characters",
+                    SecurityConstants.FIELD_LAST_NAME,
+                    SecurityConstants.ERROR_LASTNAME_REQUIRED
+            ));
         }
+
         return Mono.empty();
     }
 
-    // ===========================
-    // BUILD ERROR RESPONSE
-    // ===========================
-    private CustomException createValidationError(String message, String field, String errorCode) {
+    private Mono<Void> validateIdentityNo(String identityNo) {
+        if (!StringUtils.hasText(identityNo)) {
+            return Mono.empty(); // Optional
+        }
+
+        if (!SecurityConstants.KENYAN_ID_PATTERN.matcher(identityNo).matches()) {
+            return Mono.error(createValidationError(
+                    "Invalid Kenyan Identity Number format",
+                    SecurityConstants.FIELD_IDENTITY_NO,
+                    SecurityConstants.ERROR_IDENTITY_NO_INVALID
+            ));
+        }
+
+        return Mono.empty();
+    }
+
+    private Mono<Void> validatePhoneNumber(String phoneNumber) {
+        if (!StringUtils.hasText(phoneNumber)) {
+            return Mono.empty(); // Optional
+        }
+
+        if (!SecurityConstants.KENYAN_PHONE_PATTERN.matcher(phoneNumber).matches()) {
+            return Mono.error(createValidationError(
+                    "Invalid Kenyan phone number format",
+                    SecurityConstants.FIELD_PHONE_NUMBER,
+                    SecurityConstants.ERROR_PHONE_NUMBER_INVALID
+            ));
+        }
+
+        return Mono.empty();
+    }
+
+    /* =========================
+       Error Builder
+       ========================= */
+
+    private CustomException createValidationError(
+            String message,
+            String field,
+            String errorCode
+    ) {
+        log.warn("Validation failed [{}]: {}", field, message);
+
         return new CustomException(
                 HttpStatus.BAD_REQUEST,
                 message,
@@ -142,4 +161,3 @@ public class UserInputValidationService {
         );
     }
 }
-

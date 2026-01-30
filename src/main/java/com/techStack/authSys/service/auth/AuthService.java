@@ -1,6 +1,7 @@
 package com.techStack.authSys.service.auth;
 
-import com.techStack.authSys.dto.response.UserDTO;
+//import com.techStack.authSys.dto.response.UserDTO;
+import com.techStack.authSys.dto.request.UserRegistrationDTO;
 import com.techStack.authSys.models.user.User;
 import com.techStack.authSys.service.registration.UserRegistrationOrchestrator;
 import com.techStack.authSys.service.verification.EmailVerificationService;
@@ -32,7 +33,7 @@ public class AuthService {
      * @param exchange HTTP exchange containing request metadata
      * @return Newly created user
      */
-    public Mono<User> registerUser(UserDTO userDto, ServerWebExchange exchange) {
+    public Mono<User> registerUser(UserRegistrationDTO userDto, ServerWebExchange exchange) {
         return registrationService.registerUser(userDto, exchange);
     }
 

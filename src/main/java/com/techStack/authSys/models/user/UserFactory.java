@@ -1,42 +1,32 @@
 package com.techStack.authSys.models.user;
 
+import com.techStack.authSys.models.security.SecurityMetadata;
 import org.jetbrains.annotations.NotNull;
 
 import java.time.Clock;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
+import java.util.*;
 
 /**
- * User Builder Factory
+ * User Factory
  *
- * Provides convenient factory methods to create users in different scenarios
- * with appropriate defaults and validation.
- *
- * Aligned with User model Firestore schema.
+ * Centralized user creation with Clock-based timestamps.
+ * Single Responsibility: Only handles user creation.
+ * Security/risk helpers belong in SecurityMetadata or User.
  */
 public class UserFactory {
 
     private static final Clock DEFAULT_CLOCK = Clock.systemUTC();
 
     /* =========================
-       Standard User Creation
+       Base Builder Initialization
        ========================= */
 
     /**
-     * Create new user pending approval.
-     * Default flow for user self-registration.
+     * Common builder initialization for all user creation flows.
+     * All timestamps come from Clock for testability.
      */
-    public static User createNewUser(
-            @NotNull String email,
-            @NotNull String firstName,
-            @NotNull String lastName
-    ) {
-        return createNewUser(email, firstName, lastName, DEFAULT_CLOCK);
-    }
-
-    public static User createNewUser(
+    private static User.UserBuilder baseBuilder(
             @NotNull String email,
             @NotNull String firstName,
             @NotNull String lastName,
@@ -53,8 +43,6 @@ public class UserFactory {
                 .username(email.toLowerCase().trim())
                 .firstName(firstName.trim())
                 .lastName(lastName.trim())
-                .status(UserStatus.PENDING_APPROVAL)
-                .approvalLevel(ApprovalLevel.PENDING_L1)
                 .enabled(false)
                 .emailVerified(false)
                 .accountLocked(false)
@@ -65,12 +53,31 @@ public class UserFactory {
                 .roleNames(new ArrayList<>())
                 .additionalPermissions(new ArrayList<>())
                 .attributes(new HashMap<>())
-                .passwordHistory(new ArrayList<>())
+                .passwordHistoryEntries(new ArrayList<>())
                 .knownDeviceFingerprints(new HashSet<>())
                 .loginAttempts(0)
                 .failedLoginAttempts(0)
                 .createdAt(now)
-                .updatedAt(now)
+                .updatedAt(now);
+    }
+
+    /* =========================
+       Standard User Creation
+       ========================= */
+
+    public static User createNewUser(String email, String firstName, String lastName) {
+        return createNewUser(email, firstName, lastName, DEFAULT_CLOCK);
+    }
+
+    public static User createNewUser(
+            String email,
+            String firstName,
+            String lastName,
+            Clock clock
+    ) {
+        return baseBuilder(email, firstName, lastName, clock)
+                .status(UserStatus.PENDING_APPROVAL)
+                .approvalLevel(ApprovalLevel.PENDING_L1)
                 .build();
     }
 
@@ -79,50 +86,26 @@ public class UserFactory {
        ========================= */
 
     public static User createPreApprovedUser(
-            @NotNull String email,
-            @NotNull String firstName,
-            @NotNull String lastName,
-            @NotNull Roles role
+            String email,
+            String firstName,
+            String lastName,
+            Roles role
     ) {
         return createPreApprovedUser(email, firstName, lastName, role, DEFAULT_CLOCK);
     }
 
     public static User createPreApprovedUser(
-            @NotNull String email,
-            @NotNull String firstName,
-            @NotNull String lastName,
-            @NotNull Roles role,
-            @NotNull Clock clock
+            String email,
+            String firstName,
+            String lastName,
+            Roles role,
+            Clock clock
     ) {
-        validateEmail(email);
-        validateName(firstName, "First name");
-        validateName(lastName, "Last name");
-
-        Instant now = clock.instant();
-
-        User user = User.builder()
-                .email(email.toLowerCase().trim())
-                .username(email.toLowerCase().trim())
-                .firstName(firstName.trim())
-                .lastName(lastName.trim())
+        User user = baseBuilder(email, firstName, lastName, clock)
                 .status(UserStatus.ACTIVE)
                 .approvalLevel(ApprovalLevel.NOT_REQUIRED)
                 .enabled(true)
                 .emailVerified(true)
-                .accountLocked(false)
-                .accountDisabled(false)
-                .mfaRequired(false)
-                .mfaEnabled(false)
-                .forcePasswordChange(false)
-                .roleNames(new ArrayList<>())
-                .additionalPermissions(new ArrayList<>())
-                .attributes(new HashMap<>())
-                .passwordHistory(new ArrayList<>())
-                .knownDeviceFingerprints(new HashSet<>())
-                .loginAttempts(0)
-                .failedLoginAttempts(0)
-                .createdAt(now)
-                .updatedAt(now)
                 .build();
 
         user.addRole(role);
@@ -130,90 +113,59 @@ public class UserFactory {
     }
 
     /* =========================
-       Administrative User Creation
+       Administrative Users
        ========================= */
 
-    public static User createAdminUser(
-            @NotNull String email,
-            @NotNull String firstName,
-            @NotNull String lastName
-    ) {
+    public static User createAdminUser(String email, String firstName, String lastName) {
         return createAdminUser(email, firstName, lastName, DEFAULT_CLOCK);
     }
 
     public static User createAdminUser(
-            @NotNull String email,
-            @NotNull String firstName,
-            @NotNull String lastName,
-            @NotNull Clock clock
+            String email,
+            String firstName,
+            String lastName,
+            Clock clock
     ) {
         User user = createPreApprovedUser(email, firstName, lastName, Roles.ADMIN, clock);
         user.setMfaRequired(true);
-        user.setMfaEnabled(false);  // Must be set up by user
         return user;
     }
 
-    public static User createManagerUser(
-            @NotNull String email,
-            @NotNull String firstName,
-            @NotNull String lastName
-    ) {
+    public static User createManagerUser(String email, String firstName, String lastName) {
         return createManagerUser(email, firstName, lastName, DEFAULT_CLOCK);
     }
 
     public static User createManagerUser(
-            @NotNull String email,
-            @NotNull String firstName,
-            @NotNull String lastName,
-            @NotNull Clock clock
+            String email,
+            String firstName,
+            String lastName,
+            Clock clock
     ) {
         return createPreApprovedUser(email, firstName, lastName, Roles.MANAGER, clock);
     }
 
     /* =========================
-       System User Creation
+       System Users
        ========================= */
 
-    public static User createSuperAdmin(
-            @NotNull String email,
-            @NotNull String passwordHash
-    ) {
+    public static User createSuperAdmin(String email, String passwordHash) {
         return createSuperAdmin(email, passwordHash, DEFAULT_CLOCK);
     }
 
     public static User createSuperAdmin(
-            @NotNull String email,
-            @NotNull String passwordHash,
-            @NotNull Clock clock
+            String email,
+            String passwordHash,
+            Clock clock
     ) {
         validateEmail(email);
 
-        Instant now = clock.instant();
-
-        User user = User.builder()
-                .email(email.toLowerCase().trim())
-                .username(email.toLowerCase().trim())
-                .firstName("System")
-                .lastName("Administrator")
-                .password(passwordHash)  // Transient field
+        User user = baseBuilder(email, "System", "Administrator", clock)
                 .status(UserStatus.ACTIVE)
                 .approvalLevel(ApprovalLevel.NOT_REQUIRED)
                 .enabled(true)
                 .emailVerified(true)
-                .accountLocked(false)
-                .accountDisabled(false)
+                .password(passwordHash)
                 .mfaRequired(true)
-                .mfaEnabled(false)  // Must be set up
-                .forcePasswordChange(false)
-                .roleNames(new ArrayList<>())
-                .additionalPermissions(new ArrayList<>())
-                .attributes(new HashMap<>())
-                .passwordHistory(new ArrayList<>())
-                .knownDeviceFingerprints(new HashSet<>())
-                .loginAttempts(0)
-                .failedLoginAttempts(0)
-                .createdAt(now)
-                .updatedAt(now)
                 .createdBy("SYSTEM")
                 .build();
 
@@ -221,108 +173,80 @@ public class UserFactory {
         return user;
     }
 
-    public static User createServiceAccount(
-            @NotNull String serviceName,
-            @NotNull String email
-    ) {
+    public static User createServiceAccount(String serviceName, String email) {
         return createServiceAccount(serviceName, email, DEFAULT_CLOCK);
     }
 
     public static User createServiceAccount(
-            @NotNull String serviceName,
-            @NotNull String email,
-            @NotNull Clock clock
+            String serviceName,
+            String email,
+            Clock clock
     ) {
-        validateEmail(email);
         validateName(serviceName, "Service name");
 
-        Instant now = clock.instant();
-
-        return User.builder()
-                .email(email.toLowerCase().trim())
-                .username("service_" + serviceName.toLowerCase().replaceAll("\\s+", "_"))
-                .firstName("Service")
-                .lastName(serviceName.trim())
+        return baseBuilder(email, "Service", serviceName, clock)
                 .status(UserStatus.ACTIVE)
                 .approvalLevel(ApprovalLevel.NOT_REQUIRED)
                 .enabled(true)
                 .emailVerified(true)
-                .accountLocked(false)
-                .accountDisabled(false)
+                .username("service_" + serviceName.toLowerCase().replaceAll("\\s+", "_"))
                 .mfaRequired(false)
-                .mfaEnabled(false)
-                .forcePasswordChange(false)
-                .roleNames(new ArrayList<>())
-                .additionalPermissions(new ArrayList<>())
-                .attributes(new HashMap<>())
-                .passwordHistory(new ArrayList<>())
-                .knownDeviceFingerprints(new HashSet<>())
-                .loginAttempts(0)
-                .failedLoginAttempts(0)
-                .createdAt(now)
-                .updatedAt(now)
                 .createdBy("SYSTEM")
                 .build();
     }
 
     /* =========================
-       Specialized User Creation
+       Specialized Users
        ========================= */
 
     public static User createOAuthUser(
-            @NotNull String email,
-            @NotNull String firstName,
-            @NotNull String lastName,
-            @NotNull String provider,
-            @NotNull String providerId
+            String email,
+            String firstName,
+            String lastName,
+            String provider,
+            String providerId
     ) {
         return createOAuthUser(email, firstName, lastName, provider, providerId, DEFAULT_CLOCK);
     }
 
     public static User createOAuthUser(
-            @NotNull String email,
-            @NotNull String firstName,
-            @NotNull String lastName,
-            @NotNull String provider,
-            @NotNull String providerId,
-            @NotNull Clock clock
+            String email,
+            String firstName,
+            String lastName,
+            String provider,
+            String providerId,
+            Clock clock
     ) {
         User user = createPreApprovedUser(email, firstName, lastName, Roles.USER, clock);
-
-        // Store OAuth info in attributes
         user.getAttributes().put("oauth_provider", provider);
         user.getAttributes().put("oauth_provider_id", providerId);
-
         return user;
     }
 
     public static User createInvitedUser(
-            @NotNull String email,
-            @NotNull String firstName,
-            @NotNull String lastName,
-            @NotNull String invitedBy,
-            @NotNull Roles role
+            String email,
+            String firstName,
+            String lastName,
+            String invitedBy,
+            Roles role
     ) {
         return createInvitedUser(email, firstName, lastName, invitedBy, role, DEFAULT_CLOCK);
     }
 
     public static User createInvitedUser(
-            @NotNull String email,
-            @NotNull String firstName,
-            @NotNull String lastName,
-            @NotNull String invitedBy,
-            @NotNull Roles role,
-            @NotNull Clock clock
+            String email,
+            String firstName,
+            String lastName,
+            String invitedBy,
+            Roles role,
+            Clock clock
     ) {
         User user = createPreApprovedUser(email, firstName, lastName, role, clock);
         user.setCreatedBy(invitedBy);
-        user.setEmailVerified(false);  // Must verify email
-        user.setForcePasswordChange(true);  // Must set password
-
-        // Store invitation info
+        user.setEmailVerified(false);
+        user.setForcePasswordChange(true);
         user.getAttributes().put("invited_by", invitedBy);
         user.getAttributes().put("invited_at", clock.instant().toString());
-
         return user;
     }
 

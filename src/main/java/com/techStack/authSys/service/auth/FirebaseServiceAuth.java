@@ -7,6 +7,7 @@ import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseAuthException;
 import com.google.firebase.auth.UserRecord;
 import com.techStack.authSys.config.intergration.FirebaseConfig;
+import com.techStack.authSys.constants.SecurityConstants;
 import com.techStack.authSys.dto.response.PendingUserResponse;
 import com.techStack.authSys.dto.internal.RequesterContext;
 import com.techStack.authSys.dto.internal.SecurityContext;
@@ -66,17 +67,6 @@ public class FirebaseServiceAuth {
 
     private static final Logger logger = LoggerFactory.getLogger(FirebaseServiceAuth.class);
 
-    // Collection names
-    private static final String COLLECTION_USERS = "users";
-    private static final String COLLECTION_USER_PROFILES = "user_profiles";
-    private static final String COLLECTION_USER_PASSWORD_HISTORY = "user_password_history";
-    private static final String COLLECTION_USER_PERMISSIONS = "user_permissions";
-    private static final String COLLECTION_AUTH_LOGS = "auth_logs";
-
-    // Fixed document IDs for easy retrieval
-    private static final String PROFILE_DOC_ID = "profile";
-    private static final String ACTIVE_PERMISSIONS_DOC_ID = "active_permissions";
-
     // Injected dependencies
     private final Firestore firestore;
     private final EncryptionService encryptionService;
@@ -124,7 +114,7 @@ public class FirebaseServiceAuth {
                     // Set super admin specific properties
                     mappedUser.setRoleNames(Arrays.asList(Roles.SUPER_ADMIN.name(), Roles.ADMIN.name()));
                     mappedUser.setEnabled(true);
-                    mappedUser.setStatus(User.Status.ACTIVE);
+                    mappedUser.setStatus(Status.ACTIVE);
                     mappedUser.setEmailVerified(true);
                     return mappedUser;
                 })
@@ -270,19 +260,19 @@ public class FirebaseServiceAuth {
 
         WriteBatch batch = firestore.batch();
 
-        DocumentReference userRef = firestore.collection(COLLECTION_USERS).document(user.getId());
-        DocumentReference profileRef = firestore.collection(COLLECTION_USERS)
+        DocumentReference userRef = firestore.collection(SecurityConstants.COLLECTION_USERS).document(user.getId());
+        DocumentReference profileRef = firestore.collection(SecurityConstants.COLLECTION_USERS)
                 .document(user.getId())
-                .collection(COLLECTION_USER_PROFILES)
-                .document(PROFILE_DOC_ID);
-        DocumentReference passwordHistoryRef = firestore.collection(COLLECTION_USERS)
+                .collection(SecurityConstants.COLLECTION_USER_PROFILES)
+                .document(SecurityConstants.PROFILE_DOC_ID);
+        DocumentReference passwordHistoryRef = firestore.collection(SecurityConstants.COLLECTION_USERS)
                 .document(user.getId())
-                .collection(COLLECTION_USER_PASSWORD_HISTORY)
+                .collection(SecurityConstants.COLLECTION_USER_PASSWORD_HISTORY)
                 .document();
-        DocumentReference permissionsRef = firestore.collection(COLLECTION_USERS)
+        DocumentReference permissionsRef = firestore.collection(SecurityConstants.COLLECTION_USERS)
                 .document(user.getId())
-                .collection(COLLECTION_USER_PERMISSIONS)
-                .document(ACTIVE_PERMISSIONS_DOC_ID);
+                .collection(SecurityConstants.COLLECTION_USER_PERMISSIONS)
+                .document(SecurityConstants.ACTIVE_PERMISSIONS_DOC_ID);
 
         batch.set(userRef, userData);
         batch.set(profileRef, userProfile);
@@ -378,10 +368,10 @@ public class FirebaseServiceAuth {
                     updates.put("approvedAt", Instant.now());
                     updates.put("updatedAt", Instant.now());
 
-                    DocumentReference permissionsRef = firestore.collection(COLLECTION_USERS)
+                    DocumentReference permissionsRef = firestore.collection(SecurityConstants.COLLECTION_USERS)
                             .document(userId)
-                            .collection(COLLECTION_USER_PERMISSIONS)
-                            .document(ACTIVE_PERMISSIONS_DOC_ID);
+                            .collection(SecurityConstants.COLLECTION_USER_PERMISSIONS)
+                            .document(SecurityConstants.ACTIVE_PERMISSIONS_DOC_ID);
 
                     return Mono.fromFuture(() -> FirestoreUtil.toCompletableFuture(permissionsRef.update(updates)))
                             .doOnSuccess(result -> logger.info("✅ User {} approved and granted {} permissions",
@@ -394,10 +384,10 @@ public class FirebaseServiceAuth {
      * Get user permissions
      */
     public Mono<Map<String, Object>> getUserPermissions(String userId) {
-        DocumentReference permissionsRef = firestore.collection(COLLECTION_USERS)
+        DocumentReference permissionsRef = firestore.collection(SecurityConstants.COLLECTION_USERS)
                 .document(userId)
-                .collection(COLLECTION_USER_PERMISSIONS)
-                .document(ACTIVE_PERMISSIONS_DOC_ID);
+                .collection(SecurityConstants.COLLECTION_USER_PERMISSIONS)
+                .document(SecurityConstants.ACTIVE_PERMISSIONS_DOC_ID);
 
         return Mono.fromFuture(() -> FirestoreUtil.toCompletableFuture(permissionsRef.get()))
                 .map(documentSnapshot -> {
@@ -476,7 +466,7 @@ public class FirebaseServiceAuth {
     }
 
     public Mono<User> findByEmail(String email) {
-        return Mono.fromCallable(() -> firestore.collection(COLLECTION_USERS)
+        return Mono.fromCallable(() -> firestore.collection(SecurityConstants.COLLECTION_USERS)
                         .whereEqualTo("email", email)
                         .limit(1)
                         .get())
@@ -499,7 +489,7 @@ public class FirebaseServiceAuth {
     }
 
     public Mono<User> getUserById(String id) {
-        DocumentReference userDocRef = firestore.collection(COLLECTION_USERS).document(id);
+        DocumentReference userDocRef = firestore.collection(SecurityConstants.COLLECTION_USERS).document(id);
 
         return Mono.fromFuture(() -> FirestoreUtil.toCompletableFuture(userDocRef.get()))
                 .subscribeOn(Schedulers.boundedElastic())
@@ -528,7 +518,7 @@ public class FirebaseServiceAuth {
 
     public Mono<User> fetchUserDetailsWithPermissions(String userId) {
         return Mono.fromCallable(() -> {
-                    DocumentSnapshot userDoc = firestore.collection(COLLECTION_USERS)
+                    DocumentSnapshot userDoc = firestore.collection(SecurityConstants.COLLECTION_USERS)
                             .document(userId).get().get();
 
                     if (!userDoc.exists()) {
@@ -542,10 +532,10 @@ public class FirebaseServiceAuth {
                     }
 
                     // Fetch permissions
-                    DocumentSnapshot permDoc = firestore.collection(COLLECTION_USERS)
+                    DocumentSnapshot permDoc = firestore.collection(SecurityConstants.COLLECTION_USERS)
                             .document(userId)
-                            .collection(COLLECTION_USER_PERMISSIONS)
-                            .document(ACTIVE_PERMISSIONS_DOC_ID)
+                            .collection(SecurityConstants.COLLECTION_USER_PERMISSIONS)
+                            .document(SecurityConstants.ACTIVE_PERMISSIONS_DOC_ID)
                             .get().get();
 
                     if (permDoc.exists()) {
@@ -572,7 +562,7 @@ public class FirebaseServiceAuth {
     }
 
     public Flux<User> findAllUsersByStatus(User.Status status) {
-        return Mono.fromCallable(() -> firestore.collection(COLLECTION_USERS)
+        return Mono.fromCallable(() -> firestore.collection(SecurityConstants.COLLECTION_USERS)
                         .whereEqualTo("status", status.name())
                         .get())
                 .flatMap(apiFuture -> Mono.fromFuture(FirestoreUtil.toCompletableFuture(apiFuture)))
@@ -596,7 +586,7 @@ public class FirebaseServiceAuth {
 
     public Flux<User> findAllUsers() {
         return Flux.defer(() -> {
-                    CollectionReference usersCollection = firestore.collection(COLLECTION_USERS);
+                    CollectionReference usersCollection = firestore.collection(SecurityConstants.COLLECTION_USERS);
                     ApiFuture<QuerySnapshot> future = usersCollection.get();
 
                     return Mono.fromFuture(() -> FirestoreUtil.toCompletableFuture(future))
@@ -618,7 +608,7 @@ public class FirebaseServiceAuth {
     }
 
     public Flux<User> findActiveUsers() {
-        return Mono.fromCallable(() -> firestore.collection(COLLECTION_USERS)
+        return Mono.fromCallable(() -> firestore.collection(SecurityConstants.COLLECTION_USERS)
                         .whereEqualTo("status", User.Status.ACTIVE.name())
                         .whereEqualTo("enabled", true)
                         .get())
@@ -682,7 +672,7 @@ public class FirebaseServiceAuth {
         return Mono.defer(() -> {
             Map<String, Object> userData = buildUserUpdateMap(user);
 
-            DocumentReference userRef = firestore.collection(COLLECTION_USERS).document(user.getId());
+            DocumentReference userRef = firestore.collection(SecurityConstants.COLLECTION_USERS).document(user.getId());
             ApiFuture<WriteResult> future = userRef.update(userData);
 
             return Mono.fromFuture(() -> FirestoreUtil.toCompletableFuture(future))
@@ -708,7 +698,7 @@ public class FirebaseServiceAuth {
                 "lastLoginIpAddress", ipAddress
         );
 
-        ApiFuture<WriteResult> future = firestore.collection(COLLECTION_USERS)
+        ApiFuture<WriteResult> future = firestore.collection(SecurityConstants.COLLECTION_USERS)
                 .document(userId).update(updates);
 
         Mono.fromFuture(() -> FirestoreUtil.toCompletableFuture(future))
@@ -768,7 +758,7 @@ public class FirebaseServiceAuth {
 
     private Mono<Void> deleteFromFirestore(String userId) {
         return Mono.defer(() -> {
-            DocumentReference userRef = firestore.collection(COLLECTION_USERS).document(userId);
+            DocumentReference userRef = firestore.collection(SecurityConstants.COLLECTION_USERS).document(userId);
             ApiFuture<WriteResult> future = userRef.delete();
 
             return Mono.fromFuture(() -> FirestoreUtil.toCompletableFuture(future))
@@ -800,7 +790,7 @@ public class FirebaseServiceAuth {
     }
 
     public Mono<Boolean> existsByEmail(String email) {
-        return Mono.fromCallable(() -> firestore.collection(COLLECTION_USERS)
+        return Mono.fromCallable(() -> firestore.collection(SecurityConstants.COLLECTION_USERS)
                         .whereEqualTo("email", email)
                         .limit(1)
                         .get())
@@ -934,7 +924,7 @@ public class FirebaseServiceAuth {
     }
 
     public void logAuthFailure(String email, Throwable error) {
-        firestore.collection(COLLECTION_AUTH_LOGS).add(Map.of(
+        firestore.collection(SecurityConstants.COLLECTION_AUTH_LOGS).add(Map.of(
                 "email", email,
                 "status", ActionType.LOGIN_FAILED,
                 "error", error.getMessage(),
@@ -943,7 +933,7 @@ public class FirebaseServiceAuth {
     }
 
     public void logAuthSuccess(String email) {
-        firestore.collection(COLLECTION_AUTH_LOGS).add(Map.of(
+        firestore.collection(SecurityConstants.COLLECTION_AUTH_LOGS).add(Map.of(
                 "email", email,
                 "status", ActionType.LOGIN_SUCCESS,
                 "timestamp", FieldValue.serverTimestamp()

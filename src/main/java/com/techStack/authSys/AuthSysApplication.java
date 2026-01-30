@@ -1,5 +1,6 @@
 package com.techStack.authSys;
 
+
 import com.techStack.authSys.config.core.AppConfigProperties;
 import com.techStack.authSys.config.security.JwtConfig;
 import org.springframework.boot.SpringApplication;
@@ -14,16 +15,18 @@ import org.springframework.scheduling.annotation.EnableAsync;
 import java.time.Clock;
 
 @SpringBootApplication
-@ConfigurationPropertiesScan
+@ConfigurationPropertiesScan("com.techStack.authSys.config")
 @EnableConfigurationProperties({AppConfigProperties.class, JwtConfig.class})
-@EnableReactiveFirestoreRepositories(basePackages = "com.techStack.authSys.repository")
+@EnableReactiveFirestoreRepositories
 @EnableAsync
 @EnableCaching
 public class AuthSysApplication {
 
 	public static void main(String[] args) {
 		SpringApplication.run(AuthSysApplication.class, args);
+		System.out.println("AuthSys Application started successfully!");
 	}
+
 	@Bean
 	public Clock clock() {
 		return Clock.systemDefaultZone();

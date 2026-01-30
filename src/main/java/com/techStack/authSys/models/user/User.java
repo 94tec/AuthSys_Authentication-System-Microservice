@@ -15,7 +15,7 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
-import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -23,15 +23,8 @@ import java.util.stream.Collectors;
 /**
  * User Domain Model
  *
- * Represents a user in the AuthSys system with:
- * - Authentication credentials
- * - Authorization roles and permissions
- * - Security tracking (login attempts, device fingerprints)
- * - Profile information
- * - Approval workflow state
- *
- * Implements Spring Security's UserDetails for authentication integration
- * Stored in Firestore collection: "users"
+ * Pure domain model - accepts Instant for all timestamps.
+ * Clock handling is done in the service layer.
  */
 @Getter
 @Setter
@@ -46,7 +39,7 @@ public class User implements UserDetails {
     // ==========================================
 
     @DocumentId
-    private String id;  // Firebase UID
+    private String id;
 
     @NotBlank(message = "Email is required")
     @Email(message = "Invalid email format")
@@ -61,54 +54,31 @@ public class User implements UserDetails {
     private String lastName;
 
     @Size(max = 50)
-    private String username;  // Optional, defaults to email
+    private String username;
 
-    // National ID or other identity number
     private String identityNo;
-
-    // Phone number in E.164 format: +254712345678
     private String phoneNumber;
 
-    // Password hash (stored in Firebase Auth, not Firestore)
     @JsonIgnore
     private transient String password;
 
     // ==========================================
-    // ROLES & PERMISSIONS (RBAC/ABAC)
+    // ROLES & PERMISSIONS
     // ==========================================
 
-    /**
-     * User's assigned roles (stored as strings for Firestore compatibility)
-     * Examples: ["USER", "ADMIN", "MANAGER"]
-     */
     @PropertyName("roles")
     @Builder.Default
     private List<String> roleNames = new ArrayList<>();
 
-    /**
-     * Additional permissions beyond role-based (for special cases)
-     * Examples: ["read:sensitive_reports", "approve:large_expenses"]
-     */
     @PropertyName("permissions")
     @Builder.Default
     private List<String> additionalPermissions = new ArrayList<>();
 
-    /**
-     * Role requested during registration (for approval workflow)
-     */
     @PropertyName("requested_role")
     private Roles requestedRole;
 
-    /**
-     * User's department (for ABAC policies)
-     * Examples: "Engineering", "Sales", "Finance"
-     */
     private String department;
 
-    /**
-     * Custom attributes for ABAC evaluation
-     * Examples: {"clearance_level": "SECRET", "region": "US-WEST"}
-     */
     @Builder.Default
     private Map<String, Object> attributes = new HashMap<>();
 
@@ -144,48 +114,26 @@ public class User implements UserDetails {
     // SECURITY & AUTHENTICATION
     // ==========================================
 
-    /**
-     * Embedded security metadata
-     */
     @PropertyName("security_metadata")
     private SecurityMetadata securityMetadata;
 
-    /**
-     * Password change history
-     */
     @JsonIgnore
     @PropertyName("password_history")
     @Builder.Default
     private List<UserPasswordHistory> passwordHistoryEntries = new ArrayList<>();
 
-    /**
-     * MFA enabled flag (you have mfaRequired but not mfaEnabled)
-     */
     @PropertyName("mfa_enabled")
     @Builder.Default
     private boolean mfaEnabled = false;
-    /**
-     * Password history for password reuse prevention
-     * Stores hashes of last N passwords
-     */
-    @JsonIgnore
-    @Builder.Default
-    private List<String> passwordHistory = new ArrayList<>();
 
-    /**
-     * MFA/2FA Configuration
-     */
     @PropertyName("mfa_required")
     @Builder.Default
     private boolean mfaRequired = false;
 
     @JsonIgnore
     @PropertyName("otp_secret")
-    private String otpSecret;  // TOTP secret for MFA
+    private String otpSecret;
 
-    /**
-     * Login Tracking
-     */
     @PropertyName("login_attempts")
     @Builder.Default
     private int loginAttempts = 0;
@@ -204,10 +152,6 @@ public class User implements UserDetails {
     @PropertyName("last_login_user_agent")
     private String lastLoginUserAgent;
 
-    /**
-     * Device fingerprints for known devices
-     * Used for risk scoring and device verification
-     */
     @PropertyName("known_device_fingerprints")
     @Builder.Default
     private Set<String> knownDeviceFingerprints = new HashSet<>();
@@ -224,9 +168,6 @@ public class User implements UserDetails {
     @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss.SSSX", timezone = "UTC")
     private Instant passwordExpiresAt;
 
-    /**
-     * Password reset token (hashed)
-     */
     @JsonIgnore
     @PropertyName("password_reset_token_hash")
     private String passwordResetTokenHash;
@@ -259,7 +200,7 @@ public class User implements UserDetails {
     private Instant approvedAt;
 
     @PropertyName("approved_by")
-    private String approvedBy;  // Admin user ID who approved
+    private String approvedBy;
 
     @PropertyName("rejected_at")
     @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss.SSSX", timezone = "UTC")
@@ -283,7 +224,7 @@ public class User implements UserDetails {
     private String bio;
 
     @PropertyName("user_profile_id")
-    private String userProfileId;  // Reference to separate UserProfile document
+    private String userProfileId;
 
     // ==========================================
     // AUDIT FIELDS
@@ -291,11 +232,10 @@ public class User implements UserDetails {
 
     @PropertyName("created_at")
     @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss.SSSX", timezone = "UTC")
-    @Builder.Default
-    private Instant createdAt = Instant.now();
+    private Instant createdAt;
 
     @PropertyName("created_by")
-    private String createdBy;  // System or admin who created the user
+    private String createdBy;
 
     @PropertyName("updated_at")
     @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss.SSSX", timezone = "UTC")
@@ -305,10 +245,6 @@ public class User implements UserDetails {
     // SPRING SECURITY INTEGRATION
     // ==========================================
 
-    /**
-     * Transient field - populated by UserDetailsService
-     * Not stored in Firestore
-     */
     @JsonIgnore
     private transient Collection<? extends GrantedAuthority> authorities;
 
@@ -316,21 +252,15 @@ public class User implements UserDetails {
     // ROLE MANAGEMENT METHODS
     // ==========================================
 
-    /**
-     * Get roles as enum Set (converted from string list)
-     */
     public Set<Roles> getRoles() {
         if (roleNames == null || roleNames.isEmpty()) {
-            return Set.of(Roles.USER);  // Default role
+            return Set.of(Roles.USER);
         }
         return roleNames.stream()
                 .map(Roles::valueOf)
                 .collect(Collectors.toSet());
     }
 
-    /**
-     * Add role (prevents duplicates)
-     */
     public void addRole(Roles role) {
         if (this.roleNames == null) {
             this.roleNames = new ArrayList<>();
@@ -340,45 +270,30 @@ public class User implements UserDetails {
         }
     }
 
-    /**
-     * Remove role
-     */
     public void removeRole(Roles role) {
         if (this.roleNames != null) {
             this.roleNames.remove(role.name());
         }
     }
 
-    /**
-     * Check if user has specific role
-     */
     public boolean hasRole(Roles role) {
         return this.roleNames != null && this.roleNames.contains(role.name());
     }
 
-    /**
-     * Check if user has any of the specified roles
-     */
     public boolean hasAnyRole(Roles... roles) {
         if (this.roleNames == null) return false;
         return Arrays.stream(roles)
                 .anyMatch(role -> this.roleNames.contains(role.name()));
     }
 
-    /**
-     * Check if user has higher privileges than another role
-     */
     public boolean hasHigherPrivilegesThan(Roles otherRole) {
         return getRoles().stream()
-                .anyMatch(role -> role.getPriority() > otherRole.getPriority());
+                .anyMatch(role -> role.getLevel() > otherRole.getLevel());
     }
 
-    /**
-     * Get the highest priority role
-     */
     public Roles getHighestPriorityRole() {
         return getRoles().stream()
-                .max(Comparator.comparingInt(Roles::getPriority))
+                .max(Comparator.comparingInt(Roles::getLevel))
                 .orElse(Roles.USER);
     }
 
@@ -386,9 +301,6 @@ public class User implements UserDetails {
     // PERMISSION METHODS
     // ==========================================
 
-    /**
-     * Add additional permission
-     */
     public void addPermission(String permission) {
         if (this.additionalPermissions == null) {
             this.additionalPermissions = new ArrayList<>();
@@ -398,11 +310,6 @@ public class User implements UserDetails {
         }
     }
 
-    /**
-     * Get all permissions (role-based + additional)
-     * Note: This is a simplified view. Full permission resolution
-     * should be done by PermissionService
-     */
     public Set<String> getAllPermissions() {
         Set<String> permissions = new HashSet<>();
         if (additionalPermissions != null) {
@@ -415,9 +322,6 @@ public class User implements UserDetails {
     // ACCOUNT STATE CHECKS
     // ==========================================
 
-    /**
-     * Check if account is active and can authenticate
-     */
     public boolean isActive() {
         return status == UserStatus.ACTIVE
                 && enabled
@@ -425,24 +329,15 @@ public class User implements UserDetails {
                 && !accountDisabled;
     }
 
-    /**
-     * Check if account is pending approval
-     */
     public boolean isPendingApproval() {
         return status == UserStatus.PENDING_APPROVAL;
     }
 
-    /**
-     * Check if password has expired
-     */
     public boolean isPasswordExpired() {
         return passwordExpiresAt != null
                 && Instant.now().isAfter(passwordExpiresAt);
     }
 
-    /**
-     * Check if user needs to change password
-     */
     public boolean needsPasswordChange() {
         return forcePasswordChange || isPasswordExpired();
     }
@@ -451,17 +346,11 @@ public class User implements UserDetails {
     // DEVICE FINGERPRINT METHODS
     // ==========================================
 
-    /**
-     * Check if device is known/trusted
-     */
     public boolean isKnownDevice(String deviceFingerprint) {
         return knownDeviceFingerprints != null
                 && knownDeviceFingerprints.contains(deviceFingerprint);
     }
 
-    /**
-     * Register new trusted device
-     */
     public void addKnownDevice(String deviceFingerprint) {
         if (this.knownDeviceFingerprints == null) {
             this.knownDeviceFingerprints = new HashSet<>();
@@ -470,7 +359,7 @@ public class User implements UserDetails {
     }
 
     // ==========================================
-    // SPRING SECURITY UserDetails IMPLEMENTATION
+    // SPRING SECURITY UserDetails
     // ==========================================
 
     @Override
@@ -479,17 +368,14 @@ public class User implements UserDetails {
             return this.authorities;
         }
 
-        // Build authorities from roles
         Set<GrantedAuthority> grantedAuthorities = new HashSet<>();
 
-        // Add role authorities
         if (roleNames != null) {
             roleNames.forEach(role ->
                     grantedAuthorities.add(new SimpleGrantedAuthority("ROLE_" + role))
             );
         }
 
-        // Add permission authorities
         if (additionalPermissions != null) {
             additionalPermissions.forEach(permission ->
                     grantedAuthorities.add(new SimpleGrantedAuthority(permission))
@@ -506,7 +392,7 @@ public class User implements UserDetails {
 
     @Override
     public String getUsername() {
-        return this.email;  // Use email as username
+        return this.email;
     }
 
     @Override
@@ -530,12 +416,9 @@ public class User implements UserDetails {
     }
 
     // ==========================================
-    // UTILITY METHODS
+    // SECURITY METADATA HELPERS
     // ==========================================
 
-    /**
-     * Initialize security metadata if not present
-     */
     public SecurityMetadata getOrCreateSecurityMetadata() {
         if (this.securityMetadata == null) {
             this.securityMetadata = SecurityMetadata.builder()
@@ -546,37 +429,74 @@ public class User implements UserDetails {
         return this.securityMetadata;
     }
 
+    // ==========================================
+    // LOGIN TRACKING (Instant-based)
+    // ==========================================
+
     /**
-     * Record login using security metadata
+     * Record simple login
      */
-    public void recordLogin(String ipAddress, String userAgent, String deviceId,
-                            String country, String city, Clock clock) {
-        this.lastLogin = clock.instant();
+    public void recordLogin(String ipAddress, String userAgent, Instant now) {
+        this.lastLogin = now;
         this.lastLoginIp = ipAddress;
         this.lastLoginUserAgent = userAgent;
         this.loginAttempts++;
+        this.failedLoginAttempts = 0;
+    }
 
-        // Update security metadata
-        getOrCreateSecurityMetadata().recordSuccessfulLogin(
-                clock, ipAddress, deviceId, country, city
+    /**
+     * Record successful login with full tracking
+     */
+    public void recordSuccessfulLogin(
+            String ipAddress,
+            String userAgent,
+            String deviceId,
+            String country,
+            String city,
+            Instant now
+    ) {
+        this.lastLogin = now;
+        this.lastLoginIp = ipAddress;
+        this.lastLoginUserAgent = userAgent;
+        this.loginAttempts++;
+        this.failedLoginAttempts = 0;
+
+        getOrCreateSecurityMetadata().login().recordSuccess(
+                now, ipAddress, deviceId, country, city
         );
     }
 
     /**
-     * Record failed login using security metadata
+     * Record failed login
      */
-    public void recordFailedLogin(Clock clock) {
+    public void recordFailedLogin(Instant now) {
         this.failedLoginAttempts++;
-        getOrCreateSecurityMetadata().recordFailedLogin(clock);
+        getOrCreateSecurityMetadata().login().recordFailed(now);
     }
 
     /**
-     * Check if account should be temporarily locked
+     * Check if temporarily locked
      */
-    public boolean shouldBeTemporarilyLocked(Clock clock, int threshold) {
-        return getOrCreateSecurityMetadata().hasExceededFailedLoginThreshold(threshold) ||
-                getOrCreateSecurityMetadata().isTemporarilyLocked(clock);
+    public boolean shouldBeTemporarilyLocked(Instant now, int threshold) {
+        return getOrCreateSecurityMetadata().login().exceededThreshold(threshold) ||
+                getOrCreateSecurityMetadata().locking().isTemporarilyLocked(now);
     }
+
+    /**
+     * Apply temporary lock
+     */
+    public void applyTemporaryLock(
+            Instant now,
+            Duration duration,
+            String reason,
+            SecurityMetadata.LockType type
+    ) {
+        getOrCreateSecurityMetadata().locking().apply(now, duration, reason, type);
+    }
+
+    // ==========================================
+    // PASSWORD HISTORY (Instant-based)
+    // ==========================================
 
     /**
      * Add password to history
@@ -586,20 +506,18 @@ public class User implements UserDetails {
             UserPasswordHistory.PasswordHashAlgorithm algorithm,
             UserPasswordHistory.PasswordChangeReason reason,
             String changedFromIp,
-            Clock clock
+            Instant now
     ) {
         if (this.passwordHistoryEntries == null) {
             this.passwordHistoryEntries = new ArrayList<>();
         }
 
-        // Mark all previous entries as non-current
         passwordHistoryEntries.forEach(entry -> entry.setCurrent(false));
 
-        // Create new history entry
         UserPasswordHistory newEntry = UserPasswordHistory.builder()
                 .passwordHash(passwordHash)
                 .hashAlgorithm(algorithm)
-                .changedAt(clock.instant())
+                .changedAt(now)
                 .changedFromIp(changedFromIp)
                 .version(passwordHistoryEntries.size() + 1L)
                 .reason(reason)
@@ -608,19 +526,16 @@ public class User implements UserDetails {
 
         passwordHistoryEntries.add(newEntry);
 
-        // Keep only last N passwords (e.g., 5)
-        int maxHistory = 5;
-        while (passwordHistoryEntries.size() > maxHistory) {
+        while (passwordHistoryEntries.size() > 5) {
             passwordHistoryEntries.remove(0);
         }
 
-        // Update password metadata
-        this.passwordLastChanged = clock.instant();
-        getOrCreateSecurityMetadata().recordPasswordChange(clock);
+        this.passwordLastChanged = now;
+        getOrCreateSecurityMetadata().password().recordChange(now);
     }
 
     /**
-     * Check if password was recently used
+     * Check if password recently used
      */
     public boolean isPasswordRecentlyUsed(String plainPassword, int checkLastN) {
         if (passwordHistoryEntries == null || passwordHistoryEntries.isEmpty()) {
@@ -631,55 +546,16 @@ public class User implements UserDetails {
                 .limit(checkLastN)
                 .anyMatch(entry -> entry.matches(plainPassword));
     }
-    /**
-     * Get user's full name
-     */
-    public String getFullName() {
-        if (firstName == null && lastName == null) {
-            return email;
-        }
-        return String.format("%s %s",
-                firstName != null ? firstName : "",
-                lastName != null ? lastName : ""
-        ).trim();
-    }
 
-    /**
-     * Update last login timestamp and IP
-     */
-    public void recordLogin(String ipAddress, String userAgent) {
-        this.lastLogin = Instant.now();
-        this.lastLoginIp = ipAddress;
-        this.lastLoginUserAgent = userAgent;
-        this.loginAttempts++;
-        this.failedLoginAttempts = 0;  // Reset on successful login
-    }
+    // ==========================================
+    // ACCOUNT OPERATIONS
+    // ==========================================
 
-    /**
-     * Increment failed login attempts
-     */
-    public void recordFailedLogin() {
-        this.failedLoginAttempts++;
-    }
-
-    /**
-     * Reset failed login attempts
-     */
-    public void resetFailedLoginAttempts() {
-        this.failedLoginAttempts = 0;
-    }
-
-    /**
-     * Lock account (e.g., after too many failed logins)
-     */
     public void lockAccount() {
         this.accountLocked = true;
         this.status = UserStatus.LOCKED;
     }
 
-    /**
-     * Unlock account
-     */
     public void unlockAccount() {
         this.accountLocked = false;
         if (this.status == UserStatus.LOCKED) {
@@ -688,27 +564,35 @@ public class User implements UserDetails {
         this.failedLoginAttempts = 0;
     }
 
-    /**
-     * Approve user account
-     */
-    public void approve(String approvedBy) {
+    public void approve(String approvedBy, Instant now) {
         this.status = UserStatus.ACTIVE;
         this.enabled = true;
-        this.approvedAt = Instant.now();
+        this.approvedAt = now;
         this.approvedBy = approvedBy;
         this.approvalLevel = ApprovalLevel.APPROVED;
     }
 
-    /**
-     * Reject user account
-     */
-    public void reject(String rejectedBy, String reason) {
+    public void reject(String rejectedBy, String reason, Instant now) {
         this.status = UserStatus.REJECTED;
         this.enabled = false;
-        this.rejectedAt = Instant.now();
+        this.rejectedAt = now;
         this.rejectedBy = rejectedBy;
         this.rejectionReason = reason;
         this.approvalLevel = ApprovalLevel.REJECTED;
+    }
+
+    // ==========================================
+    // UTILITY
+    // ==========================================
+
+    public String getFullName() {
+        if (firstName == null && lastName == null) {
+            return email;
+        }
+        return String.format("%s %s",
+                firstName != null ? firstName : "",
+                lastName != null ? lastName : ""
+        ).trim();
     }
 
     @Override

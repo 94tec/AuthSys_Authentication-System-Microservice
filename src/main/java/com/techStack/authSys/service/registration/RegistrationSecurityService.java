@@ -1,6 +1,6 @@
 package com.techStack.authSys.service.registration;
 
-import com.techStack.authSys.dto.response.UserDTO;
+import com.techStack.authSys.dto.request.UserRegistrationDTO;
 import com.techStack.authSys.exception.service.CustomException;
 import com.techStack.authSys.service.security.DomainValidationService;
 import com.techStack.authSys.service.security.GeoLocationService;
@@ -14,13 +14,15 @@ import org.springframework.util.StringUtils;
 import reactor.core.publisher.Mono;
 
 /**
- * Performs security validations during registration:
+ * Registration Security Service
+ *
+ * Performs comprehensive security validations:
  * - Rate limiting
  * - Geolocation validation
  * - Suspicious activity detection
  * - Domain validation
  * - Password policy enforcement
- * - Honeypot check
+ * - Honeypot check (bot detection)
  */
 @Slf4j
 @Service
@@ -34,13 +36,17 @@ public class RegistrationSecurityService {
     private final PasswordPolicyService passwordPolicyService;
 
     /**
-     * Orchestrates all security checks in parallel where possible.
+     * Orchestrate all security checks in parallel where possible
      */
-    public Mono<Void> performSecurityChecks(UserDTO userDto, String ipAddress) {
+    public Mono<Void> performSecurityChecks(
+            UserRegistrationDTO userDto,
+            String ipAddress,
+            String deviceFingerprint
+    ) {
         return Mono.when(
                         performRateLimitCheck(ipAddress),
                         performGeolocationCheck(ipAddress),
-                        performSuspiciousActivityCheck(userDto, ipAddress)
+                        performSuspiciousActivityCheck(userDto, ipAddress, deviceFingerprint)
                 )
                 .then(performDomainValidation(userDto))
                 .then(performPasswordPolicyCheck(userDto))
@@ -48,12 +54,12 @@ public class RegistrationSecurityService {
     }
 
     /**
-     * Check if IP address has exceeded registration rate limits.
+     * Check rate limiting
      */
     private Mono<Void> performRateLimitCheck(String ipAddress) {
         return throttleService.checkRateLimit(ipAddress)
                 .doOnSuccess(v -> log.debug("Rate limit check passed for IP: {}", ipAddress))
-                .doOnError(e -> log.warn("Rate limit exceeded for IP: {}", ipAddress, e))
+                .doOnError(e -> log.warn("Rate limit exceeded for IP: {}", ipAddress))
                 .onErrorResume(e -> Mono.error(new CustomException(
                         HttpStatus.TOO_MANY_REQUESTS,
                         "Too many registration attempts. Please try again later."
@@ -61,65 +67,70 @@ public class RegistrationSecurityService {
     }
 
     /**
-     * Validate registration location against allowed regions.
+     * Validate geolocation
      */
     private Mono<Void> performGeolocationCheck(String ipAddress) {
         return geoLocationService.validateLocation(ipAddress)
                 .doOnSuccess(v -> log.debug("Geolocation check passed for IP: {}", ipAddress))
-                .doOnError(e -> log.warn("Geolocation validation failed for IP: {}", ipAddress, e))
+                .doOnError(e -> log.warn("Geolocation validation failed for IP: {}", ipAddress))
                 .onErrorResume(e -> {
-                    // Non-fatal: log but continue (configurable based on security requirements)
                     log.warn("Continuing registration despite geolocation failure");
                     return Mono.empty();
                 }).then();
     }
 
     /**
-     * Detect suspicious registration patterns (e.g., disposable emails, bot behavior).
+     * Detect suspicious activity
      */
-    private Mono<Void> performSuspiciousActivityCheck(UserDTO userDto, String ipAddress) {
+    private Mono<Void> performSuspiciousActivityCheck(
+            UserRegistrationDTO userDto,
+            String ipAddress,
+            String deviceFingerprint
+    ) {
         return suspiciousActivityService.checkPatterns(
                         userDto.getEmail(),
                         ipAddress,
-                        userDto.getRegistrationMetadata()
+                        userDto.getMetadata()
                 )
                 .doOnSuccess(v -> log.debug("Suspicious activity check passed for: {}",
                         userDto.getEmail()))
                 .doOnError(e -> log.warn("Suspicious activity detected for: {}",
-                        userDto.getEmail(), e))
+                        userDto.getEmail()))
                 .onErrorResume(e -> {
-                    // Could flag for manual review instead of blocking
                     log.warn("Continuing with elevated monitoring");
                     return Mono.empty();
                 });
     }
 
     /**
-     * Validate email domain against whitelist/blacklist.
+     * Validate email domain
      */
-    private Mono<Void> performDomainValidation(UserDTO userDto) {
+    private Mono<Void> performDomainValidation(UserRegistrationDTO userDto) {
         return domainValidationService.validateActiveDomain(userDto)
                 .doOnSuccess(v -> log.debug("Domain validation passed for: {}",
                         userDto.getEmail()))
                 .doOnError(e -> log.warn("Domain validation failed for: {}",
-                        userDto.getEmail(), e)).then();
+                        userDto.getEmail()))
+                .then();
     }
 
     /**
-     * Enforce password strength requirements.
+     * Enforce password policy
      */
-    private Mono<Void> performPasswordPolicyCheck(UserDTO userDto) {
+    private Mono<Void> performPasswordPolicyCheck(UserRegistrationDTO userDto) {
         return passwordPolicyService.validatePassword(userDto)
                 .doOnSuccess(v -> log.debug("Password policy check passed"))
                 .doOnError(e -> log.warn("Password policy violation for: {}",
-                        userDto.getEmail(), e)).then();
+                        userDto.getEmail()))
+                .then();
     }
 
     /**
-     * Check honeypot field (should be empty for legitimate users).
+     * Check honeypot field (bot detection)
      */
-    private Mono<Void> performHoneypotCheck(UserDTO userDto) {
-        if (StringUtils.hasText(userDto.getHoneypot())) {
+    private Mono<Void> performHoneypotCheck(UserRegistrationDTO userDto) {
+        if (userDto.getMetadata() != null &&
+                StringUtils.hasText(userDto.getMetadata().getHoneypot())) {
             log.warn("Honeypot field filled for: {} - potential bot", userDto.getEmail());
             return Mono.error(new CustomException(
                     HttpStatus.BAD_REQUEST,

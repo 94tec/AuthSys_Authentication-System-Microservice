@@ -1,6 +1,6 @@
 package com.techStack.authSys.service.registration;
 
-import com.techStack.authSys.dto.response.UserDTO;
+import com.techStack.authSys.dto.request.UserRegistrationDTO;
 import com.techStack.authSys.exception.email.EmailAlreadyExistsException;
 import com.techStack.authSys.service.auth.FirebaseServiceAuth;
 import com.techStack.authSys.service.cache.RedisUserCacheService;
@@ -11,7 +11,9 @@ import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 /**
- * Handles duplicate email detection using a two-tier strategy:
+ * Duplicate Email Check Service
+ *
+ * Two-tier email uniqueness validation:
  * 1. Redis cache (fast, eventual consistency)
  * 2. Firebase Auth (source of truth)
  */
@@ -24,10 +26,9 @@ public class DuplicateEmailCheckService {
     private final FirebaseServiceAuth firebaseServiceAuth;
 
     /**
-     * Checks if an email is already registered.
-     * Uses Redis first for speed, then Firebase Auth as fallback.
+     * Check if email is already registered
      */
-    public Mono<UserDTO> checkDuplicateEmail(UserDTO userDto) {
+    public Mono<UserRegistrationDTO> checkDuplicateEmail(UserRegistrationDTO userDto) {
         String email = userDto.getEmail();
 
         Mono<Boolean> redisCheck = checkRedisCache(email);
@@ -52,8 +53,7 @@ public class DuplicateEmailCheckService {
     }
 
     /**
-     * Check Redis cache for email existence.
-     * Failures are non-fatal - falls back to Firebase check.
+     * Check Redis cache (non-fatal failures)
      */
     private Mono<Boolean> checkRedisCache(String email) {
         return redisCacheService.isEmailRegistered(email)
@@ -65,21 +65,19 @@ public class DuplicateEmailCheckService {
     }
 
     /**
-     * Check Firebase Auth for email existence (source of truth).
+     * Check Firebase Auth (source of truth)
      */
     private Mono<Boolean> checkFirebaseAuth(String email) {
         return firebaseServiceAuth.checkEmailAvailability(email)
                 .onErrorResume(e -> {
-                    log.error("❌ Firebase Auth lookup failed for {}: {}", email, e.getMessage());
-                    // In production, consider throwing a 503 here if Firebase is down
-                    // For now, assume email doesn't exist if we can't check
+                    log.error("❌ Firebase Auth lookup failed for {}: {}",
+                            email, e.getMessage());
                     return Mono.just(false);
                 });
     }
 
     /**
-     * Backfills Redis cache if email exists in Firebase but not in cache.
-     * This is a fire-and-forget operation to improve future lookup performance.
+     * Backfill Redis cache if email exists in Firebase but not cache
      */
     private void backfillCacheIfNeeded(String email, boolean inRedis, boolean inFirebase) {
         if (inFirebase && !inRedis) {
