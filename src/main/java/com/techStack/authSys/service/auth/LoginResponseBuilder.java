@@ -1,7 +1,7 @@
 package com.techStack.authSys.service.auth;
 
-import com.techStack.authSys.dto.response.AuthResponse;
 import com.techStack.authSys.dto.internal.AuthResult;
+import com.techStack.authSys.dto.response.AuthResponse;
 import com.techStack.authSys.models.authorization.Permissions;
 import com.techStack.authSys.repository.authorization.PermissionProvider;
 import lombok.RequiredArgsConstructor;
@@ -10,9 +10,13 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.util.List;
 
 /**
+ * Login Response Builder
+ *
  * Builds authentication response objects.
  * Transforms AuthResult into client-facing AuthResponse DTOs.
  */
@@ -22,14 +26,21 @@ import java.util.List;
 public class LoginResponseBuilder {
 
     private final PermissionProvider permissionProvider;
+    private final Clock clock;
+
+    /* =========================
+       Response Building
+       ========================= */
 
     /**
-     * Builds a successful login response with user info, tokens, and permissions.
-     *
-     * @param authResult Authentication result from the auth flow
-     * @return ResponseEntity with AuthResponse
+     * Build successful login response with user info, tokens, and permissions
      */
     public ResponseEntity<AuthResponse> buildSuccessResponse(AuthResult authResult) {
+        Instant now = clock.instant();
+
+        log.debug("Building login response for user: {} at {}",
+                authResult.getUser().getEmail(), now);
+
         AuthResponse.UserInfo userInfo = buildUserInfo(authResult);
         List<Permissions> permissions = resolvePermissions(authResult);
 
@@ -40,15 +51,23 @@ public class LoginResponseBuilder {
                 .refreshTokenExpiry(authResult.getRefreshTokenExpiry())
                 .user(userInfo)
                 .permissions(permissions)
+                .timestamp(now)
                 .build();
+
+        log.info("Login response built successfully for user: {} with {} permissions",
+                authResult.getUser().getEmail(), permissions.size());
 
         return ResponseEntity.ok()
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + response.getAccessToken())
                 .body(response);
     }
 
+    /* =========================
+       User Info Building
+       ========================= */
+
     /**
-     * Builds user info DTO from AuthResult.
+     * Build user info DTO from AuthResult
      */
     private AuthResponse.UserInfo buildUserInfo(AuthResult authResult) {
         return AuthResponse.UserInfo.builder()
@@ -57,17 +76,26 @@ public class LoginResponseBuilder {
                 .firstName(authResult.getUser().getFirstName())
                 .lastName(authResult.getUser().getLastName())
                 .profileImageUrl(authResult.getUser().getProfilePictureUrl())
+                .roles(authResult.getRoles())
+                .mfaRequired(authResult.isMfaRequired())
                 .build();
     }
 
+    /* =========================
+       Permission Resolution
+       ========================= */
+
     /**
-     * Resolves effective permissions for the user.
+     * Resolve effective permissions for the user
      */
     private List<Permissions> resolvePermissions(AuthResult authResult) {
         List<String> effectivePermissions = permissionProvider
                 .resolveEffectivePermission(authResult.getUser())
                 .stream()
                 .toList();
+
+        log.debug("Resolved {} permissions for user: {}",
+                effectivePermissions.size(), authResult.getUser().getEmail());
 
         return permissionProvider.deserializePermissions(effectivePermissions);
     }

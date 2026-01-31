@@ -27,6 +27,21 @@ public final class SecurityConstants {
     public static final int REFRESH_TOKEN_TTL_SECONDS = 604800; // 7 days
     public static final String TOKEN_TYPE = "Bearer";
     public static final String JWT_ISSUER = "authsys";
+    public static final String COLLECTION_REFRESH_TOKENS = "refresh_tokens";
+    public static final String COLLECTION_REVOKED_TOKENS = "revoked_tokens";
+    public static final String COLLECTION_BLACKLISTED_TOKENS = "blacklisted_tokens";
+    public static final String TOKEN_TYPE_ACCESS = "access";
+    public static final String TOKEN_TYPE_REFRESH = "refresh";
+    public static final String TOKEN_TYPE_EMAIL_VERIFICATION = "email_verification";
+
+    public static final String ROLE_PREFIX = "ROLE_";
+    public static final String PERM_PREFIX = "PERM_";
+    public static final String DEFAULT_ROLE = "ROLE_USER";
+    public static final String CLAIM_ROLES = "roles";
+    public static final String CLAIM_PERMISSIONS = "permissions";
+    public static final String CLAIM_TYPE = "type";
+    public static final String CLAIM_TYPE_ACCESS = "access";
+    public static final String SESSION_COLLECTION = "sessions";
 
     // Rate Limiting
     public static final int REGISTER_RATE_LIMIT = 5;
@@ -37,11 +52,21 @@ public final class SecurityConstants {
     // Account Locking
     public static final int MAX_LOGIN_ATTEMPTS = 5;
     public static final Duration ACCOUNT_LOCK_DURATION = Duration.ofMinutes(30);
+    public static final String LOCK_KEY_PREFIX = "account:lock:";
+    public static final String FAILED_ATTEMPTS_KEY_PREFIX = "account:failed:";
+    public static final int MAX_FAILED_ATTEMPTS = 5;
+    public static final Duration DEFAULT_LOCK_DURATION = Duration.ofMinutes(30);
+    public static final long FAILED_ATTEMPT_EXPIRY_HOURS = 1;
 
     // Password Policy
     public static final int MIN_PASSWORD_LENGTH = 12;
     public static final int PASSWORD_HISTORY_COUNT = 5;
     public static final int PASSWORD_EXPIRY_DAYS = 90;
+
+    public static final String RESET_PREFIX = "pwd_reset:";
+    public static final Duration TTL = Duration.ofHours(1);
+    public static final int MAX_RETRY_ATTEMPTS = 3;
+    public static final Duration RETRY_DELAY = Duration.ofMillis(500);
 
     // OTP
     public static final int OTP_LENGTH = 6;

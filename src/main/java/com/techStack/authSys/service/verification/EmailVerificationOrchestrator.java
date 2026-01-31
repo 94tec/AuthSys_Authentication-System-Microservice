@@ -5,8 +5,8 @@ import com.google.cloud.firestore.Firestore;
 import com.techStack.authSys.config.core.AppConfig;
 import com.techStack.authSys.models.audit.ActionType;
 import com.techStack.authSys.models.user.User;
-import com.techStack.authSys.service.observability.AuditLogService;
 import com.techStack.authSys.service.notification.EmailServiceInstance1;
+import com.techStack.authSys.service.observability.AuditLogService;
 import com.techStack.authSys.service.security.EncryptionService;
 import com.techStack.authSys.service.token.JwtService;
 import com.techStack.authSys.util.firebase.FirestoreUtil;
@@ -16,12 +16,14 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.HashMap;
 import java.util.Map;
 
 /**
+ * Email Verification Orchestrator
+ *
  * Orchestrates email verification workflows.
  * Handles token generation, email sending, and token storage.
  */
@@ -35,15 +37,24 @@ public class EmailVerificationOrchestrator {
     private static final String FIELD_TOKEN_EXPIRES_AT = "verificationTokenExpiresAt";
     private static final Duration TOKEN_EXPIRY = Duration.ofHours(24);
 
+    /* =========================
+       Dependencies
+       ========================= */
+
     private final JwtService jwtService;
     private final EmailServiceInstance1 emailService;
     private final EncryptionService encryptionService;
     private final AuditLogService auditLogService;
     private final Firestore firestore;
     private final AppConfig appConfig;
+    private final Clock clock;
+
+    /* =========================
+       Verification Email
+       ========================= */
 
     /**
-     * Sends verification email with graceful error handling.
+     * Send verification email with graceful error handling.
      * Registration continues even if email fails.
      */
     public Mono<User> sendVerificationEmailSafely(User user, String ipAddress) {
@@ -53,8 +64,12 @@ public class EmailVerificationOrchestrator {
                             user.getEmail(), e.getMessage());
                     log.debug("Full error details:", e);
 
-                    auditLogService.logAudit(user, ActionType.EMAIL_FAILURE,
-                            "Verification email failed", e.getMessage());
+                    auditLogService.logAudit(
+                            user,
+                            ActionType.EMAIL_FAILURE,
+                            "Verification email failed: " + e.getMessage(),
+                            ipAddress
+                    );
 
                     // Don't block registration - user can resend later
                     return Mono.just(user);
@@ -64,17 +79,23 @@ public class EmailVerificationOrchestrator {
     }
 
     /**
-     * Generates token, sends email, and stores hashed token.
+     * Generate token, send email, and store hashed token
      */
     private Mono<User> sendVerificationEmail(User user, String ipAddress) {
-        return jwtService.generateEmailVerificationToken(user.getId(), user.getEmail(), ipAddress)
+        Instant now = clock.instant();
+
+        return jwtService.generateEmailVerificationToken(
+                        user.getId(),
+                        user.getEmail(),
+                        ipAddress
+                )
                 .flatMap(token -> {
                     String hashedToken = encryptionService.hashToken(token);
                     String verificationLink = buildVerificationLink(token);
 
                     // Send email and store token in parallel
                     Mono<Void> emailMono = sendEmail(user.getEmail(), verificationLink);
-                    Mono<Void> storeMono = storeVerificationToken(user.getId(), hashedToken);
+                    Mono<Void> storeMono = storeVerificationToken(user.getId(), hashedToken, now);
 
                     return emailMono
                             .then(storeMono)
@@ -83,8 +104,12 @@ public class EmailVerificationOrchestrator {
                 .subscribeOn(Schedulers.boundedElastic());
     }
 
+    /* =========================
+       Email Operations
+       ========================= */
+
     /**
-     * Sends verification email to user.
+     * Send verification email to user
      */
     private Mono<Void> sendEmail(String email, String verificationLink) {
         return emailService.sendVerificationEmail(email, verificationLink)
@@ -93,29 +118,46 @@ public class EmailVerificationOrchestrator {
                         email, e.getMessage()));
     }
 
+    /* =========================
+       Token Storage
+       ========================= */
+
     /**
-     * Stores hashed verification token in Firestore.
+     * Store hashed verification token in Firestore
      */
-    private Mono<Void> storeVerificationToken(String userId, String hashedToken) {
-        Map<String, Object> updateData = new HashMap<>();
-        updateData.put(FIELD_VERIFICATION_TOKEN_HASH, hashedToken);
-        updateData.put(FIELD_TOKEN_EXPIRES_AT, Instant.now().plus(TOKEN_EXPIRY));
+    private Mono<Void> storeVerificationToken(
+            String userId,
+            String hashedToken,
+            Instant now
+    ) {
+        Instant expiresAt = now.plus(TOKEN_EXPIRY);
+
+        Map<String, Object> updateData = Map.of(
+                FIELD_VERIFICATION_TOKEN_HASH, hashedToken,
+                FIELD_TOKEN_EXPIRES_AT, expiresAt,
+                "updatedAt", now
+        );
 
         DocumentReference userDoc = firestore.collection(COLLECTION_USERS).document(userId);
 
         return Mono.fromFuture(() ->
                         FirestoreUtil.toCompletableFuture(userDoc.update(updateData))
                 )
-                .doOnSuccess(__ -> log.info("✅ Stored verification token for user: {}", userId))
+                .doOnSuccess(__ -> log.info("✅ Stored verification token for user: {} (expires: {})",
+                        userId, expiresAt))
                 .doOnError(e -> log.error("❌ Failed to store token for user: {}", userId, e))
                 .then();
     }
 
+    /* =========================
+       Utility Methods
+       ========================= */
+
     /**
-     * Builds verification link with token.
+     * Build verification link with token
      */
     private String buildVerificationLink(String token) {
-        return String.format("%s/api/auth/verify-email?token=%s",
+        return String.format("%s/api/v1/auth/verify-email?token=%s",
                 appConfig.getBaseUrl(), token);
     }
 }

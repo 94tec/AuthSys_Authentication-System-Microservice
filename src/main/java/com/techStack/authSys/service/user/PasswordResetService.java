@@ -1,5 +1,6 @@
 package com.techStack.authSys.service.user;
 
+import com.techStack.authSys.dto.request.UserRegistrationDTO;
 import com.techStack.authSys.dto.response.UserDTO;
 import com.techStack.authSys.exception.account.UserNotFoundException;
 import com.techStack.authSys.exception.auth.InvalidTokenException;
@@ -103,11 +104,11 @@ public class PasswordResetService {
     }
 
     private Mono<String> validatePassword(String password) {
-        UserDTO dto = new UserDTO();
+        UserRegistrationDTO dto = new UserRegistrationDTO();
         dto.setPassword(password);
 
         return passwordPolicyService.validatePassword(dto)
-                .map(UserDTO::getPassword); // return password if valid
+                .map(UserRegistrationDTO::getPassword); // return password if valid
     }
 
 

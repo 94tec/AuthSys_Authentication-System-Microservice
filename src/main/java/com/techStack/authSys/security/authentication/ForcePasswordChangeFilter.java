@@ -1,23 +1,32 @@
 package com.techStack.authSys.security.authentication;
 
 import com.techStack.authSys.security.context.CustomUserDetails;
-import org.jetbrains.annotations.NotNull;
-import org.springframework.stereotype.Component;
 import lombok.RequiredArgsConstructor;
+import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.web.server.WebFilter;
-import org.springframework.web.server.ServerWebExchange;
-import org.springframework.web.server.WebFilterChain;
-import reactor.core.publisher.Mono;
-import org.springframework.security.core.context.ReactiveSecurityContextHolder;
-import org.springframework.security.core.context.SecurityContext;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.server.reactive.ServerHttpResponse;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.ReactiveSecurityContextHolder;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.stereotype.Component;
+import org.springframework.web.server.ServerWebExchange;
+import org.springframework.web.server.WebFilter;
+import org.springframework.web.server.WebFilterChain;
+import reactor.core.publisher.Mono;
+
 import java.net.URI;
+import java.time.Clock;
+import java.time.Instant;
 import java.util.List;
 
+/**
+ * Force Password Change Filter
+ *
+ * Enforces password change requirements for users.
+ * Uses Clock for all timestamp operations.
+ */
 @Component
 @RequiredArgsConstructor
 public class ForcePasswordChangeFilter implements WebFilter {
@@ -38,76 +47,124 @@ public class ForcePasswordChangeFilter implements WebFilter {
             "/images/**"
     );
 
+    private final Clock clock;
+
+    /* =========================
+       Filter Implementation
+       ========================= */
+
     @NotNull
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, @NotNull WebFilterChain chain) {
-        //logger.info("🚨 ForcePasswordChangeFilter triggered for path: {}", exchange.getRequest().getPath());
         String path = exchange.getRequest().getURI().getPath();
-        logger.info("🔄 ForcePasswordChangeFilter processing path: {}", path);
+        Instant now = clock.instant();
+
+        logger.debug("ForcePasswordChangeFilter processing path: {} at {}", path, now);
 
         if (isAllowedPath(path)) {
-            logger.info("✅ Path {} is allowed, skipping filter", path);
+            logger.debug("Path {} is allowed, skipping filter", path);
             return chain.filter(exchange);
         }
 
         return ReactiveSecurityContextHolder.getContext()
-                .doOnNext(ctx -> logger.info("🔐 SecurityContext found, auth: {}", ctx.getAuthentication()))
+                .doOnNext(ctx -> logger.debug("SecurityContext found at {}, auth: {}",
+                        now, ctx.getAuthentication()))
                 .map(SecurityContext::getAuthentication)
                 .filter(auth -> {
                     boolean isAuthenticated = auth != null && auth.isAuthenticated();
-                    logger.info("🔍 Authentication check - isAuthenticated: {}", isAuthenticated);
+                    logger.debug("Authentication check at {} - isAuthenticated: {}",
+                            now, isAuthenticated);
                     return isAuthenticated;
                 })
                 .cast(UsernamePasswordAuthenticationToken.class)
-                .doOnNext(auth -> logger.info("👤 Principal type: {}", auth.getPrincipal().getClass().getName()))
+                .doOnNext(auth -> logger.debug("Principal type: {} at {}",
+                        auth.getPrincipal().getClass().getName(), now))
                 .flatMap(auth -> {
                     Object principal = auth.getPrincipal();
-                    logger.info("🔎 Checking principal: {}", principal);
 
                     if (principal instanceof CustomUserDetails user) {
-                        logger.info("👤 User: {}, forcePasswordChange: {}", user.getUsername(), user.isForcePasswordChange());
+                        logger.debug("User: {}, forcePasswordChange: {} at {}",
+                                user.getUsername(), user.isForcePasswordChange(), now);
+
                         if (user.isForcePasswordChange()) {
-                            logger.info("🚨 Redirecting user {} to password change", user.getUsername());
-                            return handleForcePasswordChange(exchange, user);
+                            logger.info("Redirecting user {} to password change at {}",
+                                    user.getUsername(), now);
+                            return handleForcePasswordChange(exchange, user, now);
                         }
                     } else {
-                        logger.warn("⚠️ Principal is not CustomUserDetails: {}", principal.getClass());
+                        logger.warn("Principal is not CustomUserDetails: {} at {}",
+                                principal.getClass(), now);
                     }
+
                     return chain.filter(exchange);
                 })
                 .switchIfEmpty(Mono.defer(() -> {
-                    logger.info("👻 No authentication found, allowing request");
+                    logger.debug("No authentication found at {}, allowing request", now);
                     return chain.filter(exchange);
                 }));
     }
 
-    private boolean isAllowedPath(String path) {
-        return ALLOWED_PATHS.stream().anyMatch(allowed ->
-                path.equals(allowed) || path.startsWith(allowed + "/")
-        );
-    }
-    private Mono<Void> handleForcePasswordChange(ServerWebExchange exchange, CustomUserDetails user) {
+    /* =========================
+       Password Change Handling
+       ========================= */
+
+    /**
+     * Handle force password change
+     */
+    private Mono<Void> handleForcePasswordChange(
+            ServerWebExchange exchange,
+            CustomUserDetails user,
+            Instant now
+    ) {
         // For API requests, return 403 with custom header
         if (isApiRequest(exchange)) {
             ServerHttpResponse response = exchange.getResponse();
             response.setStatusCode(HttpStatus.FORBIDDEN);
             response.getHeaders().add("X-Force-Password-Change", "true");
+            response.getHeaders().add("X-Timestamp", now.toString());
             response.getHeaders().add("Location", "/change-password");
+
+            logger.warn("Blocked API request from {} requiring password change at {}",
+                    user.getUsername(), now);
+
             return response.setComplete();
         }
 
         // For web requests, redirect to change password page
-        return redirectToPasswordChange(exchange);
+        logger.info("Redirecting web request from {} to password change at {}",
+                user.getUsername(), now);
+
+        return redirectToPasswordChange(exchange, now);
     }
 
+    /**
+     * Check if request is API request
+     */
     private boolean isApiRequest(ServerWebExchange exchange) {
         return exchange.getRequest().getPath().value().startsWith("/api/");
     }
 
-    private Mono<Void> redirectToPasswordChange(ServerWebExchange exchange) {
+    /**
+     * Redirect to password change page
+     */
+    private Mono<Void> redirectToPasswordChange(ServerWebExchange exchange, Instant now) {
         ServerHttpResponse response = exchange.getResponse();
         response.setStatusCode(HttpStatus.TEMPORARY_REDIRECT);
         response.getHeaders().setLocation(URI.create("/change-password"));
+        response.getHeaders().add("X-Redirect-Timestamp", now.toString());
         return response.setComplete();
+    }
+
+    /* =========================
+       Utility Methods
+       ========================= */
+
+    /**
+     * Check if path is allowed
+     */
+    private boolean isAllowedPath(String path) {
+        return ALLOWED_PATHS.stream().anyMatch(allowed ->
+                path.equals(allowed) || path.startsWith(allowed + "/")
+        );
     }
 }

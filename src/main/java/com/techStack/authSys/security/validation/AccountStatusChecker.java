@@ -5,96 +5,135 @@ import com.techStack.authSys.exception.account.AccountLockedException;
 import com.techStack.authSys.exception.account.AccountNotFoundException;
 import com.techStack.authSys.exception.email.EmailNotVerifiedException;
 import com.techStack.authSys.models.user.User;
-import com.techStack.authSys.service.observability.AuditLogService;
 import com.techStack.authSys.repository.sucurity.AccountLockService;
 import com.techStack.authSys.service.auth.FirebaseServiceAuth;
+import com.techStack.authSys.service.observability.AuditLogService;
+import com.techStack.authSys.service.security.AccountLockServiceImpl;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
+import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 
+/**
+ * Account Status Checker
+ *
+ * Validates account status before authentication.
+ * Uses Clock for timestamp tracking.
+ */
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class AccountStatusChecker {
 
     private final FirebaseServiceAuth firebaseServiceAuth;
-    private final AccountLockService accountLockService;
+    private final AccountLockServiceImpl accountLockServiceImpl;
     private final AuditLogService auditLogService;
+    private final Clock clock;
+
+    /* =========================
+       Main Validation
+       ========================= */
 
     /**
-     * Checks if the user account is active, not locked, and email is verified before authentication.
+     * Check account status before authentication
      */
     public Mono<User> checkAccountStatus(String email) {
-        log.info("Checking account status for email: {}", email);
+        Instant now = clock.instant();
+        log.info("Checking account status for email: {} at {}", email, now);
 
         return firebaseServiceAuth.findByEmail(email)
-                .doOnSuccess(user -> log.info("Found user: {}", user.getEmail()))
+                .doOnSuccess(user -> log.info("Found user: {} at {}", user.getEmail(), now))
                 .switchIfEmpty(Mono.defer(() -> {
-                    log.warn("Account not found for email: {}", email);
+                    log.warn("Account not found for email: {} at {}", email, now);
                     return Mono.error(new AccountNotFoundException("User not found"));
                 }))
-                .flatMap(user -> validateAccount(user)
+                .flatMap(user -> validateAccount(user, now)
                         .thenReturn(user))
-                .doOnError(e -> log.error("Account status check failed for email {}: {}", email, e.getMessage()));
+                .doOnError(e -> log.error("Account status check failed for email {} at {}: {}",
+                        email, now, e.getMessage()));
     }
 
+    /* =========================
+       Validation Methods
+       ========================= */
+
     /**
-     * Performs all account validation checks.
+     * Perform all account validation checks
      */
-    private Mono<Void> validateAccount(User user) {
+    private Mono<Void> validateAccount(User user, Instant timestamp) {
         return Mono.when(
-                validateAccountActive(user),
-                validateEmailVerified(user),
-                validateAccountNotLocked(user)
+                validateAccountActive(user, timestamp),
+                validateEmailVerified(user, timestamp),
+                validateAccountNotLocked(user, timestamp)
         );
     }
 
     /**
-     * Ensures the user account is active.
+     * Ensure account is active
      */
-    private Mono<Void> validateAccountActive(User user) {
+    private Mono<Void> validateAccountActive(User user, Instant timestamp) {
         if (!user.isEnabled()) {
-            log.warn("Account is disabled for user ID: {}. Login attempt blocked.", user.getId());
-            auditLogService.logSecurityEvent("DISABLED_ACCOUNT_ACCESS_ATTEMPT", user.getId(),
-                    "Attempted login to disabled account");
+            log.warn("Account is disabled for user ID: {} at {}. Login attempt blocked.",
+                    user.getId(), timestamp);
+
+            auditLogService.logSecurityEvent(
+                    "DISABLED_ACCOUNT_ACCESS_ATTEMPT",
+                    user.getId(),
+                    "Attempted login to disabled account at " + timestamp
+            );
+
             return Mono.error(new AccountDisabledException("Account is disabled"));
         }
         return Mono.empty();
     }
 
     /**
-     * Ensures the user email is verified.
+     * Ensure email is verified
      */
-    private Mono<Void> validateEmailVerified(User user) {
+    private Mono<Void> validateEmailVerified(User user, Instant timestamp) {
         if (!user.isEmailVerified()) {
-            log.warn("Email not verified for user ID: {}. Login attempt blocked.", user.getId());
-            auditLogService.logSecurityEvent("UNVERIFIED_EMAIL_LOGIN_ATTEMPT", user.getId(),
-                    "Attempted login with unverified email");
+            log.warn("Email not verified for user ID: {} at {}. Login attempt blocked.",
+                    user.getId(), timestamp);
+
+            auditLogService.logSecurityEvent(
+                    "UNVERIFIED_EMAIL_LOGIN_ATTEMPT",
+                    user.getId(),
+                    "Attempted login with unverified email at " + timestamp
+            );
+
             return Mono.error(new EmailNotVerifiedException("Email not verified"));
         }
         return Mono.empty();
     }
 
     /**
-     * Ensures the user account is not locked.
+     * Ensure account is not locked
      */
-    private Mono<Void> validateAccountNotLocked(User user) {
-        if (accountLockService.isAccountLocked(user.getId())) {
-            log.warn("Account is locked for user ID: {}. Login attempt blocked.", user.getId());
-            auditLogService.logSecurityEvent("ACCOUNT_LOCKED_ACCESS_ATTEMPT", user.getId(),
-                    "Attempted login to locked account");
-            // 🟢 FIX: Provide the required 'lockoutMinutes' and 'unlockTime'
-            // These values should ideally come from the accountLockService
-            int minutes = 15; // Example value
-            Instant unlockTime = Instant.now().plusSeconds(minutes * 60);
+    private Mono<Void> validateAccountNotLocked(User user, Instant timestamp) {
+        if (accountLockServiceImpl.isAccountLocked(user.getId())) {
+            log.warn("Account is locked for user ID: {} at {}. Login attempt blocked.",
+                    user.getId(), timestamp);
 
-            return Mono.error(new AccountLockedException(minutes, unlockTime));
-            //return Mono.error(new AccountLockedException("Account temporarily locked, "));
+            // Get lock details from service
+            Duration lockDuration = accountLockServiceImpl.getLockDuration(user.getId())
+                    .orElse(Duration.ofMinutes(15));
+
+            Instant unlockTime = timestamp.plus(lockDuration);
+            int lockoutMinutes = (int) lockDuration.toMinutes();
+
+            auditLogService.logSecurityEvent(
+                    "ACCOUNT_LOCKED_ACCESS_ATTEMPT",
+                    user.getId(),
+                    String.format("Attempted login to locked account at %s. Unlocks at %s",
+                            timestamp, unlockTime)
+            );
+
+            return Mono.error(new AccountLockedException(lockoutMinutes, unlockTime));
         }
         return Mono.empty();
     }
-
 }

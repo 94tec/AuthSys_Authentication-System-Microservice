@@ -1,37 +1,42 @@
 package com.techStack.authSys.service.security;
 
+import com.google.cloud.firestore.Firestore;
 import com.techStack.authSys.models.security.AccountLockInfo;
 import com.techStack.authSys.repository.sucurity.AccountLockService;
 import com.techStack.authSys.service.observability.AuditLogService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.ReactiveRedisTemplate;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
-@Service
-@RequiredArgsConstructor
-@Slf4j
-public class RedisAccountLockService implements AccountLockService {
+import static com.techStack.authSys.constants.SecurityConstants.*;
 
-    private static final String LOCK_KEY_PREFIX = "account:lock:";
-    private static final String FAILED_ATTEMPTS_KEY_PREFIX = "account:failed:";
-    private static final int MAX_FAILED_ATTEMPTS = 5;
-    private static final Duration DEFAULT_LOCK_DURATION = Duration.ofMinutes(30);
-    private static final long FAILED_ATTEMPT_EXPIRY_HOURS = 1;
+@Service
+//@RequiredArgsConstructor
+@Slf4j
+public class RedisAccountLockService extends AccountLockServiceImpl {
 
     private final RedisTemplate<String, Object> redisTemplate;
     private final AuditLogService auditLogService;
 
+    public RedisAccountLockService(ReactiveRedisTemplate<String, String> redisTemplate, Firestore firestore, AuditLogService auditLogService, Clock clock, RedisTemplate<String, Object> redisTemplate1, AuditLogService auditLogService1) {
+        super(redisTemplate, firestore, auditLogService, clock);
+        this.redisTemplate = redisTemplate1;
+        this.auditLogService = auditLogService1;
+    }
+
     @Override
     public boolean isAccountLocked(String userId) {
         String key = LOCK_KEY_PREFIX + userId;
-        boolean locked = Boolean.TRUE.equals(redisTemplate.hasKey(key));
+        boolean locked = redisTemplate.hasKey(key);
         log.debug("Account lock status for user {}: {}", userId, locked);
         return locked;
     }
@@ -64,7 +69,7 @@ public class RedisAccountLockService implements AccountLockService {
     @Override
     public void unlockAccount(String userId) {
         String key = LOCK_KEY_PREFIX + userId;
-        if (Boolean.TRUE.equals(redisTemplate.hasKey(key))) {
+        if (redisTemplate.hasKey(key)) {
             redisTemplate.delete(key);
             log.info("Account unlocked: user={}", userId);
             auditLogService.logSecurityEvent("ACCOUNT_UNLOCKED", userId, "Manual unlock");

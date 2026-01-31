@@ -2,8 +2,8 @@ package com.techStack.authSys.service.token;
 
 import com.google.cloud.Timestamp;
 import com.techStack.authSys.dto.internal.AuthResult;
-import com.techStack.authSys.models.user.Roles;
 import com.techStack.authSys.models.auth.TokenPair;
+import com.techStack.authSys.models.user.Roles;
 import com.techStack.authSys.models.user.User;
 import com.techStack.authSys.repository.sucurity.RateLimiterService;
 import lombok.RequiredArgsConstructor;
@@ -11,10 +11,13 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.util.*;
 
 /**
+ * Token Generation Service
+ *
  * Generates JWT tokens and persists session data.
  * Handles token creation, session management, and AuthResult construction.
  */
@@ -25,9 +28,14 @@ public class TokenGenerationService {
 
     private final JwtService jwtService;
     private final RateLimiterService.SessionService sessionService;
+    private final Clock clock;
+
+    /* =========================
+       Token Generation
+       ========================= */
 
     /**
-     * Main method for generating tokens with full AuthResult response
+     * Generate and persist tokens with full AuthResult response
      */
     public Mono<AuthResult> generateAndPersistTokens(
             User user,
@@ -36,13 +44,14 @@ public class TokenGenerationService {
             String userAgent,
             Set<String> permissions
     ) {
-        Instant issuedAt = Instant.now();
+        Instant issuedAt = clock.instant();
         String sessionId = generateSessionId();
 
-        // Use JwtService's generateTokenPairWithExpiry to get tokens + expiry times
+        log.debug("Generating tokens for user: {} at {}", user.getEmail(), issuedAt);
+
         return jwtService.generateTokenPairWithExpiry(user, ipAddress, userAgent, permissions)
                 .flatMap(components -> {
-                    // Extract tokens and expiry times from components
+                    // Extract tokens and expiry times
                     TokenPair tokens = new TokenPair(
                             components.getAccessToken(),
                             components.getRefreshToken()
@@ -71,21 +80,18 @@ public class TokenGenerationService {
                     );
                 })
                 .doOnSuccess(authResult ->
-                        log.info("Generated tokens for user: {} with session: {}",
-                                user.getEmail(), sessionId))
+                        log.info("Generated tokens for user: {} with session: {} at {}",
+                                user.getEmail(), sessionId, issuedAt))
                 .doOnError(e ->
                         log.error("Failed to generate tokens for user: {}", user.getEmail(), e));
     }
 
-    /**
-     * Generates a unique session identifier.
-     */
-    private String generateSessionId() {
-        return UUID.randomUUID().toString();
-    }
+    /* =========================
+       Session Persistence
+       ========================= */
 
     /**
-     * Persists session data in the database.
+     * Persist session data in database
      */
     private Mono<Void> persistSession(
             User user,
@@ -95,9 +101,9 @@ public class TokenGenerationService {
             TokenPair tokens,
             Instant issuedAt,
             Instant refreshExpiry,
-            Instant accessTokenExpiry) {
-
-        // Calculate the Firestore expiry timestamp
+            Instant accessTokenExpiry
+    ) {
+        // Convert Instant to Firestore Timestamp
         Timestamp firestoreExpiresAt = Timestamp.of(java.util.Date.from(refreshExpiry));
 
         return sessionService.createSession(
@@ -112,20 +118,24 @@ public class TokenGenerationService {
                         accessTokenExpiry,
                         refreshExpiry
                 )
-                .doOnSuccess(v -> log.debug("Session persisted: {}", sessionId))
+                .doOnSuccess(v -> log.debug("Session persisted: {} at {}", sessionId, issuedAt))
                 .doOnError(e -> log.error("Failed to persist session: {}", sessionId, e));
     }
 
+    /* =========================
+       AuthResult Building
+       ========================= */
+
     /**
-     * Builds the final AuthResult response object.
+     * Build the final AuthResult response object
      */
     private AuthResult buildAuthResult(
             User user,
             String sessionId,
             TokenPair tokens,
             Instant issuedAt,
-            Instant refreshExpiry) {
-
+            Instant refreshExpiry
+    ) {
         List<Roles> roleList = new ArrayList<>(user.getRoles());
 
         return new AuthResult(
@@ -141,5 +151,16 @@ public class TokenGenerationService {
                 user.getLoginAttempts(),
                 issuedAt
         );
+    }
+
+    /* =========================
+       Utility Methods
+       ========================= */
+
+    /**
+     * Generate a unique session identifier
+     */
+    private String generateSessionId() {
+        return UUID.randomUUID().toString();
     }
 }

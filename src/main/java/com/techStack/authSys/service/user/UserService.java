@@ -1,5 +1,6 @@
 package com.techStack.authSys.service.user;
 
+import com.techStack.authSys.dto.request.UserRegistrationDTO;
 import com.techStack.authSys.dto.response.UserDTO;
 import com.techStack.authSys.exception.service.CustomException;
 import com.techStack.authSys.models.user.User;
@@ -44,7 +45,7 @@ public class UserService {
 
     private Mono<Void> processPasswordChange(User user, String newPassword) {
         // Validate against password policy
-        UserDTO dto = new UserDTO();
+        UserRegistrationDTO dto = new UserRegistrationDTO();
         dto.setPassword(newPassword);
         dto.setUid(user.getId());
 
