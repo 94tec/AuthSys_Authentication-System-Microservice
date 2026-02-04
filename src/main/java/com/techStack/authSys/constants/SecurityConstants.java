@@ -105,6 +105,14 @@ public final class SecurityConstants {
         public static final Duration TOKEN_CLAIMS = Duration.ofMinutes(60);
         public static final Duration EMAIL_REGISTRATION = Duration.ofDays(365);
     }
+    public static final String AUDIT_COLLECTION = "audit_logs";
+    public static final String SYSTEM_AUDIT_COLLECTION = "system_audit_logs";
+    public static final String PASSWORD_CHANGE_AUDIT_COLLECTION = "password_change_logs";
+    public static final String SECURITY_LOGS_COLLECTION = "security_logs";
+    public static final String CACHE_LOGS_COLLECTION = "cache_logs";
+    public static final String AUDIT_ROLLBACKS_COLLECTION = "audit_rollbacks";
+    public static final String AUDIT_PARTIAL_SAVES_COLLECTION = "audit_partial_saves";
+    public static final String AUDIT_BOOTSTRAP_COLLECTION = "audit_bootstrap";
 
     // Fixed document IDs for easy retrieval
     public static final String PROFILE_DOC_ID = "profile";

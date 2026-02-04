@@ -43,7 +43,6 @@ public class GoogleAuthServiceImpl implements GoogleAuthService {
     // ✅ REFACTORED DEPENDENCIES
     private final FirestoreUserRepository userRepository;
     private final PermissionService permissionService;
-    private final RoleAssignmentService roleAssignmentService;
     private final MetricsService metricsService;
     private final Clock clock;
 
