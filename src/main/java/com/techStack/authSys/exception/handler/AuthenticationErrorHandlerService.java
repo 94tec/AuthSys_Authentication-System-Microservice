@@ -1,4 +1,4 @@
-package com.techStack.authSys.service.auth;
+package com.techStack.authSys.exception.handler;
 
 import com.auth0.jwt.exceptions.TokenExpiredException;
 import com.google.firebase.auth.FirebaseAuthException;

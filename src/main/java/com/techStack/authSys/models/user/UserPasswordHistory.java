@@ -1,9 +1,7 @@
 package com.techStack.authSys.models.user;
 
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import com.google.cloud.firestore.annotation.DocumentId;
+import lombok.*;
 import org.jetbrains.annotations.NotNull;
 
 import java.time.Instant;
@@ -22,9 +20,11 @@ import java.util.Optional;
 @NoArgsConstructor
 @AllArgsConstructor
 public class UserPasswordHistory {
-
+    @DocumentId
+    private String id;
+    private String userId;
     /**
-     * Hashed password (BCrypt / Argon2 / etc)
+     * Hashed password (BCrypt / Argon2 / etc.)
      */
     private String passwordHash;
 
@@ -33,6 +33,8 @@ public class UserPasswordHistory {
      */
     private PasswordHashAlgorithm hashAlgorithm;
 
+    // timestamps for auditing
+    private Instant createdAt;
     /**
      * When this password was set
      */
@@ -43,6 +45,8 @@ public class UserPasswordHistory {
      * Stored as string to support IPv4/IPv6
      */
     private String changedFromIp;
+
+    private String changedByUserAgent;
 
     /**
      * Sequential version of the password
@@ -122,6 +126,7 @@ public class UserPasswordHistory {
      *
      * Tracks why a password was changed for audit and security purposes.
      */
+    @Getter
     public enum PasswordChangeReason {
 
         USER_INITIATED(
@@ -156,29 +161,18 @@ public class UserPasswordHistory {
 
         private final String displayName;
         private final String description;
+        /**
+         * -- GETTER --
+         *  Check if this change was forced (not user-initiated).
+         *
+         * @return true if password change was mandatory
+         */
         private final boolean forced;
 
         PasswordChangeReason(String displayName, String description, boolean forced) {
             this.displayName = displayName;
             this.description = description;
             this.forced = forced;
-        }
-
-        public String getDisplayName() {
-            return displayName;
-        }
-
-        public String getDescription() {
-            return description;
-        }
-
-        /**
-         * Check if this change was forced (not user-initiated).
-         *
-         * @return true if password change was mandatory
-         */
-        public boolean isForced() {
-            return forced;
         }
 
         /**
@@ -219,6 +213,7 @@ public class UserPasswordHistory {
      *
      * Supported password hashing algorithms with verification logic.
      */
+    @Getter
     public enum PasswordHashAlgorithm {
 
         BCRYPT(
@@ -241,18 +236,6 @@ public class UserPasswordHistory {
             this.displayName = displayName;
             this.description = description;
             this.defaultStrength = defaultStrength;
-        }
-
-        public String getDisplayName() {
-            return displayName;
-        }
-
-        public String getDescription() {
-            return description;
-        }
-
-        public int getDefaultStrength() {
-            return defaultStrength;
         }
 
         /**

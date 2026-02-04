@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.techStack.authSys.models.authorization.Permissions;
 import com.techStack.authSys.models.user.Roles;
 import com.techStack.authSys.models.user.User;
+import com.techStack.authSys.constants.SecurityConstants.CacheKey;
+import com.techStack.authSys.constants.SecurityConstants.CacheTTL;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.ReactiveRedisTemplate;
@@ -18,6 +20,7 @@ import reactor.core.scheduler.Schedulers;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 /**
  * Unified cache service for user data and authentication tokens
@@ -27,24 +30,6 @@ import java.util.concurrent.TimeUnit;
 @Service
 @RequiredArgsConstructor
 public class RedisUserCacheService {
-
-    // ==================== Key Prefixes ====================
-    private static final class CacheKey {
-        static final String USER_PROFILE = "user:profile:";
-        static final String USER_ROLES = "user:roles:";
-        static final String USER_PERMISSIONS = "user:permissions:";
-        static final String USER_EXISTS = "userExists:";
-        static final String TOKEN_CLAIMS = "token:claims:";
-        static final String REGISTERED_EMAIL = "registered:email:";
-    }
-
-    // ==================== Cache TTLs ====================
-    private static final class CacheTTL {
-        static final Duration USER_DATA = Duration.ofMinutes(60);
-        static final Duration USER_EXISTS = Duration.ofHours(24);
-        static final Duration TOKEN_CLAIMS = Duration.ofMinutes(60);
-        static final Duration EMAIL_REGISTRATION = Duration.ofDays(365);
-    }
 
     // ==================== Dependencies ====================
     private final RedisTemplate<String, String> blockingRedisTemplate;
@@ -443,6 +428,71 @@ public class RedisUserCacheService {
                     return Mono.just(false);
                 });
     }
+    /**
+     * Cache user with roles and permissions
+     * Handles conversion from User.getAdditionalPermissions() (List<String>) to Set<Permissions>
+     *
+     * @param user User with roles and permissions
+     * @return Mono<Boolean> true if cached successfully
+     */
+    public Mono<Boolean> cacheUserWithRolesAndPermissions(User user) {
+        if (user == null || !StringUtils.hasText(user.getId())) {
+            log.warn("Cannot cache user - null or missing ID");
+            return Mono.just(false);
+        }
+
+        // Extract roles
+        Set<Roles> roles = user.getRoles();
+
+        // Convert additionalPermissions (List<String>) to Set<Permissions>
+        Set<Permissions> permissions = convertToPermissionsSet(user.getAdditionalPermissions());
+
+        log.debug("Caching user {} with {} roles and {} permissions",
+                user.getId(), roles.size(), permissions.size());
+
+        return Mono.zip(
+                        cacheUserRoles(user.getId(), roles),
+                        cacheUserPermissions(user.getId(), permissions)
+                ).map(tuple -> tuple.getT1() && tuple.getT2())
+                .doOnSuccess(success -> {
+                    if (success) {
+                        log.info("✅ Successfully cached user with roles and permissions: {}", user.getId());
+                    } else {
+                        log.warn("⚠️ Partial cache failure for user: {}", user.getId());
+                    }
+                })
+                .onErrorResume(e -> {
+                    log.error("❌ Failed to cache user with roles/permissions: {}", user.getId(), e);
+                    return Mono.just(false);
+                });
+    }
+
+    /**
+     * Convert permission strings to Permissions enum set
+     * Handles null/empty lists safely
+     *
+     * @param permissionStrings List of permission string names
+     * @return Set of Permissions enums
+     */
+    private Set<Permissions> convertToPermissionsSet(List<String> permissionStrings) {
+        if (permissionStrings == null || permissionStrings.isEmpty()) {
+            return Collections.emptySet();
+        }
+
+        return permissionStrings.stream()
+                .filter(StringUtils::hasText)
+                .map(permStr -> {
+                    try {
+                        return Permissions.valueOf(permStr.toUpperCase());
+                    } catch (IllegalArgumentException e) {
+                        log.warn("⚠️ Invalid permission string: {}", permStr);
+                        return null;
+                    }
+                })
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+    }
+
 
     // ==================== TOKEN CLAIMS CACHE ====================
 

@@ -273,7 +273,7 @@ public class PasswordExpiryService {
      * Process individual user
      */
     private Mono<User> processUser(User user) {
-        List<UserPasswordHistory> history = user.getPasswordHistory();
+        List<UserPasswordHistory> history = user.getPasswordHistoryEntries();
 
         if (history == null || history.size() <= maxPasswordHistoryEntries) {
             skippedUsersCount.incrementAndGet();
@@ -286,7 +286,7 @@ public class PasswordExpiryService {
                 .limit(maxPasswordHistoryEntries)
                 .collect(Collectors.toList());
 
-        user.setPasswordHistory(trimmed);
+        user.setPasswordHistoryEntries(trimmed);
 
         return firebaseServiceAuth.save(user)
                 .doOnSuccess(updated -> {
@@ -492,7 +492,7 @@ public class PasswordExpiryService {
 
         UserPasswordHistory history = UserPasswordHistory.builder()
                 .userId(userId)
-                .password(encryptedPassword)
+                .passwordHash(encryptedPassword)
                 .createdAt(now)
                 .build();
 
@@ -550,7 +550,7 @@ public class PasswordExpiryService {
                 .switchIfEmpty(Mono.error(new UserNotFoundException(id)))
                 .flatMap(user -> {
                     try {
-                        Instant lastChange = Instant.parse(user.getLastPasswordChangeDate());
+                        Instant lastChange = user.getPasswordLastChanged();
                         return Mono.just(lastChange.plus(passwordExpiryDays, ChronoUnit.DAYS));
                     } catch (DateTimeParseException e) {
                         return Mono.error(new IllegalStateException(

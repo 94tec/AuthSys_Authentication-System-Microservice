@@ -1,9 +1,10 @@
 package com.techStack.authSys.service.user;
 
+import com.techStack.authSys.models.user.ApprovalLevel;
 import com.techStack.authSys.models.user.User;
-import com.techStack.authSys.service.authorization.RoleAssignmentService.ApprovalLevel;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
@@ -17,21 +18,41 @@ import java.time.Instant;
  * Admin Notification Service
  *
  * Sends email notifications for admin-related events.
- * Uses Clock for timestamp tracking.
+ * Uses Clock for timestamp tracking and unified ApprovalLevel enum.
  */
 @Service
+@RequiredArgsConstructor
+@Slf4j
 public class AdminNotificationService {
 
-    private static final Logger logger = LoggerFactory.getLogger(AdminNotificationService.class);
+    /* =========================
+       Dependencies
+       ========================= */
 
     private final JavaMailSender mailSender;
     private final Clock clock;
-    private final String adminEmail = "admin@yourdomain.com"; // Configure via properties
 
-    public AdminNotificationService(JavaMailSender mailSender, Clock clock) {
-        this.mailSender = mailSender;
-        this.clock = clock;
-    }
+    /* =========================
+       Configuration
+       ========================= */
+
+    @Value("${app.admin.email:admin@yourdomain.com}")
+    private String adminEmail;
+
+    @Value("${app.admin.superadmin-email:superadmin@yourdomain.com}")
+    private String superAdminEmail;
+
+    @Value("${app.admin.manager-email:manager@yourdomain.com}")
+    private String managerEmail;
+
+    @Value("${app.name:YourApp}")
+    private String appName;
+
+    @Value("${app.url:https://yourdomain.com}")
+    private String appUrl;
+
+    @Value("${app.support-email:support@yourdomain.com}")
+    private String supportEmail;
 
     /* =========================
        Approval Notifications
@@ -48,18 +69,19 @@ public class AdminNotificationService {
                 String recipients = getRecipientsForApprovalLevel(approvalLevel);
 
                 SimpleMailMessage message = new SimpleMailMessage();
-                message.setTo(recipients);
+                message.setTo(recipients.split(","));
                 message.setSubject("🔔 New User Registration Requires Approval");
                 message.setText(buildApprovalNotificationBody(user, approvalLevel, now));
 
                 mailSender.send(message);
 
-                logger.info("📧 Approval notification sent to {} for user {} at {}",
-                        recipients, user.getEmail(), now);
+                log.info("📧 Approval notification sent to {} for user {} (level: {}) at {}",
+                        recipients, user.getEmail(), approvalLevel.getDisplayName(), now);
 
             } catch (Exception e) {
-                logger.error("⚠️ Failed to send approval notification at {}: {}",
+                log.error("⚠️ Failed to send approval notification at {}: {}",
                         now, e.getMessage());
+                // Don't throw - notifications are non-critical
             }
         }).subscribeOn(Schedulers.boundedElastic()).then();
     }
@@ -79,10 +101,10 @@ public class AdminNotificationService {
 
                 mailSender.send(message);
 
-                logger.info("📧 Approval confirmation sent to {} at {}", user.getEmail(), now);
+                log.info("📧 Approval confirmation sent to {} at {}", user.getEmail(), now);
 
             } catch (Exception e) {
-                logger.error("⚠️ Failed to send approval confirmation at {}: {}",
+                log.error("⚠️ Failed to send approval confirmation at {}: {}",
                         now, e.getMessage());
             }
         }).subscribeOn(Schedulers.boundedElastic()).then();
@@ -103,11 +125,11 @@ public class AdminNotificationService {
 
                 mailSender.send(message);
 
-                logger.info("📧 Account restored confirmation sent to {} at {}",
+                log.info("📧 Account restored confirmation sent to {} at {}",
                         user.getEmail(), now);
 
             } catch (Exception e) {
-                logger.error("⚠️ Failed to send account restored confirmation at {}: {}",
+                log.error("⚠️ Failed to send account restored confirmation at {}: {}",
                         now, e.getMessage());
             }
         }).subscribeOn(Schedulers.boundedElastic()).then();
@@ -128,10 +150,10 @@ public class AdminNotificationService {
 
                 mailSender.send(message);
 
-                logger.info("📧 Rejection notification sent to {} at {}", user.getEmail(), now);
+                log.info("📧 Rejection notification sent to {} at {}", user.getEmail(), now);
 
             } catch (Exception e) {
-                logger.error("⚠️ Failed to send rejection notification at {}: {}",
+                log.error("⚠️ Failed to send rejection notification at {}: {}",
                         now, e.getMessage());
             }
         }).subscribeOn(Schedulers.boundedElastic()).then();
@@ -143,19 +165,23 @@ public class AdminNotificationService {
 
     /**
      * Get recipients based on approval level
+     * Maps ApprovalLevel to appropriate admin recipients
      */
     private String getRecipientsForApprovalLevel(ApprovalLevel level) {
         // In production, query database for users with required roles
-        switch (level) {
-            case SUPER_ADMIN_ONLY:
-                return "superadmin@yourdomain.com";
-            case ADMIN_OR_SUPER_ADMIN:
-                return "admin@yourdomain.com,superadmin@yourdomain.com";
-            case MANAGER_OR_ABOVE:
-                return "manager@yourdomain.com,admin@yourdomain.com,superadmin@yourdomain.com";
-            default:
-                return adminEmail;
-        }
+        return switch (level) {
+            case PENDING_L2 ->
+                // Highest level approval - ADMIN and SUPER_ADMIN
+                    adminEmail + "," + superAdminEmail;
+
+            case PENDING_L1 ->
+                // Standard approval - MANAGER, ADMIN, and SUPER_ADMIN
+                    managerEmail + "," + adminEmail + "," + superAdminEmail;
+
+            case NOT_REQUIRED, APPROVED_L1, APPROVED, REJECTED ->
+                // Should not happen, but default to admin
+                    adminEmail;
+        };
     }
 
     /* =========================
@@ -165,7 +191,11 @@ public class AdminNotificationService {
     /**
      * Build approval notification body
      */
-    private String buildApprovalNotificationBody(User user, ApprovalLevel level, Instant timestamp) {
+    private String buildApprovalNotificationBody(
+            User user,
+            ApprovalLevel level,
+            Instant timestamp
+    ) {
         return String.format("""
                 A new user has registered and requires approval.
                 
@@ -177,7 +207,7 @@ public class AdminNotificationService {
                 - Registration Date: %s
                 
                 Please review and approve/reject at:
-                https://yourdomain.com/admin/users/pending
+                %s/admin/users/pending
                 
                 This is an automated notification sent at %s. Do not reply to this email.
                 """,
@@ -185,8 +215,9 @@ public class AdminNotificationService {
                 user.getFirstName(),
                 user.getLastName(),
                 user.getRoles(),
-                level,
+                level.getDisplayName(),
                 user.getCreatedAt(),
+                appUrl,
                 timestamp
         );
     }
@@ -200,21 +231,23 @@ public class AdminNotificationService {
                 
                 Great news! Your account has been approved at %s.
                 
-                You can now log in at: https://yourdomain.com/login
+                You can now log in at: %s/login
                 
                 Email: %s
                 Roles: %s
                 
-                If you have any questions, please contact support.
+                If you have any questions, please contact support at %s
                 
                 Best regards,
                 The %s Team
                 """,
                 user.getFirstName(),
                 timestamp,
+                appUrl,
                 user.getEmail(),
                 user.getRoles(),
-                "YourApp"
+                supportEmail,
+                appName
         );
     }
 
@@ -231,7 +264,7 @@ public class AdminNotificationService {
                 
                 You will receive another notification once your account has been reviewed and approved.
                 
-                If you have any questions, please contact support.
+                If you have any questions, please contact support at %s
                 
                 Best regards,
                 The %s Team
@@ -239,7 +272,8 @@ public class AdminNotificationService {
                 user.getFirstName(),
                 timestamp,
                 user.getEmail(),
-                "YourApp"
+                supportEmail,
+                appName
         );
     }
 
@@ -254,15 +288,16 @@ public class AdminNotificationService {
                 
                 Reason: %s
                 
-                If you believe this is an error or have questions, please contact support at support@yourdomain.com
+                If you believe this is an error or have questions, please contact support at %s
                 
                 Best regards,
                 The %s Team
                 """,
                 user.getFirstName(),
                 timestamp,
-                reason,
-                "YourApp"
+                reason != null ? reason : "No specific reason provided",
+                supportEmail,
+                appName
         );
     }
 }

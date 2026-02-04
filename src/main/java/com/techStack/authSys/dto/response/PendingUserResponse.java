@@ -1,8 +1,10 @@
 package com.techStack.authSys.dto.response;
 
 import com.techStack.authSys.dto.internal.RequesterContext;
+import com.techStack.authSys.models.user.ApprovalLevel;
 import com.techStack.authSys.models.user.Roles;
 import com.techStack.authSys.models.user.User;
+import com.techStack.authSys.models.user.UserStatus;
 import com.techStack.authSys.service.authorization.RoleAssignmentService;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
@@ -38,10 +40,10 @@ public class PendingUserResponse {
     private Set<Roles> roles;
 
     @NotNull
-    private User.Status status;
+    private UserStatus status;
 
     @NotNull
-    private RoleAssignmentService.ApprovalLevel approvalLevel;
+    private ApprovalLevel approvalLevel;
 
     @NotNull
     private Instant createdAt;

@@ -1,4 +1,4 @@
-package com.techStack.authSys.service.registration;
+package com.techStack.authSys.service.validation;
 
 import com.techStack.authSys.constants.SecurityConstants;
 import com.techStack.authSys.dto.request.UserRegistrationDTO;

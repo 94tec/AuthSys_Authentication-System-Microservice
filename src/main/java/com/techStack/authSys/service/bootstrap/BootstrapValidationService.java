@@ -2,19 +2,35 @@ package com.techStack.authSys.service.bootstrap;
 
 import com.techStack.authSys.config.core.AppConfigProperties;
 import com.techStack.authSys.util.validation.HelperUtils;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.util.regex.Pattern;
 
 /**
+ * Bootstrap Validation Service
+ *
  * Validates bootstrap configuration before attempting Super Admin creation.
- * Ensures all required fields are present and properly formatted.
+ * Uses Clock for timestamp tracking in validation logs.
  */
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class BootstrapValidationService {
+
+    /* =========================
+       Dependencies
+       ========================= */
+
+    private final Clock clock;
+
+    /* =========================
+       Validation Patterns
+       ========================= */
 
     private static final Pattern EMAIL_PATTERN = Pattern.compile(
             "^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$"
@@ -24,46 +40,53 @@ public class BootstrapValidationService {
             "^\\+?[1-9]\\d{1,14}$"
     );
 
+    /* =========================
+       Configuration Validation
+       ========================= */
+
     /**
-     * Validates bootstrap configuration from app properties.
-     *
-     * @param config Application configuration properties
-     * @return true if configuration is valid, false otherwise
+     * Validate bootstrap configuration from app properties
      */
     public boolean validateBootstrapConfig(AppConfigProperties config) {
-        log.debug("🔍 Validating bootstrap configuration...");
+        Instant now = clock.instant();
+
+        log.debug("🔍 Validating bootstrap configuration at {}", now);
 
         // Check if configuration exists
         if (config == null) {
-            log.error("❌ Bootstrap configuration is null");
+            log.error("❌ Bootstrap configuration is null at {}", now);
             return false;
         }
 
         // Validate email
         String email = config.getSuperAdminEmail();
         if (!validateEmail(email)) {
-            log.error("❌ Invalid or missing Super Admin email: {}",
-                    HelperUtils.maskEmail(email));
+            log.error("❌ Invalid or missing Super Admin email at {}: {}",
+                    now, HelperUtils.maskEmail(email));
             return false;
         }
 
         // Validate phone
         String phone = config.getSuperAdminPhone();
         if (!validatePhone(phone)) {
-            log.error("❌ Invalid or missing Super Admin phone: {}",
-                    maskPhone(phone));
+            log.error("❌ Invalid or missing Super Admin phone at {}: {}",
+                    now, maskPhone(phone));
             return false;
         }
 
-        log.info("✅ Bootstrap configuration validated successfully");
+        log.info("✅ Bootstrap configuration validated successfully at {}", now);
         log.debug("  Email: {}", HelperUtils.maskEmail(email));
         log.debug("  Phone: {}", maskPhone(phone));
 
         return true;
     }
 
+    /* =========================
+       Field Validation
+       ========================= */
+
     /**
-     * Validates email format.
+     * Validate email format
      */
     private boolean validateEmail(String email) {
         if (StringUtils.isBlank(email)) {
@@ -75,8 +98,8 @@ public class BootstrapValidationService {
     }
 
     /**
-     * Validates phone format.
-     * Accepts various formats and normalizes to E.164.
+     * Validate phone format
+     * Accepts various formats and normalizes to E.164
      */
     private boolean validatePhone(String phone) {
         if (StringUtils.isBlank(phone)) {
@@ -92,9 +115,13 @@ public class BootstrapValidationService {
         return E164_PHONE_PATTERN.matcher(normalized).matches();
     }
 
+    /* =========================
+       Phone Normalization
+       ========================= */
+
     /**
-     * Normalizes phone number to E.164 format.
-     * Handles Kenyan numbers specifically.
+     * Normalize phone number to E.164 format
+     * Handles Kenyan numbers specifically
      */
     private String normalizePhone(String phone) {
         if (StringUtils.isBlank(phone)) {
@@ -131,8 +158,12 @@ public class BootstrapValidationService {
         return phone;
     }
 
+    /* =========================
+       Masking (GDPR Compliance)
+       ========================= */
+
     /**
-     * Masks phone for logging (GDPR compliance).
+     * Mask phone for logging (GDPR compliance)
      */
     private String maskPhone(String phone) {
         if (phone == null) {

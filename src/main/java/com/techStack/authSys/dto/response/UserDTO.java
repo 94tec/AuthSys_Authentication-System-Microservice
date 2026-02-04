@@ -158,7 +158,7 @@ public class UserDTO {
                 .phoneNumber(user.getPhoneNumber())
                 .roles(user.getRoleNames())
                 .permissions(user.getAdditionalPermissions())
-                .requestedRole(user.getRequestedRole() != null ? user.getRequestedRole().name() : null)
+                .requestedRole(user.getRequestedRoles() != null ? user.getRequestedRoles().name() : null)
                 .department(user.getDepartment())
                 .status(user.getStatus())
                 .approvalLevel(user.getApprovalLevel())

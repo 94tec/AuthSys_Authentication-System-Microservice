@@ -1,21 +1,18 @@
 package com.techStack.authSys.service.authorization;
 
-import com.google.firebase.auth.FirebaseAuth;
 import com.techStack.authSys.dto.internal.SecurityContext;
 import com.techStack.authSys.models.user.ApprovalLevel;
 import com.techStack.authSys.models.user.Roles;
 import com.techStack.authSys.models.user.User;
 import com.techStack.authSys.models.user.UserStatus;
 import com.techStack.authSys.repository.authorization.PermissionProvider;
-import com.techStack.authSys.service.auth.FirebaseServiceAuth;
 import com.techStack.authSys.service.firebase.FirebaseClaimsService;
 import com.techStack.authSys.service.observability.AuditLogService;
 import com.techStack.authSys.service.user.AdminNotificationService;
 import com.techStack.authSys.util.validation.ValidationUtils;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.stereotype.Service;
@@ -33,22 +30,19 @@ import java.util.stream.Collectors;
  * Role Assignment Service
  *
  * Manages role assignment, validation, and approval workflows.
- * Implements Fine-Grained Authorization (FGA) with registration rules.
+ * Uses ApprovalLevel enum for consistent approval hierarchy.
  */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class RoleAssignmentService {
-
-    private static final Logger logger = LoggerFactory.getLogger(RoleAssignmentService.class);
 
     /* =========================
        Dependencies
        ========================= */
 
-    private final FirebaseAuth firebaseAuth;
     private final AuditLogService auditLogService;
     private final PermissionProvider permissionProvider;
-    private final FirebaseServiceAuth firebaseServiceAuth;
     private final FirebaseClaimsService firebaseClaimsService;
     private final AdminNotificationService notificationService;
     private final Clock clock;
@@ -61,246 +55,219 @@ public class RoleAssignmentService {
 
     @PostConstruct
     public void initializeRegistrationRules() {
-        // SUPER_ADMIN: Cannot self-register, requires super admin approval
+        Instant now = clock.instant();
+
+        // Map roles to their required approval levels
         roleRegistrationRules.put(
                 Roles.SUPER_ADMIN,
-                new RegistrationRule(false, true, RoleApprovalLevel.SUPER_ADMIN_ONLY)
+                new RegistrationRule(
+                        false,  // Cannot self-register
+                        true,   // Requires approval
+                        ApprovalLevel.PENDING_L2  // Highest level approval
+                )
         );
 
-        // ADMIN: Cannot self-register, requires super admin approval
         roleRegistrationRules.put(
                 Roles.ADMIN,
-                new RegistrationRule(false, true, RoleApprovalLevel.SUPER_ADMIN_ONLY)
+                new RegistrationRule(
+                        false,  // Cannot self-register
+                        true,   // Requires approval
+                        ApprovalLevel.PENDING_L2  // Highest level approval
+                )
         );
 
-        // MANAGER: Can self-register, requires admin/super admin approval
         roleRegistrationRules.put(
                 Roles.MANAGER,
-                new RegistrationRule(true, true, RoleApprovalLevel.ADMIN_OR_SUPER_ADMIN)
+                new RegistrationRule(
+                        true,   // Can self-register
+                        true,   // Requires approval
+                        ApprovalLevel.PENDING_L1  // Standard approval
+                )
         );
 
-        // USER: Can self-register, requires manager/admin/super admin approval
         roleRegistrationRules.put(
                 Roles.USER,
-                new RegistrationRule(true, true, RoleApprovalLevel.MANAGER_OR_ABOVE)
+                new RegistrationRule(
+                        true,   // Can self-register
+                        true,   // Requires approval
+                        ApprovalLevel.PENDING_L1  // Standard approval
+                )
         );
 
-        logger.info("✅ Registration rules initialized:");
+        log.info("✅ Registration rules initialized at {}", now);
         roleRegistrationRules.forEach((role, rule) ->
-                logger.info("  - {}: Self-Reg={}, Approval={}, Level={}",
-                        role, rule.allowSelfRegistration(), rule.requiresApproval(), rule.getApprovalLevel())
+                log.debug("  - {}: Self-Reg={}, Approval={}, Level={}",
+                        role, rule.allowSelfRegistration(), rule.requiresApproval(),
+                        rule.getApprovalLevel())
         );
     }
 
     /* =========================
-       Registration Processing
+       PURE Registration Processing
        ========================= */
 
     /**
-     * Process user registration with role validation and assignment
+     * Evaluate registration request (NO Firebase, NO external I/O).
+     * Pure domain logic - sets status and roles on User object.
      */
-    public Mono<User> processUserRegistration(
+    public Mono<User> evaluateRegistration(
             User user,
             Set<Roles> requestedRoles,
-            String ipAddress,
-            String deviceFingerprint
+            String ipAddress
     ) {
         Instant now = clock.instant();
 
-        // Audit log: Registration attempt
+        log.info("Evaluating registration for {} with roles {} at {}",
+                user.getEmail(), requestedRoles, now);
+
         auditLogService.logRegistrationAttempt(user.getEmail(), requestedRoles, ipAddress);
 
-        return firebaseServiceAuth.findByEmail(user.getEmail())
-                .flatMap(existingUser -> {
-                    // Existing user - validate role upgrade
-                    logger.info("Existing user {} requesting role upgrade from {} to {}",
-                            existingUser.getEmail(), existingUser.getRoles(), requestedRoles);
+        return validateSelfRegistration(user, requestedRoles)
+                .flatMap(valid -> {
+                    if (!valid) {
+                        auditLogService.logRegistrationFailure(
+                                user.getEmail(), "Self-registration not allowed", ipAddress);
+                        return Mono.error(new SecurityException(
+                                "Self-registration not allowed for role(s): " + requestedRoles));
+                    }
 
-                    return validateRoleUpgrade(existingUser.getRoles(), requestedRoles)
-                            .flatMap(valid -> {
-                                if (!valid) {
-                                    auditLogService.logRegistrationFailure(
-                                            user.getEmail(), "Invalid role upgrade", ipAddress);
-                                    return Mono.error(new SecurityException(
-                                            "Invalid role upgrade request from " +
-                                                    existingUser.getRoles() + " to " + requestedRoles));
-                                }
-                                return processRolesForUser(user, requestedRoles, ipAddress, now);
-                            });
-                })
-                .switchIfEmpty(Mono.defer(() -> {
-                    // New user - validate self-registration
-                    logger.info("New user registration: {} with roles {}",
-                            user.getEmail(), requestedRoles);
-
-                    return validateSelfRegistration(user, requestedRoles)
-                            .flatMap(valid -> {
-                                if (!valid) {
-                                    auditLogService.logRegistrationFailure(
-                                            user.getEmail(), "Self-registration not allowed", ipAddress);
-                                    return Mono.error(new SecurityException(
-                                            "Self-registration not allowed for role(s): " + requestedRoles));
-                                }
-                                return processRolesForUser(user, requestedRoles, ipAddress, now);
-                            });
-                }));
+                    return applyRolesAndApproval(user, requestedRoles, now, ipAddress);
+                });
     }
 
     /**
-     * Validate self-registration permission
+     * Apply roles and approval workflow (PURE logic).
+     * Modifies User object in-place, returns it for chaining.
      */
-    private Mono<Boolean> validateSelfRegistration(User user, Set<Roles> requestedRoles) {
-        return Mono.fromCallable(() -> {
-            if (requestedRoles == null || requestedRoles.isEmpty()) {
-                logger.warn("⚠️ No roles requested by user {}", user.getEmail());
-                return false;
-            }
-
-            for (Roles role : requestedRoles) {
-                RegistrationRule rule = roleRegistrationRules.get(role);
-
-                if (rule == null) {
-                    logger.error("❌ Unknown role [{}] requested by {}", role, user.getEmail());
-                    return false;
-                }
-
-                if (!rule.allowSelfRegistration()) {
-                    logger.warn("🚫 Role [{}] does NOT allow self-registration (requested by {})",
-                            role, user.getEmail());
-                    return false;
-                }
-            }
-
-            logger.info("✅ Self-registration validation passed for user {} with roles {}",
-                    user.getEmail(), requestedRoles);
-            return true;
-        });
-    }
-
-    /**
-     * Process roles for user with approval workflow
-     */
-    private Mono<User> processRolesForUser(
+    private Mono<User> applyRolesAndApproval(
             User user,
-            Set<Roles> requestedRoles,
-            String ipAddress,
-            Instant now
+            Set<Roles> roles,
+            Instant now,
+            String ipAddress
     ) {
-        List<Roles> roleList = new ArrayList<>(requestedRoles);
+        List<Roles> roleList = new ArrayList<>(roles);
 
-        // Determine approval requirements
-        RoleApprovalLevel requiredApprovalLevel = determineApprovalLevel(roleList);
+        // Determine the highest approval level required
+        ApprovalLevel approvalLevel = determineApprovalLevel(roleList);
+
+        // Check if any role requires approval
         boolean requiresApproval = roleList.stream()
-                .anyMatch(role -> {
-                    RegistrationRule rule = roleRegistrationRules.get(role);
+                .anyMatch(r -> {
+                    RegistrationRule rule = roleRegistrationRules.get(r);
                     return rule != null && rule.requiresApproval();
                 });
 
-        // Set user status
+        // Set user status based on approval requirements
         if (requiresApproval) {
             user.setStatus(UserStatus.PENDING_APPROVAL);
             user.setEnabled(false);
-            user.setApprovalLevel(ApprovalLevel.valueOf(requiredApprovalLevel.name()));
+            user.setApprovalLevel(approvalLevel);
 
-            logger.info("⏳ User {} requires {} approval for roles {}",
-                    user.getEmail(), requiredApprovalLevel, roleList);
+            log.info("⏳ User {} requires {} approval for roles {} at {}",
+                    user.getEmail(), approvalLevel.getDisplayName(), roleList, now);
         } else {
             user.setStatus(UserStatus.ACTIVE);
             user.setEnabled(true);
+            user.setApprovalLevel(ApprovalLevel.NOT_REQUIRED);
 
-            logger.info("✅ User {} auto-approved for roles {}", user.getEmail(), roleList);
+            log.info("✅ User {} auto-approved for roles {} at {}",
+                    user.getEmail(), roleList, now);
         }
 
-        // Assign roles and permissions
-        return Flux.fromIterable(roleList)
-                .flatMap(role -> assignRoleAndPermissions(user, role, now))
-                .then(Mono.fromCallable(() -> {
-                    // Resolve effective permissions
-                    Set<String> effectivePermissions =
-                            permissionProvider.resolveEffectivePermissions(user);
-                    user.setAdditionalPermissions(new ArrayList<>(effectivePermissions));
+        // Add roles to user
+        roleList.forEach(user::addRole);
 
-                    logger.info("📋 Resolved {} effective permissions for user {} (Status: {})",
-                            effectivePermissions.size(), user.getEmail(), user.getStatus());
+        // Audit log
+        auditLogService.logRegistrationSuccess(
+                user.getEmail(),
+                new HashSet<>(roleList),
+                user.getStatus(),
+                ipAddress
+        );
 
-                    return user;
-                }))
-                .flatMap(u -> {
-                    // Send approval notification if needed
-                    if (requiresApproval) {
-                        return notificationService.notifyAdminsForApproval(u, requiredApprovalLevel)
-                                .doOnSuccess(v -> logger.info("📧 Approval notification sent for user {}",
-                                        u.getEmail()))
-                                .thenReturn(u);
-                    }
-                    return Mono.just(u);
-                })
-                .doOnSuccess(u -> {
-                    auditLogService.logRegistrationSuccess(
-                            u.getEmail(),
-                            u.getRoles().stream().map(Enum::name).collect(Collectors.toSet()),
-                            u.getStatus().name(),
-                            ipAddress
-                    );
-                });
+        return Mono.just(user);
+    }
+
+    /* =========================
+       Role & Permission Assignment (I/O)
+       ========================= */
+
+    /**
+     * Assign roles and permissions to user (requires UID from Firebase).
+     * This is called AFTER Firebase user creation.
+     */
+    public Mono<User> assignRolesAndPermissions(User user, Instant now) {
+        if (user.getId() == null || user.getId().isEmpty()) {
+            return Mono.error(new IllegalStateException(
+                    "Cannot assign roles - user has no Firebase UID"));
+        }
+
+        log.info("Assigning roles and permissions to user {} at {}", user.getEmail(), now);
+
+        // Get roles from user (already set by evaluateRegistration)
+        Set<Roles> roles = user.getRoles();
+
+        if (roles == null || roles.isEmpty()) {
+            log.warn("No roles to assign for user {} at {}", user.getEmail(), now);
+            return Mono.just(user);
+        }
+
+        // Assign each role with its permissions
+        return Flux.fromIterable(roles)
+                .flatMap(role -> assignSingleRoleWithPermissions(user, role, now))
+                .then(resolveAndSetEffectivePermissions(user, now))
+                .thenReturn(user);
     }
 
     /**
-     * Determine required approval level
+     * Assign a single role with its permissions
      */
-    private RoleApprovalLevel determineApprovalLevel(List<Roles> roles) {
-        RoleApprovalLevel highestLevel = RoleApprovalLevel.MANAGER_OR_ABOVE;
-
-        for (Roles role : roles) {
-            RegistrationRule rule = roleRegistrationRules.get(role);
-            if (rule != null && rule.getApprovalLevel().ordinal() > highestLevel.ordinal()) {
-                highestLevel = rule.getApprovalLevel();
-            }
-        }
-
-        return highestLevel;
-    }
-
-    /**
-     * Assign role and permissions to user
-     */
-    public Mono<User> assignRoleAndPermissions(User user, Roles role, Instant now) {
-        user.addRole(role);
-
+    private Mono<Void> assignSingleRoleWithPermissions(User user, Roles role, Instant now) {
         return permissionProvider.assignRole(user.getId(), role)
                 .then(Mono.fromRunnable(() -> {
                     // Add ABAC attributes
-                    addDefaultAttributes(user, role);
+                    addDefaultAttributes(user, role, now);
                 }))
-                .then(Mono.fromCallable(() -> {
+                .then(firebaseClaimsService.setClaimsReactive(user.getId(), role))
+                .doOnSuccess(v -> {
                     Set<String> rolePermissions = permissionProvider.getPermissionsForRole(role)
                             .stream()
                             .map(Enum::name)
                             .collect(Collectors.toSet());
 
-                    logger.info("🔐 Role {} assigned with {} permissions to user {}",
-                            role, rolePermissions.size(), user.getId());
+                    log.info("🔐 Role {} assigned with {} permissions to user {} at {}",
+                            role, rolePermissions.size(), user.getId(), now);
 
-                    return user;
-                }))
-                .flatMap(u -> firebaseClaimsService.setClaimsReactive(u.getId(), role).thenReturn(u))
-                .doOnSuccess(u -> {
-                    auditLogService.logRoleAssignment(u.getId(), role.name(), "SYSTEM");
+                    auditLogService.logRoleAssignment(user.getId(), role.name(), "SYSTEM");
                 })
                 .onErrorResume(e -> {
-                    logger.error("❌ Error assigning role {} to user {}: {}",
-                            role, user.getId(), e.getMessage());
+                    log.error("❌ Error assigning role {} to user {} at {}: {}",
+                            role, user.getId(), now, e.getMessage());
                     auditLogService.logRoleAssignmentFailure(user.getId(), role.name(), e.getMessage());
                     return Mono.error(new RuntimeException("Role assignment failed: " + e.getMessage()));
                 });
     }
 
     /**
-     * Add default ABAC attributes
+     * Resolve and set effective permissions on user object
      */
-    private void addDefaultAttributes(User user, Roles role) {
+    private Mono<User> resolveAndSetEffectivePermissions(User user, Instant now) {
+        return Mono.fromCallable(() -> {
+            Set<String> effectivePermissions = permissionProvider.resolveEffectivePermissions(user);
+            user.setAdditionalPermissions(new ArrayList<>(effectivePermissions));
+
+            log.info("📋 Resolved {} effective permissions for user {} at {}",
+                    effectivePermissions.size(), user.getEmail(), now);
+
+            return user;
+        });
+    }
+
+    /**
+     * Add default ABAC attributes for role
+     */
+    private void addDefaultAttributes(User user, Roles role, Instant now) {
         String userId = user.getId();
-        Instant now = clock.instant();
 
         // Department-based access
         if (user.getDepartment() != null && !user.getDepartment().isEmpty()) {
@@ -333,6 +300,83 @@ public class RoleAssignmentService {
     }
 
     /* =========================
+       Approval Notifications
+       ========================= */
+
+    /**
+     * Send approval notification to admins (call after user creation)
+     */
+    public Mono<Void> sendApprovalNotification(User user) {
+        if (user.getStatus() != UserStatus.PENDING_APPROVAL) {
+            return Mono.empty();
+        }
+
+        ApprovalLevel approvalLevel = user.getApprovalLevel();
+
+        return notificationService.notifyAdminsForApproval(user, approvalLevel)
+                .doOnSuccess(v -> log.info("📧 Approval notification sent for user {} at {}",
+                        user.getEmail(), clock.instant()))
+                .doOnError(e -> log.warn("Failed to send approval notification for {}: {}",
+                        user.getEmail(), e.getMessage()))
+                .onErrorResume(e -> Mono.empty()); // Non-blocking
+    }
+
+    /* =========================
+       Validation Helpers
+       ========================= */
+
+    /**
+     * Validate self-registration permission
+     */
+    private Mono<Boolean> validateSelfRegistration(User user, Set<Roles> requestedRoles) {
+        return Mono.fromCallable(() -> {
+            if (requestedRoles == null || requestedRoles.isEmpty()) {
+                log.warn("⚠️ No roles requested by user {}", user.getEmail());
+                return false;
+            }
+
+            for (Roles role : requestedRoles) {
+                RegistrationRule rule = roleRegistrationRules.get(role);
+
+                if (rule == null) {
+                    log.error("❌ Unknown role [{}] requested by {}", role, user.getEmail());
+                    return false;
+                }
+
+                if (!rule.allowSelfRegistration()) {
+                    log.warn("🚫 Role [{}] does NOT allow self-registration (requested by {})",
+                            role, user.getEmail());
+                    return false;
+                }
+            }
+
+            log.info("✅ Self-registration validation passed for user {} with roles {}",
+                    user.getEmail(), requestedRoles);
+            return true;
+        });
+    }
+
+    /**
+     * Determine highest approval level required for roles
+     */
+    private ApprovalLevel determineApprovalLevel(List<Roles> roles) {
+        ApprovalLevel highestLevel = ApprovalLevel.PENDING_L1;
+
+        for (Roles role : roles) {
+            RegistrationRule rule = roleRegistrationRules.get(role);
+            if (rule != null) {
+                ApprovalLevel ruleLevel = rule.getApprovalLevel();
+                // Compare order values to find highest level
+                if (ruleLevel.getOrder() > highestLevel.getOrder()) {
+                    highestLevel = ruleLevel;
+                }
+            }
+        }
+
+        return highestLevel;
+    }
+
+    /* =========================
        Approval Validation
        ========================= */
 
@@ -346,49 +390,37 @@ public class RoleAssignmentService {
         Roles requesterRole = securityContext.getRequesterRole();
         ApprovalLevel requiredLevel = targetUser.getApprovalLevel();
 
-        boolean canApprove = canApproveAtLevel(requesterRole,
-                RoleApprovalLevel.valueOf(requiredLevel.name()));
+        boolean canApprove = canApproveAtLevel(requesterRole, requiredLevel);
 
-        logger.debug("🔐 Approval check - Requester: {} ({}), Target: {}, Required: {}, Result: {}",
+        log.debug("🔐 Approval check - Requester: {} ({}), Target: {}, Required: {}, Result: {}",
                 securityContext.getRequesterEmail(), requesterRole,
-                targetUser.getEmail(), requiredLevel, canApprove);
+                targetUser.getEmail(), requiredLevel.getDisplayName(), canApprove);
 
         return canApprove;
     }
 
-    private boolean canApproveAtLevel(Roles requesterRole, RoleApprovalLevel requiredLevel) {
+    /**
+     * Check if role can approve at specific level
+     */
+    private boolean canApproveAtLevel(Roles requesterRole, ApprovalLevel requiredLevel) {
         if (requesterRole == null || requiredLevel == null) {
             return false;
         }
 
+        // Map approval levels to role requirements
         return switch (requiredLevel) {
-            case MANAGER_OR_ABOVE ->
+            case PENDING_L1 ->
                     requesterRole == Roles.MANAGER ||
                             requesterRole == Roles.ADMIN ||
                             requesterRole == Roles.SUPER_ADMIN;
-            case ADMIN_OR_SUPER_ADMIN ->
+
+            case PENDING_L2 ->
                     requesterRole == Roles.ADMIN ||
                             requesterRole == Roles.SUPER_ADMIN;
-            case SUPER_ADMIN_ONLY ->
-                    requesterRole == Roles.SUPER_ADMIN;
-        };
-    }
 
-    /**
-     * Validate role upgrade request
-     */
-    private Mono<Boolean> validateRoleUpgrade(Set<Roles> currentRoles, Set<Roles> requestedRoles) {
-        return Mono.fromCallable(() -> {
-            for (Roles requestedRole : requestedRoles) {
-                for (Roles currentRole : currentRoles) {
-                    if (!requestedRole.hasHigherPrivilegesThan(currentRole) ||
-                            !currentRole.canRequestUpgradeTo(requestedRole)) {
-                        return false;
-                    }
-                }
-            }
-            return true;
-        });
+            case NOT_REQUIRED, APPROVED_L1, APPROVED, REJECTED ->
+                    false; // Terminal states don't need approval
+        };
     }
 
     /**
@@ -416,12 +448,12 @@ public class RoleAssignmentService {
         private final boolean allowSelfRegistration;
         private final boolean requiresApproval;
         @Getter
-        private final RoleApprovalLevel approvalLevel;
+        private final ApprovalLevel approvalLevel;
 
         public RegistrationRule(
                 boolean allowSelfRegistration,
                 boolean requiresApproval,
-                RoleApprovalLevel approvalLevel
+                ApprovalLevel approvalLevel
         ) {
             this.allowSelfRegistration = allowSelfRegistration;
             this.requiresApproval = requiresApproval;
@@ -435,14 +467,5 @@ public class RoleAssignmentService {
         public boolean requiresApproval() {
             return requiresApproval;
         }
-    }
-
-    /**
-     * Role Approval Level Hierarchy
-     */
-    public enum RoleApprovalLevel {
-        MANAGER_OR_ABOVE,
-        ADMIN_OR_SUPER_ADMIN,
-        SUPER_ADMIN_ONLY
     }
 }

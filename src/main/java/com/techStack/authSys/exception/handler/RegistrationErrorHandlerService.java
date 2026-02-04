@@ -1,9 +1,8 @@
-package com.techStack.authSys.service.registration;
+package com.techStack.authSys.exception.handler;
 
 import com.google.firebase.auth.FirebaseAuthException;
 import com.techStack.authSys.constants.SecurityConstants;
 import com.techStack.authSys.dto.response.ErrorResponse;
-import com.techStack.authSys.dto.response.ErrorCode;
 import com.techStack.authSys.exception.email.EmailAlreadyExistsException;
 import com.techStack.authSys.exception.password.WeakPasswordException;
 import com.techStack.authSys.exception.security.RateLimitExceededException;

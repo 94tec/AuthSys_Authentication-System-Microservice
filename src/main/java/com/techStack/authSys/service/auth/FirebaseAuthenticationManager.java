@@ -27,20 +27,13 @@ import java.time.Duration;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import static com.techStack.authSys.constants.SecurityConstants.*;
+
 @Slf4j
 @Primary
 @Service
 @RequiredArgsConstructor
 public class FirebaseAuthenticationManager implements ReactiveAuthenticationManager {
-
-    private static final String ROLE_PREFIX = "ROLE_";
-    private static final String PERM_PREFIX = "PERM_";
-    private static final String DEFAULT_ROLE = "ROLE_USER";
-    private static final String CLAIM_ROLES = "roles";
-    private static final String CLAIM_ROLE = "role";
-    private static final String CLAIM_PERMISSIONS = "permissions";
-    private static final String CLAIM_TYPE = "type";
-    private static final String CLAIM_TYPE_ACCESS = "access";
 
     private static final ObjectMapper objectMapper = new ObjectMapper();
 

@@ -1,10 +1,16 @@
 package com.techStack.authSys.dto.request;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.google.cloud.firestore.annotation.PropertyName;
+import com.techStack.authSys.models.user.Roles;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.*;
+
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * User Registration Request DTO
@@ -17,6 +23,8 @@ import lombok.*;
 @NoArgsConstructor
 @AllArgsConstructor
 public class UserRegistrationDTO {
+    @JsonIgnore
+    private String uid;
 
     /* =========================
        Required Fields
@@ -52,8 +60,24 @@ public class UserRegistrationDTO {
     @Pattern(regexp = "\\+254[17]\\d{8}", message = "Invalid Kenyan phone number format")
     private String phoneNumber;
 
-    private String requestedRole;  // e.g., "USER", "MANAGER"
+
+    @PropertyName("requested_role")
+    private String requestedRole;
+
+    @PropertyName("requested_roles")
+    private Set<String> requestedRoles;
     private String department;
+
+    public Set<Roles> getRequestedRoleEnums() {
+        if (requestedRoles == null || requestedRoles.isEmpty()) {
+            return Set.of(Roles.USER); // default role
+        }
+
+        return requestedRoles.stream()
+                .map(String::toUpperCase)
+                .map(Roles::valueOf)
+                .collect(Collectors.toSet());
+    }
 
     /* =========================
        Registration Metadata

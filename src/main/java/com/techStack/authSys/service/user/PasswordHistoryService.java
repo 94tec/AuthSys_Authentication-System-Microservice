@@ -3,6 +3,7 @@ package com.techStack.authSys.service.user;
 import com.google.cloud.Timestamp;
 import com.google.cloud.firestore.Firestore;
 import com.google.cloud.firestore.Query;
+
 import com.techStack.authSys.service.security.EncryptionService;
 import com.techStack.authSys.util.firebase.FirestoreUtil;
 import lombok.RequiredArgsConstructor;
@@ -14,9 +15,7 @@ import reactor.core.scheduler.Schedulers;
 
 import java.time.Clock;
 import java.time.Instant;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 
 /**
  * Password History Service

@@ -11,19 +11,22 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
-import reactor.core.scheduler.Schedulers;
 
 import java.time.Clock;
-import java.util.HashSet;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * User Creation Service
  *
- * Handles user creation and coordinates persistence.
- * Delegates atomic user creation to FirebaseServiceAuth.
- * Focuses on peripheral tasks like metadata logging and caching.
+ * Responsibilities:
+ * - Registration orchestration
+ * - Enforces creation order invariants
+ * - Delegates domain logic and persistence
+ *
+ * Invariants:
+ * - Firebase user is created exactly once
+ * - Role evaluation occurs before persistence
+ * - UID-dependent work happens after Firebase creation
  */
 @Slf4j
 @Service
@@ -44,12 +47,8 @@ public class UserCreationService {
             String ipAddress,
             String deviceFingerprint
     ) {
-        log.info("Starting atomic user creation for: {}", userDto.getEmail());
+        log.info("Starting registration for {}", userDto.getEmail());
 
-        // Parse requested roles
-        Set<Roles> requestedRoles = parseRequestedRoles(userDto);
-
-        // Create base user from factory
         User user = UserFactory.createNewUser(
                 userDto.getEmail(),
                 userDto.getFirstName(),
@@ -57,23 +56,60 @@ public class UserCreationService {
                 clock
         );
 
-        // Set additional user properties
         enrichUserFromDto(user, userDto);
 
-        // Process registration through role assignment service
-        return roleAssignmentService.processUserRegistration(
+        /*
+         * PIPELINE INVARIANTS:
+         * 1. Evaluate registration (NO persistence)
+         * 2. Create Firebase user (exactly once)
+         * 3. Assign roles & permissions (UID exists)
+         * 4. Persist metadata & cache ( the best effort)
+         */
+        return roleAssignmentService.evaluateRegistration(
                         user,
-                        requestedRoles,
-                        ipAddress,
-                        deviceFingerprint
+                        user.getRequestedRoles(),
+                        ipAddress
+                )
+                .flatMap(evaluatedUser ->
+                        firebaseServiceAuth.createFirebaseUser(
+                                evaluatedUser,
+                                userDto.getPassword(),
+                                ipAddress,
+                                deviceFingerprint
+                        )
                 )
                 .flatMap(createdUser ->
-                        firebaseServiceAuth.createFirebaseUser(userDto, ipAddress, deviceFingerprint)
+                        roleAssignmentService.assignRolesAndPermissions(
+                                createdUser,
+                                clock.instant()
+                        )
                 )
-                .flatMap(createdUser -> persistMetadataAndCache(createdUser, ipAddress, deviceFingerprint))
-                .doOnSuccess(createdUser ->
-                        log.info("✅ Full registration chain complete for user: {}", createdUser.getEmail())
+                .flatMap(createdUser ->
+                        persistMetadataAndCache(
+                                createdUser,
+                                ipAddress,
+                                deviceFingerprint
+                        )
+                )
+                .doOnSuccess(u ->
+                        log.info("✅ Registration complete for {}", u.getEmail())
                 );
+    }
+
+    /**
+     * Enrich user entity with DTO data
+     *
+     * NOTE:
+     * Requested roles are stored ONLY on the domain object.
+     * This is the single source of truth.
+     */
+    private void enrichUserFromDto(User user, UserRegistrationDTO userDto) {
+        user.setIdentityNo(userDto.getIdentityNo());
+        user.setPhoneNumber(userDto.getPhoneNumber());
+        user.setDepartment(userDto.getDepartment());
+
+        Set<Roles> requestedRoles = parseRequestedRoles(userDto);
+        user.setRequestedRoles(requestedRoles);
     }
 
     /**
@@ -81,7 +117,7 @@ public class UserCreationService {
      */
     private Set<Roles> parseRequestedRoles(UserRegistrationDTO userDto) {
         if (userDto.getRequestedRole() == null || userDto.getRequestedRole().isBlank()) {
-            return Set.of(Roles.USER); // Default role
+            return Set.of(Roles.USER);
         }
 
         return Roles.fromName(userDto.getRequestedRole())
@@ -90,22 +126,7 @@ public class UserCreationService {
     }
 
     /**
-     * Enrich user entity with DTO data
-     */
-    private void enrichUserFromDto(User user, UserRegistrationDTO userDto) {
-        user.setIdentityNo(userDto.getIdentityNo());
-        user.setPhoneNumber(userDto.getPhoneNumber());
-        user.setDepartment(userDto.getDepartment());
-
-        // Set requested role
-        if (userDto.getRequestedRole() != null) {
-            Roles.fromName(userDto.getRequestedRole())
-                    .ifPresent(user::setRequestedRole);
-        }
-    }
-
-    /**
-     * Handle peripheral persistence tasks after core user creation
+     * Peripheral persistence (non-blocking, best-effort)
      */
     private Mono<User> persistMetadataAndCache(
             User user,
@@ -118,19 +139,15 @@ public class UserCreationService {
     }
 
     /**
-     * Cache registered email (best-effort, non-blocking)
+     * Best-effort email caching (reactive-safe)
      */
     private Mono<Void> cacheUserEmail(User user) {
-        return Mono.defer(() -> {
-            log.debug("Attempting to cache registered email: {}", user.getEmail());
-
-            redisCacheService.cacheRegisteredEmail(user.getEmail())
-                    .doOnError(e -> log.warn("Failed to cache email for {}: {}",
-                            user.getEmail(), e.getMessage()))
-                    .subscribeOn(Schedulers.boundedElastic())
-                    .subscribe();
-
-            return Mono.empty();
-        });
+        return redisCacheService.cacheRegisteredEmail(user.getEmail())
+                .doOnError(e -> log.warn(
+                        "Failed to cache registered email for {}: {}",
+                        user.getEmail(),
+                        e.getMessage()
+                ))
+                .onErrorResume(e -> Mono.empty());
     }
 }

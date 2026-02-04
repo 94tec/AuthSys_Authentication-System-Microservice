@@ -1,54 +1,43 @@
 package com.techStack.authSys.service.auth;
 
-
-import com.google.firebase.auth.FirebaseAuth;
-import com.google.firebase.auth.FirebaseAuthException;
-import com.google.firebase.auth.FirebaseToken;
-import com.techStack.authSys.exception.service.CustomException;
+import com.google.api.client.googleapis.auth.oauth2.GoogleIdToken.Payload;
 import com.techStack.authSys.models.user.User;
-import lombok.RequiredArgsConstructor;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpStatus;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import reactor.core.publisher.Mono;
 
-@Service
-@RequiredArgsConstructor
-public class GoogleAuthService {
+/**
+ * Google Authentication Service
+ *
+ * Contract for Google OAuth authentication and account linking.
+ */
+public interface GoogleAuthService {
 
-    private static final Logger logger = LoggerFactory.getLogger(GoogleAuthService.class);
-    private final FirebaseServiceAuth firebaseServiceAuth;
+    /**
+     * Authenticate user with Google ID token
+     */
+    Mono<User> authenticateWithGoogle(String idToken, String ipAddress, String deviceFingerprint);
 
-    @Transactional
-    public User authenticateWithGoogle(String idToken) throws CustomException {
-        try {
-            FirebaseToken firebaseToken = FirebaseAuth.getInstance().verifyIdToken(idToken);
+    /**
+     * Verify Google ID token and return payload
+     */
+    Mono<Payload> verifyGoogleToken(String idToken);
 
-            String email = firebaseToken.getEmail();
-            String name = firebaseToken.getName();
-            String uid = firebaseToken.getUid();
+    /**
+     * Link Google account to existing user
+     */
+    Mono<User> linkGoogleAccount(String userId, String idToken);
 
-            logger.info("Google authentication successful for user: {}", email);
+    /**
+     * Unlink Google account from user
+     */
+    Mono<User> unlinkGoogleAccount(String userId);
 
-            User user = firebaseServiceAuth.findByEmail(email)
-                    .switchIfEmpty(Mono.defer(() -> {
-                        User newUser = new User();
-                        newUser.setEmail(email);
-                        newUser.setUsername(uid);
-                        newUser.setFirstName(name);
-                        newUser.setEnabled(true);
-                        return firebaseServiceAuth.save(newUser);
-                    }))
-                    .block(); // Blocking call to get the User synchronously
+    /**
+     * Check if user has Google account linked
+     */
+    Mono<Boolean> hasGoogleAccountLinked(String userId);
 
-            return user;
-
-        } catch (FirebaseAuthException e) {
-            logger.error("Google authentication failed: {}", e.getMessage());
-            throw new CustomException(HttpStatus.UNAUTHORIZED, "Invalid Google ID token.");
-        }
-    }
-
+    /**
+     * Get Google OAuth information for user
+     */
+    Mono<java.util.Map<String, String>> getGoogleOAuthInfo(String userId);
 }

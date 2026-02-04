@@ -20,7 +20,7 @@ public class UserPermissions {
     private String email;
     private List<String> roles;
     private List<String> permissions;
-    private User.Status status; // ACTIVE, PENDING_APPROVAL, REJECTED
+    private UserStatus status; // ACTIVE, PENDING_APPROVAL, REJECTED
     private String approvedBy; // Manager/Admin who approved
     private Instant approvedAt;
     private Instant createdAt;

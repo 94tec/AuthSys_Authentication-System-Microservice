@@ -148,7 +148,7 @@ public class UserFactory {
        System Users
        ========================= */
 
-    public static User createSuperAdmin(String email, String passwordHash) {
+    public static User createSuperAdminUser(String email, String passwordHash) {
         return createSuperAdmin(email, passwordHash, DEFAULT_CLOCK);
     }
 

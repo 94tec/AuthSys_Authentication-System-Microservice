@@ -38,10 +38,15 @@ public final class SecurityConstants {
     public static final String PERM_PREFIX = "PERM_";
     public static final String DEFAULT_ROLE = "ROLE_USER";
     public static final String CLAIM_ROLES = "roles";
+    public static final String CLAIM_ROLE = "role";
     public static final String CLAIM_PERMISSIONS = "permissions";
     public static final String CLAIM_TYPE = "type";
     public static final String CLAIM_TYPE_ACCESS = "access";
     public static final String SESSION_COLLECTION = "sessions";
+
+    public static final String FIELD_VERIFICATION_TOKEN_HASH = "verificationTokenHash";
+    public static final String FIELD_TOKEN_EXPIRES_AT = "verificationTokenExpiresAt";
+    public static final Duration TOKEN_EXPIRY = Duration.ofHours(24);
 
     // Rate Limiting
     public static final int REGISTER_RATE_LIMIT = 5;
@@ -83,6 +88,23 @@ public final class SecurityConstants {
     public static final String COLLECTION_USER_PERMISSIONS = "user_permissions";
     public static final String COLLECTION_AUTH_LOGS = "auth_logs";
     public static final String COLLECTION_REGISTRATION_METADATA = "registration_metadata";
+    // ==================== Key Prefixes ====================
+    public static final class CacheKey {
+        public static final String USER_PROFILE = "user:profile:";
+        public static final String USER_ROLES = "user:roles:";
+        public static final String USER_PERMISSIONS = "user:permissions:";
+        static final String USER_EXISTS = "userExists:";
+        public static final String TOKEN_CLAIMS = "token:claims:";
+        public static final String REGISTERED_EMAIL = "registered:email:";
+    }
+
+    // ==================== Cache TTLs ====================
+    public static final class CacheTTL {
+        public static final Duration USER_DATA = Duration.ofMinutes(60);
+        static final Duration USER_EXISTS = Duration.ofHours(24);
+        public static final Duration TOKEN_CLAIMS = Duration.ofMinutes(60);
+        public static final Duration EMAIL_REGISTRATION = Duration.ofDays(365);
+    }
 
     // Fixed document IDs for easy retrieval
     public static final String PROFILE_DOC_ID = "profile";

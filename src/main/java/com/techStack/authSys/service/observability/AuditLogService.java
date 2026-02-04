@@ -11,6 +11,7 @@ import com.techStack.authSys.models.audit.AuditLogEntryPasswordChange;
 import com.techStack.authSys.models.session.DeviceInfo;
 import com.techStack.authSys.models.user.Roles;
 import com.techStack.authSys.models.user.User;
+import com.techStack.authSys.models.user.UserStatus;
 import com.techStack.authSys.security.context.CurrentUserProvider;
 import com.techStack.authSys.util.firebase.FirestoreUtils;
 import com.techStack.authSys.util.validation.HelperUtils;
@@ -498,21 +499,32 @@ public class AuditLogService {
 
         }
     }
-        /**
-         * Log successful registration
-         */
-        public void logRegistrationSuccess(String email, Set<Roles> roles, String status, String ipAddress) {
-            Map<String, Object> logEntry = createBaseLogEntry("REGISTRATION_SUCCESS");
-            logEntry.put("email", email);
-            logEntry.put("roles", roles.toString());
-            logEntry.put("status", status);
-            logEntry.put("ipAddress", ipAddress);
+    /**
+     * Log successful registration
+     */
+    public void logRegistrationSuccess(
+            String email,
+            Set<Roles> roles,
+            UserStatus status,
+            String ipAddress
+    ) {
+        Map<String, Object> logEntry = createBaseLogEntry("REGISTRATION_SUCCESS");
 
-            saveAuditLog(logEntry);
-            logger.info("📝 Audit: Registration successful for {} (Status: {})", email, status);
-        }
+        Set<String> roleNames = roles.stream()
+                .map(Roles::name)
+                .collect(Collectors.toSet());
 
-        /**
+        logEntry.put("email", email);
+        logEntry.put("roles", roleNames);   // ✅ structured
+        logEntry.put("status", status);
+        logEntry.put("ipAddress", ipAddress);
+
+        saveAuditLog(logEntry);
+        logger.info("📝 Audit: Registration successful for {} (Status: {})", email, status);
+    }
+
+
+    /**
          * Log registration failure
          */
         public void logRegistrationFailure(String email, String reason, String ipAddress) {

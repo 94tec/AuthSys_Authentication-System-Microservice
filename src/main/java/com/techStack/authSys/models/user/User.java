@@ -5,6 +5,7 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.google.cloud.firestore.annotation.DocumentId;
 import com.google.cloud.firestore.annotation.PropertyName;
 import com.google.cloud.spring.data.firestore.Document;
+import com.techStack.authSys.models.authorization.Permissions;
 import com.techStack.authSys.models.security.SecurityMetadata;
 import lombok.*;
 import org.springframework.security.core.GrantedAuthority;
@@ -75,7 +76,10 @@ public class User implements UserDetails {
     private List<String> additionalPermissions = new ArrayList<>();
 
     @PropertyName("requested_role")
-    private Roles requestedRole;
+    //private Roles requestedRole;
+
+    private Set<Roles> requestedRoles;
+
 
     private String department;
 
@@ -251,6 +255,11 @@ public class User implements UserDetails {
     // ==========================================
     // ROLE MANAGEMENT METHODS
     // ==========================================
+    public Set<Roles> getRequestedRoles() {
+        return requestedRoles == null || requestedRoles.isEmpty()
+                ? Set.of(Roles.USER)
+                : requestedRoles;
+    }
 
     public Set<Roles> getRoles() {
         if (roleNames == null || roleNames.isEmpty()) {

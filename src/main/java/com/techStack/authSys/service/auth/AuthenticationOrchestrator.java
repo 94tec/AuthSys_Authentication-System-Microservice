@@ -6,6 +6,7 @@ import com.techStack.authSys.exception.data.NetworkException;
 import com.techStack.authSys.exception.auth.TransientAuthenticationException;
 import com.techStack.authSys.repository.sucurity.RateLimiterService;
 import com.techStack.authSys.service.token.TokenGenerationService;
+import com.techStack.authSys.service.validation.CredentialValidationService;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;

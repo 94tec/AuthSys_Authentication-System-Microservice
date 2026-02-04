@@ -30,8 +30,6 @@ import com.techStack.authSys.exception.security.SuspiciousActivityException;
 import com.techStack.authSys.exception.service.CustomException;
 import com.techStack.authSys.exception.service.ServiceUnavailableException;
 import com.techStack.authSys.service.auth.DeviceVerificationService;
-import com.techStack.authSys.service.registration.RegistrationErrorHandlerService;
-import com.techStack.authSys.service.auth.AuthenticationErrorHandlerService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.Ordered;

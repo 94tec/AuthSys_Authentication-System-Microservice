@@ -3,54 +3,95 @@ package com.techStack.authSys.repository.authorization;
 import com.techStack.authSys.models.authorization.Permissions;
 import com.techStack.authSys.models.user.Roles;
 import com.techStack.authSys.models.user.User;
-import org.springframework.stereotype.Component;
-import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
 import java.util.List;
 import java.util.Set;
 
-@Service
+/**
+ * Permission Provider Interface
+ *
+ * Defines contract for permission management across the system.
+ * Implemented by PermissionService.
+ */
 public interface PermissionProvider {
-    Set<Permissions> getPermissionsForRole(Roles role);
-    void reloadPermissions();
 
+    /* =========================
+       Role-Based Permissions
+       ========================= */
+
+    /**
+     * Get all permissions for a given role
+     */
+    Set<Permissions> getPermissionsForRole(Roles role);
+
+    /**
+     * Assign a role to a user
+     */
     Mono<Void> assignRole(String userId, Roles role);
 
-    void addUserAttribute(String userId, String namespace, String key, String value);
+    /**
+     * Reload permissions from configuration
+     */
+    void reloadPermissions();
 
-    // --- User-specific permission management ---
+    /* =========================
+       User-Specific Permissions
+       ========================= */
+
+    /**
+     * Add a specific permission to a user
+     */
     void addPermission(String userId, Permissions permission);
 
+    /**
+     * Remove a specific permission from a user
+     */
     void removePermission(String userId, Permissions permission);
 
-    // Additional interface methods (example implementation)
-    String[] getPermissions();
+    /* =========================
+       Effective Permission Resolution
+       ========================= */
 
-    String[] getSubPermissions(String perm);
-
-    Object getLoadedRoles();
-
-    Set<String> resolveEffectivePermission(User user);
-
-    List<Permissions> deserializePermissions(List<String> permissions);
-
+    /**
+     * Resolve effective permissions for a user.
+     * Combines role-based and user-specific permissions.
+     *
+     * @param user the user entity
+     * @return set of permission names (Strings)
+     */
     Set<String> resolveEffectivePermissions(User user);
 
-    // New PermissionValidator.java
-    @Component
-    public class PermissionValidator {
+    /* =========================
+       ABAC: Attribute-Based Access Control
+       ========================= */
 
-        // Validate if granted permission has enough privileges for required permission
-        public boolean validatePermissionChain(Permissions granted, Permissions required) {
-            if (granted == Permissions.ADMIN) {
-                return true;  // ADMIN has access to everything
-            }
-            if (granted == Permissions.MANAGER) {
-                return required.level <= Permissions.MANAGER.level; // Use 'level' directly
-            }
-            // For any other roles, check if granted permission has higher or equal privileges
-            return granted.hasAtLeastPrivilegesOf(required);
-        }
-    }
+    /**
+     * Add an attribute to a user for ABAC evaluation
+     */
+    void addUserAttribute(String userId, String namespace, String key, String value);
+
+    /* =========================
+       Utility Methods
+       ========================= */
+
+    /**
+     * Get all available permissions in the system
+     */
+    String[] getPermissions();
+
+    /**
+     * Get sub-permissions for a given permission prefix
+     */
+    String[] getSubPermissions(String permissionPrefix);
+
+    /**
+     * Get all loaded role configurations
+     */
+    Object getLoadedRoles();
+
+    /**
+     * Deserialize permission strings to Permission enums
+     */
+    List<Permissions> deserializePermissions(List<String> permissionNames);
 }

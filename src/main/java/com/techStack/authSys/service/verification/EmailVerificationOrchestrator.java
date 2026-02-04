@@ -17,9 +17,10 @@ import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 import java.time.Clock;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
+
+import static com.techStack.authSys.constants.SecurityConstants.*;
 
 /**
  * Email Verification Orchestrator
@@ -31,11 +32,6 @@ import java.util.Map;
 @Service
 @RequiredArgsConstructor
 public class EmailVerificationOrchestrator {
-
-    private static final String COLLECTION_USERS = "users";
-    private static final String FIELD_VERIFICATION_TOKEN_HASH = "verificationTokenHash";
-    private static final String FIELD_TOKEN_EXPIRES_AT = "verificationTokenExpiresAt";
-    private static final Duration TOKEN_EXPIRY = Duration.ofHours(24);
 
     /* =========================
        Dependencies

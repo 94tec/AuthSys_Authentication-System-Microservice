@@ -4,6 +4,7 @@ import com.google.cloud.firestore.annotation.DocumentId;
 import com.google.cloud.spring.data.firestore.Document;
 import lombok.*;
 
+import java.time.Instant;
 import java.util.List;
 
 @Getter
@@ -13,6 +14,7 @@ import java.util.List;
 @Builder
 @Document(collectionName = "user_profiles")
 public class UserProfile {
+
     @DocumentId
     private String id;
 
@@ -21,10 +23,19 @@ public class UserProfile {
     private String lastName;
     private String profilePictureUrl;
     private String bio;
+
+    // renamed for clarity
+    //private boolean publicProfile;
     private boolean isPublic;
 
     private List<String> roles;
     private List<String> permissions;
-    public User user;
+
+    // timestamps for auditing
+    private Instant createdAt;
+    private Instant updatedAt;
+
+    // optional embedded user reference (if needed)
+    private User user;
 
 }

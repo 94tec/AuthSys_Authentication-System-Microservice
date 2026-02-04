@@ -1,10 +1,15 @@
 package com.techStack.authSys.service.bootstrap;
 
 import com.google.cloud.firestore.*;
+import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseAuthException;
+import com.techStack.authSys.models.user.PermissionData;
 import com.techStack.authSys.models.user.User;
+import com.techStack.authSys.models.user.UserStatus;
 import com.techStack.authSys.repository.metrics.MetricsService;
+import com.techStack.authSys.repository.user.FirestoreUserRepository;
 import com.techStack.authSys.service.auth.FirebaseServiceAuth;
+import com.techStack.authSys.service.authorization.PermissionService;
 import com.techStack.authSys.service.cache.RedisUserCacheService;
 import com.techStack.authSys.service.observability.AuditLogService;
 import com.techStack.authSys.util.firebase.FirestoreUtils;
@@ -17,6 +22,7 @@ import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 import reactor.util.retry.Retry;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
@@ -43,6 +49,10 @@ public class TransactionalBootstrapService {
     private final AuditLogService auditLogService;
     private final MetricsService metricsService;
     private final Firestore firestore;
+    private final PermissionService permissionService;
+
+    private final FirestoreUserRepository firestoreUserRepository;
+    private final Clock clock;
 
     private static final String SYSTEM_IP = "127.0.0.1";
     private static final String DEVICE_FINGERPRINT = "BOOTSTRAP_DEVICE";
@@ -210,12 +220,25 @@ public class TransactionalBootstrapService {
      * Creates Firebase Auth user with ATOMIC Firestore batch write.
      * Includes retry logic for transient failures.
      */
+
     private Mono<User> createFirebaseUserAtomically(User user, String password, TransactionContext ctx) {
-        return firebaseServiceAuth.createSuperAdmin(
+        // Prepare permission data
+        Set<String> permissions = permissionService.resolveEffectivePermissions(user);
+
+        PermissionData permData = PermissionData.builder()
+                .roles(new ArrayList<>(user.getRoleNames()))
+                .permissions(new ArrayList<>(permissions))
+                .status(UserStatus.ACTIVE)
+                .approvedBy("SYSTEM")
+                .approvedAt(clock.instant())
+                .build();
+
+        // Use new atomic save
+        return firestoreUserRepository.saveUserAtomic(
                         user,
-                        password,
                         SYSTEM_IP,
-                        DEVICE_FINGERPRINT
+                        DEVICE_FINGERPRINT,
+                        permData
                 )
                 .retryWhen(Retry.backoff(MAX_RETRIES, RETRY_DELAY)
                         .filter(HelperUtils::isRetryableError)
@@ -223,7 +246,6 @@ public class TransactionalBootstrapService {
                                 log.warn("⚠️ Retrying user creation, attempt: {}",
                                         signal.totalRetries() + 1)))
                 .doOnSuccess(createdUser -> {
-                    log.debug("✅ Atomic creation: userId={}", ctx.firebaseUserId);
                     ctx.firebaseUserId = createdUser.getId();
                     ctx.firebaseUserEmail = createdUser.getEmail();
                     ctx.atomicCreationComplete = true;
@@ -442,18 +464,23 @@ public class TransactionalBootstrapService {
 
     private Mono<Void> rollbackFirebaseDataReactive(String email, String userId, List<String> steps) {
         // Delete Auth User
-        Mono<Void> deleteAuth = firebaseServiceAuth.rollbackFirebaseUserCreation(email)
-                .doOnSuccess(v -> steps.add("firebase_auth"))
+        Mono<Void> deleteAuth = Mono.fromRunnable(() -> {
+            try {
+                FirebaseAuth.getInstance().deleteUser(userId);
+                steps.add("firebase_auth");
+                log.debug("🔄 Rolled back Firebase Auth");
+            } catch (FirebaseAuthException e) {
+                log.error("Failed to delete Firebase Auth user: {}", e.getMessage());
+            }
+        }).subscribeOn(Schedulers.boundedElastic()).then();
+
+        // Delete Firestore document
+        Mono<Void> deleteFirestore = firestoreUserRepository.delete(userId)
+                .doOnSuccess(v -> steps.add("firestore_user"))
                 .onErrorResume(e -> {
-                    log.error("Failed to delete Firebase Auth user: {}", e.getMessage());
+                    log.error("Failed to delete Firestore user: {}", e.getMessage());
                     return Mono.empty();
                 });
-
-        // Delete Firestore Collections
-        Mono<Void> deleteFirestore = Mono.fromRunnable(() -> deleteFirestoreSubcollections(userId))
-                .subscribeOn(Schedulers.boundedElastic())
-                .doOnSuccess(v -> steps.add("firestore_subcollections"))
-                .then();
 
         return deleteAuth.then(deleteFirestore);
     }
@@ -506,7 +533,7 @@ public class TransactionalBootstrapService {
                                       List<String> steps, List<String> failures) {
         // Delete Firebase Auth user
         try {
-            firebaseServiceAuth.rollbackFirebaseUserCreation(email)
+            firebaseServiceAuth.rollbackFirebaseUser(email)
                     .timeout(ROLLBACK_TIMEOUT)
                     .subscribeOn(Schedulers.boundedElastic())
                     .block();

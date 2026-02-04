@@ -1,9 +1,10 @@
-package com.techStack.authSys.service.auth;
+package com.techStack.authSys.service.validation;
 
 import com.google.firebase.auth.UserRecord;
 import com.techStack.authSys.exception.auth.AuthException;
 import com.techStack.authSys.models.user.User;
 import com.techStack.authSys.security.validation.AccountStatusChecker;
+import com.techStack.authSys.service.auth.FirebaseServiceAuth;
 import com.techStack.authSys.service.user.PasswordExpiryService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
