@@ -5,7 +5,7 @@ import com.google.cloud.firestore.Firestore;
 import com.techStack.authSys.config.core.AppConfig;
 import com.techStack.authSys.models.audit.ActionType;
 import com.techStack.authSys.models.user.User;
-import com.techStack.authSys.service.notification.EmailServiceInstance1;
+import com.techStack.authSys.service.notification.EmailService;
 import com.techStack.authSys.service.observability.AuditLogService;
 import com.techStack.authSys.service.security.EncryptionService;
 import com.techStack.authSys.service.token.JwtService;
@@ -38,7 +38,7 @@ public class EmailVerificationOrchestrator {
        ========================= */
 
     private final JwtService jwtService;
-    private final EmailServiceInstance1 emailService;
+    private final EmailService emailService;
     private final EncryptionService encryptionService;
     private final AuditLogService auditLogService;
     private final Firestore firestore;

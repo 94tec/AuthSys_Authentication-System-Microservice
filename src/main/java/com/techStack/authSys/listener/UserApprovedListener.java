@@ -1,8 +1,9 @@
 package com.techStack.authSys.listener;
 
-import com.techStack.authSys.event.UserRegisteredEvent;
+import com.techStack.authSys.event.UserApprovedEvent;
 import com.techStack.authSys.models.audit.ActionType;
 import com.techStack.authSys.service.notification.BrevoEmailService;
+import com.techStack.authSys.service.notification.EmailService;
 import com.techStack.authSys.service.observability.AuditLogService;
 import com.techStack.authSys.util.validation.HelperUtils;
 import lombok.RequiredArgsConstructor;
@@ -16,21 +17,21 @@ import java.time.Duration;
 import java.time.Instant;
 
 /**
- * User Registered Event Listener
+ * User Approved Event Listener
  *
- * Handles user registration events.
- * Uses Clock for timestamp tracking and audit logging.
+ * Handles user approval events.
+ * Sends approval notification email and creates audit log.
  */
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class UserRegisteredEventListener {
+public class UserApprovedListener {
 
     /* =========================
        Dependencies
        ========================= */
 
-    private final BrevoEmailService emailService;
+    private final EmailService emailService;
     private final AuditLogService auditLogService;
     private final Clock clock;
 
@@ -39,29 +40,29 @@ public class UserRegisteredEventListener {
        ========================= */
 
     /**
-     * Handle user registered event
+     * Handle user approved event
      */
     @Async
     @EventListener
-    public void handleUserRegisteredEvent(UserRegisteredEvent event) {
+    public void handleUserApproved(UserApprovedEvent event) {
         Instant processingStart = clock.instant();
 
-        log.info("Processing UserRegisteredEvent at {} for user: {} from IP: {}",
+        log.info("Processing UserApprovedEvent at {} for user: {} approved by: {}",
                 processingStart,
                 HelperUtils.maskEmail(event.getUser().getEmail()),
-                event.getIpAddress());
+                event.getApprovedBy());
 
         try {
-            // Send welcome email
-            sendWelcomeEmail(event);
+            // Send approval notification
+            sendApprovalNotification(event);
 
-            // Log the registration
-            logRegistration(event);
+            // Log approval
+            logApproval(event);
 
             Instant processingEnd = clock.instant();
             Duration processingDuration = Duration.between(processingStart, processingEnd);
 
-            log.info("✅ UserRegisteredEvent processed at {} in {} for user: {}",
+            log.info("✅ UserApprovedEvent processed at {} in {} for user: {}",
                     processingEnd,
                     processingDuration,
                     HelperUtils.maskEmail(event.getUser().getEmail()));
@@ -69,7 +70,7 @@ public class UserRegisteredEventListener {
         } catch (Exception e) {
             Instant errorTime = clock.instant();
 
-            log.error("❌ Failed to process UserRegisteredEvent at {} for user {}: {}",
+            log.error("❌ Failed to process UserApprovedEvent at {} for user {}: {}",
                     errorTime,
                     HelperUtils.maskEmail(event.getUser().getEmail()),
                     e.getMessage(),
@@ -77,10 +78,8 @@ public class UserRegisteredEventListener {
 
             // Log the failure
             auditLogService.logSystemEvent(
-                    "REGISTRATION_EVENT_PROCESSING_FAILURE",
-                    "Failed to process registration event for " +
-                            HelperUtils.maskEmail(event.getUser().getEmail()) +
-                            ": " + e.getMessage()
+                    "USER_APPROVED_EVENT_PROCESSING_FAILURE",
+                    "Failed to process user approved event: " + e.getMessage()
             );
         }
     }
@@ -90,21 +89,22 @@ public class UserRegisteredEventListener {
        ========================= */
 
     /**
-     * Send welcome email to new user
+     * Send approval notification email
      */
-    private void sendWelcomeEmail(UserRegisteredEvent event) {
+    private void sendApprovalNotification(UserApprovedEvent event) {
         Instant emailStart = clock.instant();
 
         try {
-            emailService.sendWelcomeEmail(
+            emailService.sendUserApprovedNotification(
                     event.getUser().getEmail(),
-                    event.getIpAddress()
+                    event.getApprovedBy(),
+                    event.getTimestamp()
             );
 
             Instant emailEnd = clock.instant();
             Duration emailDuration = Duration.between(emailStart, emailEnd);
 
-            log.info("📧 Welcome email sent at {} in {} to: {}",
+            log.info("📧 Approval notification sent at {} in {} to: {}",
                     emailEnd,
                     emailDuration,
                     HelperUtils.maskEmail(event.getUser().getEmail()));
@@ -112,54 +112,45 @@ public class UserRegisteredEventListener {
         } catch (Exception e) {
             Instant errorTime = clock.instant();
 
-            log.error("❌ Failed to send welcome email at {} to {}: {}",
+            log.error("❌ Failed to send approval notification at {} to {}: {}",
                     errorTime,
                     HelperUtils.maskEmail(event.getUser().getEmail()),
                     e.getMessage());
 
             // Log email failure
             auditLogService.logSystemEvent(
-                    "WELCOME_EMAIL_FAILURE",
-                    "Failed to send welcome email to " +
+                    "APPROVAL_NOTIFICATION_EMAIL_FAILURE",
+                    "Failed to send approval notification to " +
                             HelperUtils.maskEmail(event.getUser().getEmail())
             );
         }
     }
 
     /**
-     * Log user registration
+     * Log user approval to audit trail
      */
-    private void logRegistration(UserRegisteredEvent event) {
+    private void logApproval(UserApprovedEvent event) {
         Instant auditStart = clock.instant();
 
         try {
-            // Log registration event
-            auditLogService.logUserEvent(
+            auditLogService.logApprovalAction(
                     event.getUser().getId(),
-                    "USER_REGISTERED",
-                    buildRegistrationDetails(event)
+                    event.getApprovedBy(),
+                    "APPROVED",
+                    event.getApproverRole()
             );
 
-            // Log detailed audit
             auditLogService.logUserEvent(
                     event.getUser(),
-                    ActionType.REGISTRATION,
-                    buildRegistrationDetails(event),
-                    event.getIpAddress()
-            );
-
-            // Log registration success
-            auditLogService.logRegistrationSuccess(
-                    event.getUser().getEmail(),
-                    event.getUser().getRoles(),
-                    event.getUser().getStatus(),
-                    event.getIpAddress()
+                    ActionType.USER_APPROVED,
+                    buildApprovalDetails(event),
+                    "system"
             );
 
             Instant auditEnd = clock.instant();
             Duration auditDuration = Duration.between(auditStart, auditEnd);
 
-            log.debug("Audit logs created at {} in {} for user: {}",
+            log.debug("Audit log created at {} in {} for user approval: {}",
                     auditEnd,
                     auditDuration,
                     HelperUtils.maskEmail(event.getUser().getEmail()));
@@ -167,7 +158,7 @@ public class UserRegisteredEventListener {
         } catch (Exception e) {
             Instant errorTime = clock.instant();
 
-            log.error("❌ Failed to log registration at {} for user {}: {}",
+            log.error("❌ Failed to log user approval at {} for user {}: {}",
                     errorTime,
                     HelperUtils.maskEmail(event.getUser().getEmail()),
                     e.getMessage());
@@ -175,23 +166,14 @@ public class UserRegisteredEventListener {
     }
 
     /**
-     * Build detailed registration information
+     * Build detailed approval information
      */
-    private String buildRegistrationDetails(UserRegisteredEvent event) {
-        StringBuilder details = new StringBuilder();
-        details.append("New user registered from IP: ").append(event.getIpAddress());
-
-        if (event.getDeviceFingerprint() != null) {
-            details.append(" | Device: ").append(event.getDeviceFingerprint());
-        }
-
-        if (event.getRequestedRoles() != null && !event.getRequestedRoles().isEmpty()) {
-            details.append(" | Requested Roles: ").append(event.getRequestedRoles());
-        }
-
-        details.append(" | Status: ").append(event.getUser().getStatus());
-        details.append(" | Event Time: ").append(event.getTimestamp());
-
-        return details.toString();
+    private String buildApprovalDetails(UserApprovedEvent event) {
+        return String.format(
+                "User approved at %s by %s (%s)",
+                event.getTimestamp(),
+                event.getApprovedBy(),
+                event.getApproverRole()
+        );
     }
 }

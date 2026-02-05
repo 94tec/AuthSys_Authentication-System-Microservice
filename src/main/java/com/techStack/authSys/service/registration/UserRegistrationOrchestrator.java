@@ -2,7 +2,7 @@ package com.techStack.authSys.service.registration;
 
 import com.techStack.authSys.dto.request.UserRegistrationDTO;
 import com.techStack.authSys.event.UserRegisteredEvent;
-import com.techStack.authSys.exception.handler.RegistrationErrorHandlerService;
+import com.techStack.authSys.handler.RegistrationErrorHandlerService;
 import com.techStack.authSys.exception.service.ServiceUnavailableException;
 import com.techStack.authSys.models.user.User;
 import com.techStack.authSys.service.auth.DeviceVerificationService;

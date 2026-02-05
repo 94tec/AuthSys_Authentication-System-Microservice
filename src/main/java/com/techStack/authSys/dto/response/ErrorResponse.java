@@ -5,33 +5,28 @@ import lombok.Builder;
 import lombok.Value;
 import org.springframework.http.HttpStatus;
 
+import java.io.Serial;
 import java.io.Serializable;
 import java.time.Instant;
 import java.util.Map;
 
-/**
- * Standardized error response DTO for all API errors.
- * Provides consistent error structure across the application.
- */
-@Value // Immutable DTO
-@Builder // Builder pattern for consistency with service usage
-@JsonInclude(JsonInclude.Include.NON_NULL) // Don't include null fields in JSON
+@Value
+@Builder
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public class ErrorResponse implements Serializable {
 
+    @Serial
     private static final long serialVersionUID = 1L;
 
-    HttpStatus status;                  // HTTP status
-    String errorCode;                   // Application-specific error code
-    String message;                     // Human-readable error message
-    String field;                       // Field causing the error (optional)
-    Map<String, Object> details;        // Extra metadata (renamed from additionalInfo)
-    Instant timestamp;                     // Error occurrence time
-    String traceId;                     // Correlation/trace ID for debugging
-    String severity;                    // Severity level: INFO, WARN, ERROR, CRITICAL
+    HttpStatus status;
+    String errorCode;
+    String message;
+    String field;
+    Map<String, Object> details;
+    Instant timestamp;
+    String traceId;
+    String severity;
 
-    /**
-     * Convenience methods
-     */
     public int getStatusCode() {
         return status.value();
     }
@@ -52,6 +47,11 @@ public class ErrorResponse implements Serializable {
             }
         }
         return null;
+    }
+
+    // Backward compatibility alias
+    public Map<String, Object> getAdditionalInfo() {
+        return details;
     }
 
     @Override

@@ -9,7 +9,7 @@ import com.techStack.authSys.models.user.UserPasswordHistory;
 import com.techStack.authSys.repository.user.CustomAuthRepository;
 import com.techStack.authSys.repository.user.UserPasswordHistoryRepository;
 import com.techStack.authSys.service.auth.FirebaseServiceAuth;
-import com.techStack.authSys.service.notification.EmailServiceInstance1;
+import com.techStack.authSys.service.notification.EmailServiceInstance;
 import com.techStack.authSys.service.security.AccountLockServiceImpl;
 import com.techStack.authSys.service.security.EncryptionService;
 import io.micrometer.core.instrument.DistributionSummary;
@@ -80,7 +80,7 @@ public class PasswordExpiryService {
     private final Clock clock;
     private final AccountLockServiceImpl lockService;
     private final TaskScheduler taskScheduler;
-    private final EmailServiceInstance1 emailServiceInstance1;
+    private final EmailServiceInstance emailServiceInstance1;
     private final CustomAuthRepository customAuthRepository;
 
     /* =========================
@@ -110,7 +110,7 @@ public class PasswordExpiryService {
             Clock clock,
             AccountLockServiceImpl lockService,
             TaskScheduler taskScheduler,
-            EmailServiceInstance1 emailServiceInstance1,
+            EmailServiceInstance emailServiceInstance1,
             MeterRegistry meterRegistry,
             CustomAuthRepository customAuthRepository
     ) {

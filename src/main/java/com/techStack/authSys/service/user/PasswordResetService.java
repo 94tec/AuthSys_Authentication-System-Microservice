@@ -1,7 +1,6 @@
 package com.techStack.authSys.service.user;
 
 import com.techStack.authSys.dto.request.UserRegistrationDTO;
-import com.techStack.authSys.dto.response.UserDTO;
 import com.techStack.authSys.exception.account.UserNotFoundException;
 import com.techStack.authSys.exception.auth.InvalidTokenException;
 import com.techStack.authSys.exception.auth.TokenGenerationException;
@@ -10,7 +9,7 @@ import com.techStack.authSys.exception.email.EmailSendingException;
 import com.techStack.authSys.exception.password.PasswordUpdateException;
 import com.techStack.authSys.models.user.User;
 import com.techStack.authSys.service.auth.FirebaseServiceAuth;
-import com.techStack.authSys.service.notification.EmailServiceInstance1;
+import com.techStack.authSys.service.notification.EmailServiceInstance;
 import com.techStack.authSys.service.security.DomainValidationService;
 import com.techStack.authSys.service.token.PasswordResetTokenService;
 import lombok.RequiredArgsConstructor;
@@ -34,7 +33,7 @@ public class PasswordResetService {
 
     private final FirebaseServiceAuth firebaseServiceAuth;
     private final PasswordEncoder passwordEncoder;
-    private final EmailServiceInstance1 emailService;
+    private final EmailServiceInstance emailService;
     private final PasswordResetTokenService tokenService;
     private final PasswordPolicyService passwordPolicyService;
     private final DomainValidationService domainValidationService;

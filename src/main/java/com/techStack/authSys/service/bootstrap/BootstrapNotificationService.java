@@ -2,7 +2,7 @@ package com.techStack.authSys.service.bootstrap;
 
 import com.techStack.authSys.models.audit.ActionType;
 import com.techStack.authSys.service.observability.AuditLogService;
-import com.techStack.authSys.service.notification.EmailServiceInstance1;
+import com.techStack.authSys.service.notification.EmailServiceInstance;
 import com.techStack.authSys.util.validation.HelperUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -19,7 +19,7 @@ import reactor.core.scheduler.Schedulers;
 @RequiredArgsConstructor
 public class BootstrapNotificationService {
 
-    private final EmailServiceInstance1 emailService;
+    private final EmailServiceInstance emailService;
     private final AuditLogService auditLogService;
 
     private static final String WELCOME_EMAIL_SUBJECT = "Your Super Admin Account";

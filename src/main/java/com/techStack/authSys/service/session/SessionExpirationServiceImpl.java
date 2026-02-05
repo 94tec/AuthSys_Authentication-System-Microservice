@@ -9,7 +9,7 @@ import com.techStack.authSys.exception.security.SessionException;
 import com.techStack.authSys.models.session.SessionStatus;
 import com.techStack.authSys.repository.session.SessionExpirationService;
 import com.techStack.authSys.repository.sucurity.RateLimiterService;
-import com.techStack.authSys.service.notification.EmailService;
+import com.techStack.authSys.service.notification.BrevoEmailService;
 import com.techStack.authSys.service.observability.AuditLogService;
 import com.techStack.authSys.util.firebase.FirestoreUtil;
 import lombok.RequiredArgsConstructor;
@@ -47,7 +47,7 @@ public class SessionExpirationServiceImpl implements SessionExpirationService {
     private final Firestore firestore;
     private final FirebaseAuth firebaseAuth;
     private final AuditLogService auditLogService;
-    private final EmailService emailService;
+    private final BrevoEmailService emailService;
     private final Clock clock;
 
     @Lazy

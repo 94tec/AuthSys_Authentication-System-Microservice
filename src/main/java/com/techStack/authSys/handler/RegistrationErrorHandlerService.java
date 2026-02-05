@@ -1,4 +1,4 @@
-package com.techStack.authSys.exception.handler;
+package com.techStack.authSys.handler;
 
 import com.google.firebase.auth.FirebaseAuthException;
 import com.techStack.authSys.constants.SecurityConstants;

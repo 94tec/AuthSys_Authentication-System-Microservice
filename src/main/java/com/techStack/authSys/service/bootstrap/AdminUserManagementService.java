@@ -1,7 +1,6 @@
 package com.techStack.authSys.service.bootstrap;
 
 import com.techStack.authSys.dto.response.UserDTO;
-import com.techStack.authSys.models.user.Roles;
 import com.techStack.authSys.models.user.User;
 import com.techStack.authSys.models.user.UserFactory;
 import com.techStack.authSys.repository.metrics.MetricsService;
@@ -9,7 +8,7 @@ import com.techStack.authSys.service.auth.DeviceVerificationService;
 import com.techStack.authSys.service.auth.FirebaseServiceAuth;
 import com.techStack.authSys.service.authorization.RoleAssignmentService;
 import com.techStack.authSys.service.cache.RedisUserCacheService;
-import com.techStack.authSys.service.notification.EmailServiceInstance1;
+import com.techStack.authSys.service.notification.EmailServiceInstance;
 import com.techStack.authSys.service.observability.AuditLogService;
 import com.techStack.authSys.service.token.JwtService;
 import com.techStack.authSys.util.password.PasswordUtils;
@@ -44,7 +43,7 @@ public class AdminUserManagementService {
     private final RoleAssignmentService roleAssignmentService;
     private final DeviceVerificationService deviceVerificationService;
     private final RedisUserCacheService redisCacheService;
-    private final EmailServiceInstance1 emailService;
+    private final EmailServiceInstance emailService;
     private final AuditLogService auditLogService;
     private final MetricsService metricsService;
     private final JwtService jwtService;

@@ -1,7 +1,7 @@
 package com.techStack.authSys.service.bootstrap;
 
 import com.google.firebase.auth.FirebaseAuth;
-import com.techStack.authSys.service.notification.EmailServiceInstance1;
+import com.techStack.authSys.service.notification.EmailServiceInstance;
 import com.techStack.authSys.util.validation.HelperUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -18,7 +18,7 @@ import reactor.core.scheduler.Schedulers;
 @RequiredArgsConstructor
 public class BootstrapPasswordRecoveryService {
 
-    private final EmailServiceInstance1 emailService;
+    private final EmailServiceInstance emailService;
 
     /**
      * Sends Firebase password reset link to user.

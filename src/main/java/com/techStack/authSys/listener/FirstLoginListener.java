@@ -1,8 +1,8 @@
 package com.techStack.authSys.listener;
 
-import com.techStack.authSys.event.UserRegisteredEvent;
+import com.techStack.authSys.event.FirstLoginEvent;
 import com.techStack.authSys.models.audit.ActionType;
-import com.techStack.authSys.service.notification.BrevoEmailService;
+import com.techStack.authSys.service.notification.EmailService;
 import com.techStack.authSys.service.observability.AuditLogService;
 import com.techStack.authSys.util.validation.HelperUtils;
 import lombok.RequiredArgsConstructor;
@@ -16,21 +16,21 @@ import java.time.Duration;
 import java.time.Instant;
 
 /**
- * User Registered Event Listener
+ * First Login Event Listener
  *
- * Handles user registration events.
- * Uses Clock for timestamp tracking and audit logging.
+ * Handles first login events.
+ * Sends notification email and creates audit log.
  */
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class UserRegisteredEventListener {
+public class FirstLoginListener {
 
     /* =========================
        Dependencies
        ========================= */
 
-    private final BrevoEmailService emailService;
+    private final EmailService emailService;
     private final AuditLogService auditLogService;
     private final Clock clock;
 
@@ -39,29 +39,29 @@ public class UserRegisteredEventListener {
        ========================= */
 
     /**
-     * Handle user registered event
+     * Handle first login event
      */
     @Async
     @EventListener
-    public void handleUserRegisteredEvent(UserRegisteredEvent event) {
+    public void handleFirstLogin(FirstLoginEvent event) {
         Instant processingStart = clock.instant();
 
-        log.info("Processing UserRegisteredEvent at {} for user: {} from IP: {}",
+        log.info("Processing FirstLoginEvent at {} for user: {} from IP: {}",
                 processingStart,
                 HelperUtils.maskEmail(event.getUser().getEmail()),
                 event.getIpAddress());
 
         try {
-            // Send welcome email
-            sendWelcomeEmail(event);
+            // Send first login notification email
+            sendFirstLoginEmail(event);
 
-            // Log the registration
-            logRegistration(event);
+            // Log the first login
+            logFirstLogin(event);
 
             Instant processingEnd = clock.instant();
             Duration processingDuration = Duration.between(processingStart, processingEnd);
 
-            log.info("✅ UserRegisteredEvent processed at {} in {} for user: {}",
+            log.info("✅ FirstLoginEvent processed at {} in {} for user: {}",
                     processingEnd,
                     processingDuration,
                     HelperUtils.maskEmail(event.getUser().getEmail()));
@@ -69,7 +69,7 @@ public class UserRegisteredEventListener {
         } catch (Exception e) {
             Instant errorTime = clock.instant();
 
-            log.error("❌ Failed to process UserRegisteredEvent at {} for user {}: {}",
+            log.error("❌ Failed to process FirstLoginEvent at {} for user {}: {}",
                     errorTime,
                     HelperUtils.maskEmail(event.getUser().getEmail()),
                     e.getMessage(),
@@ -77,10 +77,8 @@ public class UserRegisteredEventListener {
 
             // Log the failure
             auditLogService.logSystemEvent(
-                    "REGISTRATION_EVENT_PROCESSING_FAILURE",
-                    "Failed to process registration event for " +
-                            HelperUtils.maskEmail(event.getUser().getEmail()) +
-                            ": " + e.getMessage()
+                    "FIRST_LOGIN_EVENT_PROCESSING_FAILURE",
+                    "Failed to process first login event: " + e.getMessage()
             );
         }
     }
@@ -90,21 +88,22 @@ public class UserRegisteredEventListener {
        ========================= */
 
     /**
-     * Send welcome email to new user
+     * Send first login notification email
      */
-    private void sendWelcomeEmail(UserRegisteredEvent event) {
+    private void sendFirstLoginEmail(FirstLoginEvent event) {
         Instant emailStart = clock.instant();
 
         try {
-            emailService.sendWelcomeEmail(
+            emailService.sendFirstLoginNotification(
                     event.getUser().getEmail(),
-                    event.getIpAddress()
+                    event.getIpAddress(),
+                    event.getTimestamp()
             );
 
             Instant emailEnd = clock.instant();
             Duration emailDuration = Duration.between(emailStart, emailEnd);
 
-            log.info("📧 Welcome email sent at {} in {} to: {}",
+            log.info("📧 First login email sent at {} in {} to: {}",
                     emailEnd,
                     emailDuration,
                     HelperUtils.maskEmail(event.getUser().getEmail()));
@@ -112,54 +111,38 @@ public class UserRegisteredEventListener {
         } catch (Exception e) {
             Instant errorTime = clock.instant();
 
-            log.error("❌ Failed to send welcome email at {} to {}: {}",
+            log.error("❌ Failed to send first login email at {} to {}: {}",
                     errorTime,
                     HelperUtils.maskEmail(event.getUser().getEmail()),
                     e.getMessage());
 
             // Log email failure
             auditLogService.logSystemEvent(
-                    "WELCOME_EMAIL_FAILURE",
-                    "Failed to send welcome email to " +
+                    "FIRST_LOGIN_EMAIL_FAILURE",
+                    "Failed to send first login email to " +
                             HelperUtils.maskEmail(event.getUser().getEmail())
             );
         }
     }
 
     /**
-     * Log user registration
+     * Log first login to audit trail
      */
-    private void logRegistration(UserRegisteredEvent event) {
+    private void logFirstLogin(FirstLoginEvent event) {
         Instant auditStart = clock.instant();
 
         try {
-            // Log registration event
-            auditLogService.logUserEvent(
-                    event.getUser().getId(),
-                    "USER_REGISTERED",
-                    buildRegistrationDetails(event)
-            );
-
-            // Log detailed audit
             auditLogService.logUserEvent(
                     event.getUser(),
-                    ActionType.REGISTRATION,
-                    buildRegistrationDetails(event),
-                    event.getIpAddress()
-            );
-
-            // Log registration success
-            auditLogService.logRegistrationSuccess(
-                    event.getUser().getEmail(),
-                    event.getUser().getRoles(),
-                    event.getUser().getStatus(),
+                    ActionType.FIRST_LOGIN,
+                    buildFirstLoginDetails(event),
                     event.getIpAddress()
             );
 
             Instant auditEnd = clock.instant();
             Duration auditDuration = Duration.between(auditStart, auditEnd);
 
-            log.debug("Audit logs created at {} in {} for user: {}",
+            log.debug("Audit log created at {} in {} for first login: {}",
                     auditEnd,
                     auditDuration,
                     HelperUtils.maskEmail(event.getUser().getEmail()));
@@ -167,7 +150,7 @@ public class UserRegisteredEventListener {
         } catch (Exception e) {
             Instant errorTime = clock.instant();
 
-            log.error("❌ Failed to log registration at {} for user {}: {}",
+            log.error("❌ Failed to log first login at {} for user {}: {}",
                     errorTime,
                     HelperUtils.maskEmail(event.getUser().getEmail()),
                     e.getMessage());
@@ -175,21 +158,16 @@ public class UserRegisteredEventListener {
     }
 
     /**
-     * Build detailed registration information
+     * Build detailed first login information
      */
-    private String buildRegistrationDetails(UserRegisteredEvent event) {
+    private String buildFirstLoginDetails(FirstLoginEvent event) {
         StringBuilder details = new StringBuilder();
-        details.append("New user registered from IP: ").append(event.getIpAddress());
+        details.append("First login from IP: ").append(event.getIpAddress());
 
         if (event.getDeviceFingerprint() != null) {
             details.append(" | Device: ").append(event.getDeviceFingerprint());
         }
 
-        if (event.getRequestedRoles() != null && !event.getRequestedRoles().isEmpty()) {
-            details.append(" | Requested Roles: ").append(event.getRequestedRoles());
-        }
-
-        details.append(" | Status: ").append(event.getUser().getStatus());
         details.append(" | Event Time: ").append(event.getTimestamp());
 
         return details.toString();
