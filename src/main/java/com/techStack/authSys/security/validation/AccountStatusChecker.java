@@ -5,7 +5,6 @@ import com.techStack.authSys.exception.account.AccountLockedException;
 import com.techStack.authSys.exception.account.AccountNotFoundException;
 import com.techStack.authSys.exception.email.EmailNotVerifiedException;
 import com.techStack.authSys.models.user.User;
-import com.techStack.authSys.repository.sucurity.AccountLockService;
 import com.techStack.authSys.service.auth.FirebaseServiceAuth;
 import com.techStack.authSys.service.observability.AuditLogService;
 import com.techStack.authSys.service.security.AccountLockServiceImpl;

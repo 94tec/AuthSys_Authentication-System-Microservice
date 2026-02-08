@@ -6,10 +6,10 @@ import com.techStack.authSys.exception.password.PasswordWarningException;
 import com.techStack.authSys.models.common.ProcessResult;
 import com.techStack.authSys.models.user.User;
 import com.techStack.authSys.models.user.UserPasswordHistory;
+import com.techStack.authSys.repository.notification.EmailService;
 import com.techStack.authSys.repository.user.CustomAuthRepository;
 import com.techStack.authSys.repository.user.UserPasswordHistoryRepository;
 import com.techStack.authSys.service.auth.FirebaseServiceAuth;
-import com.techStack.authSys.service.notification.EmailServiceInstance;
 import com.techStack.authSys.service.security.AccountLockServiceImpl;
 import com.techStack.authSys.service.security.EncryptionService;
 import io.micrometer.core.instrument.DistributionSummary;
@@ -80,7 +80,7 @@ public class PasswordExpiryService {
     private final Clock clock;
     private final AccountLockServiceImpl lockService;
     private final TaskScheduler taskScheduler;
-    private final EmailServiceInstance emailServiceInstance1;
+    private final EmailService emailService;
     private final CustomAuthRepository customAuthRepository;
 
     /* =========================
@@ -110,7 +110,7 @@ public class PasswordExpiryService {
             Clock clock,
             AccountLockServiceImpl lockService,
             TaskScheduler taskScheduler,
-            EmailServiceInstance emailServiceInstance1,
+            EmailService emailService,
             MeterRegistry meterRegistry,
             CustomAuthRepository customAuthRepository
     ) {
@@ -120,7 +120,7 @@ public class PasswordExpiryService {
         this.clock = clock;
         this.lockService = lockService;
         this.taskScheduler = taskScheduler;
-        this.emailServiceInstance1 = emailServiceInstance1;
+        this.emailService = emailService;
         this.customAuthRepository = customAuthRepository;
 
         this.cleanupDurationMetrics = DistributionSummary
@@ -382,7 +382,7 @@ public class PasswordExpiryService {
             log.info("Sending password expiry warning to {} ({} days remaining) at {}",
                     user.getEmail(), daysRemaining, clock.instant());
 
-            return emailServiceInstance1.sendPasswordExpiryWarning(
+            return emailService.sendPasswordExpiryWarning(
                     user.getEmail(),
                     daysRemaining,
                     null
@@ -426,7 +426,7 @@ public class PasswordExpiryService {
                 )
                 .doOnSuccess(v -> log.info("Locked account {} due to password expiry at {}",
                         user.getEmail(), now))
-                .then(emailServiceInstance1.sendPasswordExpiredNotification(
+                .then(emailService.sendPasswordExpiredNotification(
                         user.getEmail(),
                         daysExpired,
                         "Your account has been locked due to password expiration"
@@ -437,7 +437,7 @@ public class PasswordExpiryService {
      * Notify without locking
      */
     private Mono<Void> notifyOnly(User user, long daysExpired) {
-        return emailServiceInstance1.sendPasswordExpiredNotification(
+        return emailService.sendPasswordExpiredNotification(
                 user.getEmail(),
                 daysExpired,
                 "Please change your password immediately"

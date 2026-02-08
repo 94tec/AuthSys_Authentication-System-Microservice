@@ -1,4 +1,4 @@
-package com.techStack.authSys.repository.sucurity;
+package com.techStack.authSys.repository.security;
 
 import reactor.core.publisher.Mono;
 

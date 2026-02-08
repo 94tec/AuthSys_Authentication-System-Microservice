@@ -1,7 +1,7 @@
 package com.techStack.authSys.service.security;
 
 import com.techStack.authSys.repository.metrics.MetricsService;
-import com.techStack.authSys.repository.sucurity.RateLimiterService;
+import com.techStack.authSys.repository.security.RateLimiterService;
 import com.techStack.authSys.service.observability.AuditLogService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;

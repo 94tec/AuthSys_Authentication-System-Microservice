@@ -77,6 +77,9 @@ public final class SecurityConstants {
     public static final int MAX_FAILED_ATTEMPTS = 5;
     public static final Duration DEFAULT_LOCK_DURATION = Duration.ofMinutes(30);
     public static final long FAILED_ATTEMPT_EXPIRY_HOURS = 1;
+    public static final String LOCK_PREFIX = "account_lock:";
+    public static final String ATTEMPTS_PREFIX = "failed_attempts:";
+    public static final String COLLECTION_ACCOUNT_LOCKS = "account_locks";
 
     // Password Policy
     public static final int MIN_PASSWORD_LENGTH = 12;
@@ -95,6 +98,8 @@ public final class SecurityConstants {
     // Session
     public static final int MAX_CONCURRENT_SESSIONS = 3;
     public static final Duration SESSION_IDLE_TIMEOUT = Duration.ofHours(24);
+    public static final Duration ACTIVE_SESSION_TTL = Duration.ofMinutes(15);
+    public static final int BATCH_SIZE = 500;
 
     // Collection names
     public static final String COLLECTION_USERS = "users";

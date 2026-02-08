@@ -3,7 +3,7 @@ package com.techStack.authSys.service.security;
 import com.google.cloud.Timestamp;
 import com.google.cloud.firestore.DocumentReference;
 import com.google.cloud.firestore.Firestore;
-import com.techStack.authSys.repository.sucurity.AccountLockService;
+import com.techStack.authSys.repository.security.AccountLockService;
 import com.techStack.authSys.service.observability.AuditLogService;
 import com.techStack.authSys.util.firebase.FirestoreUtil;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +23,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
+import static com.techStack.authSys.constants.SecurityConstants.*;
+
 /**
  * Account Lock Service Implementation
  *
@@ -33,10 +35,6 @@ import java.util.concurrent.ConcurrentHashMap;
 @RequiredArgsConstructor
 @Slf4j
 public class AccountLockServiceImpl implements AccountLockService {
-
-    private static final String LOCK_PREFIX = "account_lock:";
-    private static final String ATTEMPTS_PREFIX = "failed_attempts:";
-    private static final String COLLECTION_ACCOUNT_LOCKS = "account_locks";
 
     /* =========================
        Configuration

@@ -30,6 +30,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import static com.techStack.authSys.constants.SecurityConstants.*;
+
 /**
  * Session Service Implementation
  *
@@ -41,21 +43,12 @@ import java.util.Set;
 public class SessionServiceImpl implements SessionService {
 
     /* =========================
-       Constants
-       ========================= */
-
-    private static final Duration ACTIVE_SESSION_TTL = Duration.ofMinutes(15);
-    private static final String SESSION_COLLECTION = "sessions";
-    private static final int BATCH_SIZE = 500;
-
-    /* =========================
        Dependencies
        ========================= */
 
     private final ReactiveRedisTemplate<String, SessionRecord> redisTemplate;
     private final ReactiveRedisTemplate<String, SessionRecord> sessionRecordRedisTemplate;
     private final Firestore firestore;
-    private final SessionExpirationService sessionExpirationService;
     private final AuditLogService auditLogService;
     private final Clock clock;
 
@@ -64,13 +57,11 @@ public class SessionServiceImpl implements SessionService {
             ReactiveRedisTemplate<String, SessionRecord> redisTemplate,
             ReactiveRedisTemplate<String, SessionRecord> sessionRecordRedisTemplate,
             Firestore firestore,
-            SessionExpirationService sessionExpirationService,
             AuditLogService auditLogService,
             Clock clock) {
         this.redisTemplate = redisTemplate;
         this.sessionRecordRedisTemplate = sessionRecordRedisTemplate;
         this.firestore = firestore;
-        this.sessionExpirationService = sessionExpirationService;
         this.auditLogService = auditLogService;
         this.clock = clock;
     }
@@ -418,24 +409,22 @@ public class SessionServiceImpl implements SessionService {
                                         .get()
                         )
                 )
-                .flatMap(querySnapshot -> {
+                .map(querySnapshot -> {
                     boolean isValid = !querySnapshot.isEmpty();
 
                     Instant validationEnd = clock.instant();
                     Duration duration = Duration.between(validationStart, validationEnd);
 
                     if (!isValid) {
-                        log.warn("❌ Invalid session at {} for user: {} - forcing logout",
+                        log.warn("❌ Invalid session at {} for user: {}",
                                 validationEnd, userId);
-
-                        return sessionExpirationService.forceLogout(userId)
-                                .thenReturn(false);
+                        // ✅ JUST LOG, DON'T FORCE LOGOUT
+                    } else {
+                        log.debug("✅ Session validated at {} in {} for user: {}",
+                                validationEnd, duration, userId);
                     }
 
-                    log.debug("✅ Session validated at {} in {} for user: {}",
-                            validationEnd, duration, userId);
-
-                    return Mono.just(true);
+                    return isValid;  // ✅ Return validation result
                 });
     }
 

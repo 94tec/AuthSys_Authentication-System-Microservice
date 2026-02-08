@@ -8,7 +8,7 @@ import com.techStack.authSys.event.AuthSuccessEvent;
 import com.techStack.authSys.event.FirstLoginEvent;
 import com.techStack.authSys.models.user.User;
 import com.techStack.authSys.service.observability.AuditLogService;
-import com.techStack.authSys.repository.sucurity.RateLimiterService;
+import com.techStack.authSys.repository.security.RateLimiterService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -19,9 +19,7 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
-import java.time.Clock;
 import java.time.Instant;
-import java.util.Set;
 
 /**
  * Handles authentication-related events and side effects.
