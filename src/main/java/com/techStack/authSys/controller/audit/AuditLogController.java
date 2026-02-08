@@ -125,13 +125,10 @@ public class AuditLogController {
 
         return firebaseServiceAuth.getUserById(userId)
                 .flatMap(user -> {
-                    List<String> permissions = permissionProvider.resolveEffectivePermissions(user)
-                            .stream()
-                            .map(Enum::name)
-                            .toList();
-                    List<String> roles = user.getRoleNames();
+                    // resolveEffectivePermissions already returns Set<String>
+                    var effectivePermissions = permissionProvider.resolveEffectivePermissions(user);
+                    var roles = user.getRoleNames();
 
-                    // Create audit event
                     AuditEventLog event = new AuditEventLog();
                     event.setAction("PERMISSION_CHECK");
                     event.setPerformedBy(adminId);
@@ -139,13 +136,19 @@ public class AuditLogController {
                     event.setTimestamp(checkTime);
                     event.setMetadata(Map.of(
                             "roles", roles,
-                            "checkedPermissions", permissions
+                            "checkedPermissions", effectivePermissions
                     ));
 
-                    // Log audit event
+                    // Build DTO using builder
+                    UserPermissionsDTO dto = UserPermissionsDTO.builder()
+                            .userId(userId)
+                            .roles(roles)
+                            .permissions(user.getAdditionalPermissions())
+                            .allPermissions(effectivePermissions)
+                            .build();
+
                     return auditLogService.logEventLog(event)
-                            .thenReturn(new UserPermissionsDTO(userId, roles, permissions))
-                            .map(dto -> ResponseEntity.ok(Map.of(
+                            .thenReturn(ResponseEntity.ok(Map.of(
                                     "success", true,
                                     "data", dto,
                                     "checkedAt", checkTime.toString(),

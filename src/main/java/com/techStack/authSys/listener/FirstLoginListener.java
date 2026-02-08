@@ -2,7 +2,7 @@ package com.techStack.authSys.listener;
 
 import com.techStack.authSys.event.FirstLoginEvent;
 import com.techStack.authSys.models.audit.ActionType;
-import com.techStack.authSys.service.notification.EmailService;
+import com.techStack.authSys.repository.notification.EmailService;
 import com.techStack.authSys.service.observability.AuditLogService;
 import com.techStack.authSys.util.validation.HelperUtils;
 import lombok.RequiredArgsConstructor;
@@ -97,7 +97,7 @@ public class FirstLoginListener {
             emailService.sendFirstLoginNotification(
                     event.getUser().getEmail(),
                     event.getIpAddress(),
-                    event.getTimestamp()
+                    event.getEventTimestamp()
             );
 
             Instant emailEnd = clock.instant();

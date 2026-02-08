@@ -9,7 +9,6 @@ import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 import com.google.cloud.spring.data.firestore.repository.config.EnableReactiveFirestoreRepositories;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.cache.annotation.EnableCaching;
-import org.springframework.context.annotation.Bean;
 import org.springframework.scheduling.annotation.EnableAsync;
 
 import java.time.Clock;
@@ -27,8 +26,4 @@ public class AuthSysApplication {
 		System.out.println("AuthSys Application started successfully!");
 	}
 
-	@Bean
-	public Clock clock() {
-		return Clock.systemDefaultZone();
-	}
 }

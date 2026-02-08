@@ -22,26 +22,23 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
-
 @Service
 @RequiredArgsConstructor
 public class DeviceVerificationService {
+
     private static final Logger logger = LoggerFactory.getLogger(DeviceVerificationService.class);
-    private static final String COLLECTION_NAME = "user_fingerprints";
 
     private final AuditLogService auditLogService;
     private final ThreatDetectionService threatDetectionService;
     private final RedisSecurityService redisService;
     private final Firestore firestore;
 
-    private static final Pattern IPV4_PATTERN = Pattern.compile(
-            "^([0-9]{1,3}\\.){3}[0-9]{1,3}$"
-    );
-    private static final Pattern IPV6_PATTERN = Pattern.compile(
-            "^[0-9a-fA-F:]+$"
-    );
+    private static final Pattern IPV4_PATTERN = Pattern.compile("^([0-9]{1,3}\\.){3}[0-9]{1,3}$");
+    private static final Pattern IPV6_PATTERN = Pattern.compile("^[0-9a-fA-F:]+$");
+
     private static final String FALLBACK_IP = "0.0.0.0";
     private static final String UNKNOWN_DEVICE = "unknown-device";
 
@@ -60,57 +57,63 @@ public class DeviceVerificationService {
     /**
      * Verifies a device based on fingerprint, IP, and user agent
      */
-    public Mono<Boolean> verifyDevice(String userId, String deviceFingerprint, String ipAddress, String userAgent) {
+    public Mono<Boolean> verifyDevice(
+            String userId,
+            String deviceFingerprint,
+            String ipAddress,
+            String userAgent
+    ) {
         if (!verificationEnabled) {
             return Mono.just(true);
         }
 
         return Mono.defer(() -> {
-            // Basic validation
+
             if (!isValidDeviceFingerprint(deviceFingerprint)) {
                 logger.warn("Invalid device fingerprint format: {}", deviceFingerprint);
                 return Mono.error(new DeviceVerificationException("Invalid device identifier"));
             }
 
-            // Check threat intelligence
             return threatDetectionService.checkDeviceReputation(deviceFingerprint, ipAddress)
                     .flatMap(isMalicious -> {
                         if (isMalicious) {
                             auditLogService.logSecurityEvent(
                                     "MALICIOUS_DEVICE_DETECTED",
                                     ipAddress,
-                                    Map.of("deviceFingerprint", deviceFingerprint, "userAgent", userAgent).toString()
+                                    Map.of(
+                                            "deviceFingerprint", deviceFingerprint,
+                                            "userAgent", userAgent
+                                    ).toString()
                             );
                             return Mono.error(new DeviceVerificationException("Device flagged as malicious"));
                         }
 
-                        // Check if device is known and trusted
                         return checkKnownDevice(userId, deviceFingerprint, ipAddress, userAgent);
                     })
                     .timeout(Duration.ofSeconds(3))
                     .onErrorResume(e -> {
-                        logger.error("Device verification failed: {}", e.getMessage());
+                        logger.error("Device verification failed: {}", e.getMessage(), e);
                         return Mono.error(new DeviceVerificationException("Device verification unavailable"));
                     });
         });
     }
+
+    /**
+     * Generates ONE device fingerprint
+     */
     public String generateDeviceFingerprint(String ipAddress, String userAgent) {
         try {
             logger.debug("Generating device fingerprint for IP: {}, UserAgent: {}", ipAddress, userAgent);
 
-            // Validate inputs
             if (!isValidInput(ipAddress, userAgent)) {
-                logger.warn("Invalid input for device fingerprint generation - IP: {}, UserAgent: {}", ipAddress, userAgent);
+                logger.warn("Invalid input for fingerprint generation - IP: {}, UserAgent: {}", ipAddress, userAgent);
                 return UNKNOWN_DEVICE;
             }
 
-            // Normalize inputs
             String normalizedIp = normalizeIp(ipAddress);
             String normalizedUserAgent = userAgent.trim().toLowerCase();
 
-            // Generate consistent fingerprint
-            String input = String.format("%s|%s", normalizedIp, normalizedUserAgent);
-            String fingerprint = DigestUtils.sha256Hex(input);
+            String fingerprint = DigestUtils.sha256Hex(normalizedIp + "|" + normalizedUserAgent);
 
             logger.debug("Generated fingerprint: {}", fingerprint);
             return fingerprint;
@@ -120,15 +123,14 @@ public class DeviceVerificationService {
             return UNKNOWN_DEVICE;
         }
     }
+
     /**
      * Safely extracts the real client IP address from ServerWebExchange.
-     * Prefers X-Forwarded-For, falls back to remote address.
      */
     public String extractClientIp(ServerWebExchange exchange) {
         try {
             ServerHttpRequest request = exchange.getRequest();
 
-            // 1) Check X-Forwarded-For header
             String forwardedIps = request.getHeaders().getFirst("X-Forwarded-For");
             logger.info("X-Forwarded-For: {}", forwardedIps);
 
@@ -144,7 +146,6 @@ public class DeviceVerificationService {
                 }
             }
 
-            // 2) Fall back to remote address
             InetSocketAddress remote = request.getRemoteAddress();
             if (remote != null && remote.getAddress() != null) {
                 String ip = remote.getAddress().getHostAddress();
@@ -154,7 +155,6 @@ public class DeviceVerificationService {
                 return normalized;
             }
 
-            // 3) Last fallback
             logger.warn("Could not resolve client IP, returning fallback.");
             return FALLBACK_IP;
 
@@ -164,26 +164,6 @@ public class DeviceVerificationService {
         }
     }
 
-    private boolean isValidInput(String ip, String userAgent) {
-        return StringUtils.hasText(ip) && StringUtils.hasText(userAgent);
-    }
-
-    private boolean isValidIp(String ipAddress) {
-        if (!StringUtils.hasText(ipAddress)) {
-            return false;
-        }
-
-        ipAddress = normalizeIp(ipAddress);
-
-        // IPv4 pattern
-        String ipv4Pattern = "^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$";
-
-        // IPv6 pattern (simplified)
-        String ipv6Pattern = "^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$";
-
-        return ipAddress.matches(ipv4Pattern) || ipAddress.matches(ipv6Pattern);
-    }
-
     public String normalizeIp(String ip) {
         if (!StringUtils.hasText(ip)) {
             return FALLBACK_IP;
@@ -191,18 +171,17 @@ public class DeviceVerificationService {
 
         ip = ip.trim();
 
-        // Normalize IPv6 loopback
         if ("0:0:0:0:0:0:0:1".equals(ip) || "::1".equals(ip)) {
             return "127.0.0.1";
         }
 
-        // Remove IPv6 scope if present
         if (ip.contains("%")) {
             ip = ip.substring(0, ip.indexOf("%"));
         }
 
         return ip;
     }
+
     public Mono<Void> saveUserFingerprint(String userId, String fingerprint) {
         return Mono.fromRunnable(() -> {
             try {
@@ -210,33 +189,42 @@ public class DeviceVerificationService {
                 fingerprintData.put("deviceFingerprint", fingerprint);
                 fingerprintData.put("timestamp", System.currentTimeMillis());
 
-                firestore.collection("users") // main collection
-                        .document(userId) // user document
+                firestore.collection("users")
+                        .document(userId)
                         .collection("fingerprints")
                         .add(fingerprintData)
                         .get();
+
                 logger.info("Stored device fingerprint for user: {}", userId);
+
             } catch (Exception e) {
                 logger.error("Failed to store device fingerprint for user: {}", userId, e);
             }
         });
     }
+
     /**
      * Registers a new trusted device
      */
-    public Mono<Void> registerTrustedDevice(String userId, String deviceFingerprint, String ipAddress, String userAgent) {
+    public Mono<Void> registerTrustedDevice(
+            String userId,
+            String deviceFingerprint,
+            String ipAddress,
+            String userAgent
+    ) {
         return Mono.defer(() -> {
+
+            Instant now = Instant.now();
+
             DeviceInfo deviceInfo = DeviceInfo.builder()
                     .deviceFingerprint(deviceFingerprint)
                     .userId(userId)
                     .ipAddress(ipAddress)
                     .userAgent(userAgent)
-                    .createdAt(Instant.now())
-                    .expiresAt(Instant.now().plusSeconds(cacheTtlSeconds))
+                    .createdAt(now)
+                    .expiresAt(now.plusSeconds(cacheTtlSeconds))
                     .build();
 
-
-            // Store in Redis
             return redisService.registerDevice(deviceInfo)
                     .then(Mono.fromRunnable(() ->
                             knownDevicesCache.put(buildCacheKey(userId, deviceFingerprint), deviceInfo)
@@ -248,8 +236,12 @@ public class DeviceVerificationService {
     /**
      * Checks if device is known and trusted
      */
-    private Mono<Boolean> checkKnownDevice(String userId,String deviceFingerprint, String ipAddress, String userAgent) {
-        // First check in-memory cache
+    private Mono<Boolean> checkKnownDevice(
+            String userId,
+            String deviceFingerprint,
+            String ipAddress,
+            String userAgent
+    ) {
         DeviceInfo cachedInfo = knownDevicesCache.values().stream()
                 .filter(info -> info.getDeviceFingerprint().equals(deviceFingerprint))
                 .findFirst()
@@ -259,16 +251,16 @@ public class DeviceVerificationService {
             return Mono.just(true);
         }
 
-        // Fallback to Redis lookup
         return redisService.getDevice(userId, deviceFingerprint)
                 .map(deviceInfo -> {
-                    // Validate device context
+
                     boolean ipMatches = deviceInfo.getIpAddress().equals(ipAddress);
                     boolean userAgentMatches = deviceInfo.getUserAgent().equals(userAgent);
 
                     if (!ipMatches || !userAgentMatches) {
                         logger.warn("Device context changed - Fingerprint: {}, Old IP: {}, New IP: {}",
                                 deviceFingerprint, deviceInfo.getIpAddress(), ipAddress);
+
                         auditLogService.logSecurityEvent(
                                 "DEVICE_CONTEXT_CHANGE",
                                 ipAddress,
@@ -286,14 +278,12 @@ public class DeviceVerificationService {
                 })
                 .defaultIfEmpty(false);
     }
-    /**
-     * Enforces maximum devices per user
-     */
+
     private Mono<Void> checkAndEnforceDeviceLimit(String userId) {
         return redisService.getAllUserDevices(userId)
                 .flatMap(devices -> {
                     if (devices.size() > maxDevicesPerUser) {
-                        // Remove oldest device
+
                         DeviceInfo oldest = devices.stream()
                                 .sorted((d1, d2) -> d1.getRegistrationDate().compareTo(d2.getRegistrationDate()))
                                 .findFirst()
@@ -311,14 +301,26 @@ public class DeviceVerificationService {
     }
 
     private boolean isValidDeviceFingerprint(String fingerprint) {
-        if (fingerprint == null || !fingerprint.matches("^[a-fA-F0-9]{64}$")) {
-            logger.warn("Received unexpected device fingerprint: {}", fingerprint);
-            return false;
-        }
-        return true;
+        return fingerprint != null && fingerprint.matches("^[a-fA-F0-9]{64}$");
+    }
+
+    private boolean isValidInput(String ip, String userAgent) {
+        return StringUtils.hasText(ip) && StringUtils.hasText(userAgent);
+    }
+
+    private boolean isValidIp(String ipAddress) {
+        if (!StringUtils.hasText(ipAddress)) return false;
+
+        ipAddress = normalizeIp(ipAddress);
+
+        String ipv4Pattern = "^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$";
+        String ipv6Pattern = "^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$";
+
+        return ipAddress.matches(ipv4Pattern) || ipAddress.matches(ipv6Pattern);
     }
 
     private String buildCacheKey(String userId, String deviceFingerprint) {
         return userId + ":" + deviceFingerprint;
     }
 }
+

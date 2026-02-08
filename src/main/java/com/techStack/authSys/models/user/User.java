@@ -158,7 +158,7 @@ public class User implements UserDetails {
 
     @PropertyName("known_device_fingerprints")
     @Builder.Default
-    private Set<String> knownDeviceFingerprints = new HashSet<>();
+    private String knownDeviceFingerprints = "";
 
     // ==========================================
     // PASSWORD MANAGEMENT
@@ -319,13 +319,45 @@ public class User implements UserDetails {
         }
     }
 
-    public Set<String> getAllPermissions() {
-        Set<String> permissions = new HashSet<>();
+    /**
+     * Returns all Permissions for this user, combining role-based defaults and additional permissions.
+     */
+    public Set<Permissions> getAllPermissions() {
+        Set<Permissions> permissions = new HashSet<>();
+
+        // 1️⃣ Map additionalPermissions (Strings) -> Permissions enum
         if (additionalPermissions != null) {
-            permissions.addAll(additionalPermissions);
+            additionalPermissions.stream()
+                    .map(Permissions::fromNameSafe)   // returns Optional<Permissions>
+                    .flatMap(Optional::stream)        // filter out invalid names
+                    .forEach(permissions::add);
         }
+
+        // 2️⃣ Map roleNames (Strings) -> default role Permissions
+        if (roleNames != null) {
+            roleNames.stream()
+                    .map(Roles::fromName)             // returns Optional<Roles>
+                    .flatMap(Optional::stream)
+                    .flatMap(role -> Arrays.stream(getPermissionsForRole(role))) // Role -> Permissions[]
+                    .forEach(permissions::add);
+        }
+
         return permissions;
     }
+
+    /**
+     * Helper to map Roles -> default Permissions.
+     */
+    private Permissions[] getPermissionsForRole(Roles role) {
+        return switch (role) {
+            case SUPER_ADMIN -> Permissions.getSuperAdminPermissions();
+            case ADMIN       -> Permissions.getAdminPermissions();
+            case MANAGER     -> Permissions.getManagerPermissions();
+            case USER        -> Permissions.getUserPermissions();
+        };
+    }
+
+
 
     // ==========================================
     // ACCOUNT STATE CHECKS
@@ -360,12 +392,7 @@ public class User implements UserDetails {
                 && knownDeviceFingerprints.contains(deviceFingerprint);
     }
 
-    public void addKnownDevice(String deviceFingerprint) {
-        if (this.knownDeviceFingerprints == null) {
-            this.knownDeviceFingerprints = new HashSet<>();
-        }
-        this.knownDeviceFingerprints.add(deviceFingerprint);
-    }
+    public void addKnownDevice(String deviceFingerprint) { this.knownDeviceFingerprints = deviceFingerprint; }
 
     // ==========================================
     // SPRING SECURITY UserDetails

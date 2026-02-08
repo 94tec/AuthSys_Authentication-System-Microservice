@@ -6,6 +6,7 @@ import com.techStack.authSys.handler.RegistrationErrorHandlerService;
 import com.techStack.authSys.exception.service.ServiceUnavailableException;
 import com.techStack.authSys.models.user.User;
 import com.techStack.authSys.service.auth.DeviceVerificationService;
+import com.techStack.authSys.service.events.EventPublisherService;
 import com.techStack.authSys.service.validation.UserInputValidationService;
 import com.techStack.authSys.service.verification.EmailVerificationOrchestrator;
 import com.techStack.authSys.util.validation.HelperUtils;
@@ -20,6 +21,8 @@ import reactor.util.retry.Retry;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * User Registration Orchestrator
@@ -41,6 +44,7 @@ public class UserRegistrationOrchestrator {
     private final RegistrationSecurityService registrationSecurityService;
     private final UserCreationService userCreationService;
     private final EmailVerificationOrchestrator emailVerificationOrchestrator;
+    private final EventPublisherService eventPublisherService;
     private final RegistrationMetricsService registrationMetricsService;
     private final RegistrationErrorHandlerService errorHandlerService;
     private final DeviceVerificationService deviceVerificationService;
@@ -63,6 +67,8 @@ public class UserRegistrationOrchestrator {
                 ipAddress,
                 userAgent
         );
+        // Extract requested roles
+        Set<String> requestedRoles = extractRequestedRoles(userDto);
 
         log.info("📝 Registration attempt for email: {} from IP: {}",
                 userDto.getEmail(), ipAddress);
@@ -86,7 +92,7 @@ public class UserRegistrationOrchestrator {
 
                 // Phase 4: Success Handling
                 .doOnSuccess(user -> handleSuccessfulRegistration(
-                        user, startTime, ipAddress, deviceFingerprint))
+                        user, startTime, ipAddress, deviceFingerprint, requestedRoles))
 
                 // Phase 5: Error Handling
                 .doOnError(e -> handleRegistrationError(e, userDto.getEmail(), startTime))
@@ -106,7 +112,8 @@ public class UserRegistrationOrchestrator {
             User user,
             Instant startTime,
             String ipAddress,
-            String deviceFingerprint
+            String deviceFingerprint,
+            Set<String> requestedRoles
     ) {
         Instant now = clock.instant();
         long duration = Duration.between(startTime, now).toMillis();
@@ -116,11 +123,20 @@ public class UserRegistrationOrchestrator {
                 user.getRoleNames() != null ? user.getRoleNames().size() : 0);
 
         // Publish event for other subsystems
-        eventPublisher.publishEvent(new UserRegisteredEvent(user, ipAddress));
+        // Use EventPublisherService to publish event
+        eventPublisherService.publishUserRegistered(
+                user,
+                ipAddress,
+                deviceFingerprint,
+                requestedRoles
+        );
+
+        log.debug("User registration event published at {} for: {}",
+                clock.instant(), user.getEmail());
 
         // Record metrics
         registrationMetricsService.recordSuccessfulRegistration(
-                user, ipAddress, deviceFingerprint, duration);
+                user, ipAddress, deviceFingerprint,requestedRoles, duration);
     }
 
     /**
@@ -168,5 +184,20 @@ public class UserRegistrationOrchestrator {
         return exchange.getRequest()
                 .getHeaders()
                 .getFirst("User-Agent");
+    }
+    /**
+     * Extract requested roles from DTO
+     */
+    private Set<String> extractRequestedRoles(UserRegistrationDTO dto) {
+        // Handle null or empty - return default
+        if (dto.getRequestedRoles() == null || dto.getRequestedRoles().isEmpty()) {
+            return Set.of("USER");
+        }
+
+        // ✅ FIXED: requestedRoles is already Set<String>, no conversion needed
+        // Just ensure they're uppercase for consistency
+        return dto.getRequestedRoles().stream()
+                .map(String::toUpperCase)  // ✅ String::toUpperCase (not Enum::name)
+                .collect(Collectors.toSet());
     }
 }

@@ -12,7 +12,10 @@ import org.springframework.stereotype.Service;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.Date;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Login Response Builder
@@ -51,7 +54,7 @@ public class LoginResponseBuilder {
                 .refreshTokenExpiry(authResult.getRefreshTokenExpiry())
                 .user(userInfo)
                 .permissions(permissions)
-                .timestamp(now)
+                .timestamp(Date.from(now))
                 .build();
 
         log.info("Login response built successfully for user: {} with {} permissions",
@@ -66,17 +69,19 @@ public class LoginResponseBuilder {
        User Info Building
        ========================= */
 
-    /**
-     * Build user info DTO from AuthResult
-     */
     private AuthResponse.UserInfo buildUserInfo(AuthResult authResult) {
         return AuthResponse.UserInfo.builder()
                 .userId(authResult.getUser().getId())
                 .email(authResult.getUser().getEmail())
                 .firstName(authResult.getUser().getFirstName())
                 .lastName(authResult.getUser().getLastName())
-                .profileImageUrl(authResult.getUser().getProfilePictureUrl())
-                .roles(authResult.getRoles())
+                .profilePictureUrl(authResult.getUser().getProfilePictureUrl())
+                .roles(authResult.getRoles() == null
+                        ? Set.of()
+                        : authResult.getRoles()
+                        .stream()
+                        .map(role -> role.name()) // Roles.ADMIN -> "ADMIN"
+                        .collect(Collectors.toSet()))
                 .mfaRequired(authResult.isMfaRequired())
                 .build();
     }

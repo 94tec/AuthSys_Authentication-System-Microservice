@@ -10,6 +10,3 @@ public class PasswordResetRequest {
     @Email(message = "Invalid email format")
     private String email;
 }
-
-
-

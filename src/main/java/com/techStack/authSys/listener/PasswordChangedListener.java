@@ -2,7 +2,7 @@ package com.techStack.authSys.listener;
 
 import com.techStack.authSys.event.PasswordChangedEvent;
 import com.techStack.authSys.models.audit.ActionType;
-import com.techStack.authSys.service.notification.EmailService;
+import com.techStack.authSys.repository.notification.EmailService;
 import com.techStack.authSys.service.observability.AuditLogService;
 import com.techStack.authSys.util.validation.HelperUtils;
 import lombok.RequiredArgsConstructor;
@@ -101,7 +101,7 @@ public class PasswordChangedListener {
             emailService.sendPasswordChangedNotification(
                     event.getUser().getEmail(),
                     event.getIpAddress(),
-                    event.getTimestamp(),
+                    event.getEventTimestamp(),
                     event.isForced()
             ).subscribe(
                     null,

@@ -54,7 +54,7 @@ public class UserFactory {
                 .additionalPermissions(new ArrayList<>())
                 .attributes(new HashMap<>())
                 .passwordHistoryEntries(new ArrayList<>())
-                .knownDeviceFingerprints(new HashSet<>())
+                .knownDeviceFingerprints("")
                 .loginAttempts(0)
                 .failedLoginAttempts(0)
                 .createdAt(now)

@@ -7,7 +7,7 @@ import com.techStack.authSys.dto.internal.SessionRecord;
 import com.techStack.authSys.models.audit.AuditEventLog;
 import com.techStack.authSys.models.user.User;
 import com.techStack.authSys.models.user.UserStatus;
-import com.techStack.authSys.repository.sucurity.RateLimiterService;
+import com.techStack.authSys.repository.session.SessionService;
 import com.techStack.authSys.repository.user.FirestoreUserRepository;
 import com.techStack.authSys.service.observability.AuditLogService;
 import com.techStack.authSys.util.firebase.FirestoreUtils;
@@ -54,7 +54,7 @@ public class AdminManagementService {
     private final FirestoreUserRepository userRepository;  // ✅ Use repository pattern
     private final Firestore firestore;  // For queries only
     private final AuditLogService auditLogService;
-    private final RateLimiterService.SessionService sessionService;
+    private final SessionService sessionService;
     private final Clock clock;
 
     /* =========================

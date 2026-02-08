@@ -1,20 +1,25 @@
-package com.techStack.authSys.service.auth;
+package com.techStack.authSys.repository.authorization;
 
 import com.google.api.client.googleapis.auth.oauth2.GoogleIdToken.Payload;
 import com.techStack.authSys.models.user.User;
 import reactor.core.publisher.Mono;
 
+import java.util.Set;  // ✅ ADDED
+
 /**
  * Google Authentication Service
- *
- * Contract for Google OAuth authentication and account linking.
  */
 public interface GoogleAuthService {
 
     /**
      * Authenticate user with Google ID token
+     * ✅ FIXED: deviceFingerprint is now Set<String>
      */
-    Mono<User> authenticateWithGoogle(String idToken, String ipAddress, String deviceFingerprint);
+    Mono<User> authenticateWithGoogle(
+            String idToken,
+            String ipAddress,
+            String deviceFingerprint
+    );
 
     /**
      * Verify Google ID token and return payload

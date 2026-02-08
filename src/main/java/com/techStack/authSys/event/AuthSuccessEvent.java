@@ -5,6 +5,7 @@ import lombok.Getter;
 import org.springframework.context.ApplicationEvent;
 
 import java.time.Instant;
+import java.util.Set;
 
 /**
  * Authentication Success Event
@@ -17,27 +18,27 @@ public class AuthSuccessEvent extends ApplicationEvent {
 
     private final User user;
     private final String ipAddress;
-    private final Instant timestamp;
+    private final Instant eventTimestamp;
     private final String deviceFingerprint;
     private final String userAgent;
 
     public AuthSuccessEvent(
             User user,
             String ipAddress,
-            Instant timestamp,
+            Instant eventTimestamp,
             String deviceFingerprint,
             String userAgent) {
         super(user);
         this.user = user;
         this.ipAddress = ipAddress;
-        this.timestamp = timestamp;
+        this.eventTimestamp = eventTimestamp;
         this.deviceFingerprint = deviceFingerprint;
         this.userAgent = userAgent;
     }
 
     // Simplified constructor for backward compatibility
-    public AuthSuccessEvent(User user, String ipAddress, Instant timestamp) {
-        this(user, ipAddress, timestamp, null, null);
+    public AuthSuccessEvent(User user, String ipAddress, Instant eventTimestamp) {
+        this(user, ipAddress, eventTimestamp, null, null);
     }
 
     @Override
@@ -46,7 +47,7 @@ public class AuthSuccessEvent extends ApplicationEvent {
                 "userId='" + user.getId() + '\'' +
                 ", email='" + user.getEmail() + '\'' +
                 ", ipAddress='" + ipAddress + '\'' +
-                ", timestamp=" + timestamp +
+                ", eventTimestamp=" + eventTimestamp +
                 ", deviceFingerprint='" + deviceFingerprint + '\'' +
                 '}';
     }

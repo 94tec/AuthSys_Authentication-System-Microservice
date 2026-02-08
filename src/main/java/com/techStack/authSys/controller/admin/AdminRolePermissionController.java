@@ -221,18 +221,19 @@ public class AdminRolePermissionController {
         log.warn("🔄 Reloading permissions from YAML at {}", reloadTime);
 
         return Mono.fromRunnable(permissionProvider::reloadPermissions)
-                .thenReturn(ResponseEntity.ok(Map.of(
+                .thenReturn(ResponseEntity.ok(Map.<String, Object>of(
                         "success", true,
                         "message", "Permissions reloaded from YAML",
                         "reloadedAt", reloadTime.toString()
                 )))
                 .onErrorResume(e -> {
                     log.error("Failed to reload permissions at {}: {}", reloadTime, e.getMessage());
-                    return Mono.just(ResponseEntity.status(500).body(Map.of(
+                    return Mono.just(ResponseEntity.status(500).body(Map.<String, Object>of(
                             "success", false,
                             "message", "Failed to reload permissions: " + e.getMessage(),
                             "timestamp", clock.instant().toString()
                     )));
                 });
     }
+
 }

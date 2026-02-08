@@ -15,35 +15,48 @@ import java.time.Instant;
 public class AccountLockedEvent extends ApplicationEvent {
 
     private final String userId;
-    private final Instant timestamp;
+    private final Instant eventTime;
     private final String reason;
     private final String ipAddress;
 
+    /**
+     * Full constructor
+     */
     public AccountLockedEvent(
             Object source,
             String userId,
-            Instant timestamp,
+            Instant eventTime,
             String reason,
             String ipAddress) {
         super(source);
         this.userId = userId;
-        this.timestamp = timestamp;
+        this.eventTime = eventTime;
         this.reason = reason;
         this.ipAddress = ipAddress;
     }
 
-    // Simplified constructor
-    public AccountLockedEvent(Object source, String userId, Instant timestamp) {
-        this(source, userId, timestamp, "Security policy violation", null);
+    /**
+     * Simplified constructor with default reason
+     */
+    public AccountLockedEvent(Object source, String userId, Instant eventTime) {
+        this(source, userId, eventTime, "Security policy violation", null);
+    }
+
+    /**
+     * Convenience constructor with user object as source
+     */
+    public AccountLockedEvent(String userId, Instant eventTime, String reason, String ipAddress) {
+        this(userId, userId, eventTime, reason, ipAddress);
     }
 
     @Override
     public String toString() {
         return "AccountLockedEvent{" +
                 "userId='" + userId + '\'' +
-                ", timestamp=" + timestamp +
+                ", eventTime=" + eventTime +
                 ", reason='" + reason + '\'' +
                 ", ipAddress='" + ipAddress + '\'' +
+                ", parentTimestamp=" + getTimestamp() +  // Spring's timestamp
                 '}';
     }
 }

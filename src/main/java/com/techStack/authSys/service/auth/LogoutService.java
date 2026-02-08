@@ -1,7 +1,7 @@
 package com.techStack.authSys.service.auth;
 
+import com.techStack.authSys.repository.session.SessionService;
 import com.techStack.authSys.service.token.JwtService;
-import com.techStack.authSys.repository.sucurity.RateLimiterService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -17,7 +17,7 @@ import reactor.core.publisher.Mono;
 public class LogoutService {
 
     private final JwtService jwtService;
-    private final RateLimiterService.SessionService sessionService;
+    private final SessionService sessionService;
 
     /**
      * Logs out a user by invalidating their session and token.

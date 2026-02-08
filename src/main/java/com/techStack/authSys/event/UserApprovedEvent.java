@@ -18,18 +18,18 @@ public class UserApprovedEvent extends ApplicationEvent {
     private final User user;
     private final String approvedBy;
     private final String approverRole;
-    private final Instant timestamp;
+    private final Instant eventTimestamp;
 
     public UserApprovedEvent(
             User user,
             String approvedBy,
             String approverRole,
-            Instant timestamp) {
+            Instant eventTimestamp) {
         super(user);
         this.user = user;
         this.approvedBy = approvedBy;
         this.approverRole = approverRole;
-        this.timestamp = timestamp;
+        this.eventTimestamp = eventTimestamp;
     }
 
     @Override
@@ -39,7 +39,7 @@ public class UserApprovedEvent extends ApplicationEvent {
                 ", email='" + user.getEmail() + '\'' +
                 ", approvedBy='" + approvedBy + '\'' +
                 ", approverRole='" + approverRole + '\'' +
-                ", timestamp=" + timestamp +
+                ", eventTimestamp=" + eventTimestamp +
                 '}';
     }
 }

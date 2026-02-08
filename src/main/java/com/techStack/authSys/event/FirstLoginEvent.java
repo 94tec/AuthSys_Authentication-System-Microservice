@@ -5,6 +5,7 @@ import lombok.Getter;
 import org.springframework.context.ApplicationEvent;
 
 import java.time.Instant;
+import java.util.Set;
 
 /**
  * First Login Event
@@ -17,24 +18,24 @@ public class FirstLoginEvent extends ApplicationEvent {
 
     private final User user;
     private final String ipAddress;
-    private final Instant timestamp;
+    private final Instant eventTimestamp;
     private final String deviceFingerprint;
 
     public FirstLoginEvent(
             User user,
             String ipAddress,
-            Instant timestamp,
+            Instant eventTimestamp,
             String deviceFingerprint) {
         super(user);
         this.user = user;
         this.ipAddress = ipAddress;
-        this.timestamp = timestamp;
+        this.eventTimestamp = eventTimestamp;
         this.deviceFingerprint = deviceFingerprint;
     }
 
     // Simplified constructor for backward compatibility
-    public FirstLoginEvent(User user, String ipAddress, Instant timestamp) {
-        this(user, ipAddress, timestamp, null);
+    public FirstLoginEvent(User user, String ipAddress, Instant eventTimestamp) {
+        this(user, ipAddress, eventTimestamp, null);
     }
 
     @Override
@@ -43,7 +44,7 @@ public class FirstLoginEvent extends ApplicationEvent {
                 "userId='" + user.getId() + '\'' +
                 ", email='" + user.getEmail() + '\'' +
                 ", ipAddress='" + ipAddress + '\'' +
-                ", timestamp=" + timestamp +
+                ", eventTimestamp=" + eventTimestamp +
                 ", deviceFingerprint='" + deviceFingerprint + '\'' +
                 '}';
     }

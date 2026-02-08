@@ -9,7 +9,7 @@ import com.techStack.authSys.models.session.DeviceInfo;
 import com.techStack.authSys.models.security.RequestPattern;
 import com.techStack.authSys.models.security.ThreatInfo;
 import com.techStack.authSys.repository.metrics.MetricsService;
-import com.techStack.authSys.repository.sucurity.RateLimiterService;
+import com.techStack.authSys.repository.session.SessionService;
 import com.techStack.authSys.service.observability.AuditLogService;
 import io.jsonwebtoken.io.SerializationException;
 import lombok.Data;
@@ -25,6 +25,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -64,8 +65,9 @@ public class RedisSecurityService {
     private final ReactiveRedisTemplate<String, Object> reactiveRedisTemplate;
     private final AuditLogService auditLogService;
     private final EncryptionService encryptionService;
-    private final RateLimiterService.SessionService sessionService;
+    private final SessionService sessionService;
     private final MetricsService metricsService;
+    private final Clock clock;
 
     // ==================== Configuration ====================
     @Value("${redis.operation.timeout.seconds:5}")
@@ -230,7 +232,13 @@ public class RedisSecurityService {
                             result.getT1(), true, encryptedIp);
                     auditLogService.logSecurityEvent("BLACKLIST_REMOVED", encryptedIp,
                             "Successfully removed from all storage layers");
-                    eventPublisher.publishEvent(new BlacklistRemovedEvent(this, encryptedIp));
+                    eventPublisher.publishEvent(new BlacklistRemovedEvent(
+                            this,
+                            encryptedIp,
+                            clock.instant(),
+                            "Removed from all storage layers",
+                            "system"
+                    ));
                 })
                 .doOnError(e -> {
                     String errorMsg = "Failed to remove blacklist status for IP " + encryptedIp;

@@ -18,27 +18,27 @@ public class UserRegisteredEvent extends ApplicationEvent {
 
     private final User user;
     private final String ipAddress;
-    private final Instant timestamp;
+    private final Instant eventTimestamp;
     private final String deviceFingerprint;
     private final Set<String> requestedRoles;
 
     public UserRegisteredEvent(
             User user,
             String ipAddress,
-            Instant timestamp,
+            Instant eventTimestamp,
             String deviceFingerprint,
             Set<String> requestedRoles) {
         super(user);
         this.user = user;
         this.ipAddress = ipAddress;
-        this.timestamp = timestamp;
+        this.eventTimestamp = eventTimestamp;
         this.deviceFingerprint = deviceFingerprint;
         this.requestedRoles = requestedRoles;
     }
 
     // Simplified constructor for backward compatibility
-    public UserRegisteredEvent(User user, String ipAddress, Instant timestamp) {
-        this(user, ipAddress, timestamp, null, null);
+    public UserRegisteredEvent(User user, String ipAddress, Instant eventTimestamp) {
+        this(user, ipAddress, eventTimestamp, null, null);
     }
 
     @Override
@@ -48,7 +48,7 @@ public class UserRegisteredEvent extends ApplicationEvent {
                 ", email='" + user.getEmail() + '\'' +
                 ", status=" + user.getStatus() +
                 ", ipAddress='" + ipAddress + '\'' +
-                ", timestamp=" + timestamp +
+                ", eventTimestamp=" + eventTimestamp +
                 ", requestedRoles=" + requestedRoles +
                 '}';
     }

@@ -1,5 +1,6 @@
 package com.techStack.authSys.service.bootstrap;
 
+import com.techStack.authSys.dto.request.UserRegistrationDTO;
 import com.techStack.authSys.dto.response.UserDTO;
 import com.techStack.authSys.models.user.User;
 import com.techStack.authSys.models.user.UserFactory;
@@ -22,6 +23,7 @@ import reactor.core.publisher.Mono;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Set;
 
 /**
  * Admin User Management Service
@@ -41,7 +43,6 @@ public class AdminUserManagementService {
 
     private final FirebaseServiceAuth firebaseServiceAuth;
     private final RoleAssignmentService roleAssignmentService;
-    private final DeviceVerificationService deviceVerificationService;
     private final RedisUserCacheService redisCacheService;
     private final EmailServiceInstance emailService;
     private final AuditLogService auditLogService;
@@ -58,7 +59,7 @@ public class AdminUserManagementService {
      * Uses UserFactory and existing infrastructure for consistency
      */
     public Mono<User> createAdminUser(
-            UserDTO userDto,
+            UserRegistrationDTO userDto,
             ServerWebExchange exchange,
             String ipAddress,
             String deviceFingerprint
@@ -88,7 +89,7 @@ public class AdminUserManagementService {
      * Validate and create admin user
      */
     private Mono<User> validateAndCreateAdmin(
-            UserDTO userDto,
+            UserRegistrationDTO userDto,
             String creatorId,
             String ipAddress,
             String deviceFingerprint,

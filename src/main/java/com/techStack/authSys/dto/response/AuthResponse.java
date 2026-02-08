@@ -1,6 +1,7 @@
 package com.techStack.authSys.dto.response;
 
 import com.techStack.authSys.models.authorization.Permissions;
+import com.techStack.authSys.models.user.Roles;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -9,9 +10,12 @@ import lombok.NoArgsConstructor;
 import java.time.Instant;
 import java.util.Date;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Represents the response returned after authentication attempts
+ *
+ * ✅ FIXED: success() method now properly sets success=true
  */
 @Data
 @Builder
@@ -48,8 +52,9 @@ public class AuthResponse {
         private String email;
         private String firstName;
         private String lastName;
+        private Set<String> roles;
         private boolean mfaRequired;
-        private String profileImageUrl;
+        private String profilePictureUrl;
 
         @Builder.Default
         private Date timestamp = new Date();
@@ -57,13 +62,21 @@ public class AuthResponse {
 
     /**
      * Helper method for successful authentication responses
+     * ✅ FIXED: Now sets success=true
      */
-    public static AuthResponse success(String accessToken, String refreshToken,
-                                       Instant accessTokenExpiry, Instant refreshTokenExpiry,
-                                       UserInfo user, List<Permissions> permissions) {
+    public static AuthResponse success(
+            String accessToken,
+            String refreshToken,
+            Instant accessTokenExpiry,
+            Instant refreshTokenExpiry,
+            UserInfo user,
+            List<Permissions> permissions) {
+
         return AuthResponse.builder()
+                .success(true)  // ✅ FIXED: Added this line
                 .accessToken(accessToken)
                 .refreshToken(refreshToken)
+                .tokenType("Bearer")  // ✅ Explicit setting
                 .accessTokenExpiry(accessTokenExpiry)
                 .refreshTokenExpiry(refreshTokenExpiry)
                 .user(user)
@@ -75,9 +88,11 @@ public class AuthResponse {
 
     /**
      * Helper method for authentication errors
+     * ✅ FIXED: Explicitly sets success=false
      */
     public static AuthResponse error(String warning) {
         return AuthResponse.builder()
+                .success(false)  // ✅ FIXED: Added this line
                 .warning(warning)
                 .message("Authentication failed")
                 .timestamp(new Date())
@@ -86,9 +101,11 @@ public class AuthResponse {
 
     /**
      * Helper method for warnings (e.g., email not verified)
+     * ✅ FIXED: Explicitly sets success=false
      */
     public static AuthResponse warning(String warning, String message) {
         return AuthResponse.builder()
+                .success(false)  // ✅ FIXED: Added this line
                 .warning(warning)
                 .message(message)
                 .timestamp(new Date())
@@ -97,9 +114,11 @@ public class AuthResponse {
 
     /**
      * Helper for email not verified scenario
+     * ✅ FIXED: Explicitly sets success=false
      */
     public static AuthResponse emailNotVerified(String warning) {
         return AuthResponse.builder()
+                .success(false)  // ✅ FIXED: Added this line
                 .warning(warning)
                 .message("Email verification required")
                 .timestamp(new Date())

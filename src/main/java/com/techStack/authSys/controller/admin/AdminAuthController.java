@@ -2,9 +2,10 @@ package com.techStack.authSys.controller.admin;
 
 import com.techStack.authSys.dto.internal.AuthResult;
 import com.techStack.authSys.dto.request.LoginRequest;
+import com.techStack.authSys.dto.request.UserRegistrationDTO;
 import com.techStack.authSys.dto.response.ApiResponse;
 import com.techStack.authSys.dto.response.AuthResponse;
-import com.techStack.authSys.dto.response.UserDTO;
+import com.techStack.authSys.models.authorization.Permissions;
 import com.techStack.authSys.models.user.User;
 import com.techStack.authSys.service.auth.AuthenticationOrchestrator;
 import com.techStack.authSys.service.auth.DeviceVerificationService;
@@ -24,8 +25,12 @@ import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Admin Authentication Controller
@@ -106,13 +111,6 @@ public class AdminAuthController {
                 });
     }
 
-    /* =========================
-       Admin Login
-       ========================= */
-
-    /**
-     * Authenticate Super Admin or Admin users
-     */
     @PostMapping("/login")
     public Mono<ResponseEntity<AuthResponse>> login(
             @Valid @RequestBody LoginRequest loginRequest,
@@ -121,31 +119,70 @@ public class AdminAuthController {
 
         Instant loginTime = clock.instant();
         String ipAddress = deviceVerificationService.extractClientIp(exchange);
-        String deviceFingerprint = deviceVerificationService.generateDeviceFingerprint(
-                ipAddress, userAgent);
+        String deviceFingerprint = deviceVerificationService.generateDeviceFingerprint(ipAddress, userAgent);
 
-        log.info("Admin login attempt at {} for: {} from IP: {}",
-                loginTime, HelperUtils.maskEmail(loginRequest.getEmail()), ipAddress);
-
-        // Determine permissions for admin login
-        Set<String> permissions = getAdminPermissions();
+        log.info("Login attempt at {} for: {} from IP: {}",
+                loginTime,
+                HelperUtils.maskEmail(loginRequest.getEmail()),
+                ipAddress);
 
         return authenticationOrchestrator.authenticate(
                         loginRequest.getEmail(),
                         loginRequest.getPassword(),
                         ipAddress,
+                        loginTime,
                         deviceFingerprint,
                         userAgent,
-                        permissions
+                        "LOGIN",
+                        this,
+                        Set.of() // client cannot supply permissions
                 )
-                .flatMap(authResult -> handleAdminLoginResult(authResult, ipAddress))
-                .doOnSuccess(res -> {
-                    Instant endTime = clock.instant();
-                    log.info("✅ Admin login successful at {} for: {}",
-                            endTime, HelperUtils.maskEmail(loginRequest.getEmail()));
-                });
+                .map(authResult -> {
+                    User user = authResult.getUser();
 
-        // Error handling delegated to GlobalExceptionHandler
+                    // Convert Roles enum -> Set<String> for response
+                    Set<String> roleNames = user.getRoles().stream()
+                            .map(Enum::name)
+                            .collect(Collectors.toSet());
+
+                    // Map AuthResult → AuthResponse
+                    AuthResponse.UserInfo userInfo = AuthResponse.UserInfo.builder()
+                            .userId(user.getId())
+                            .email(user.getEmail())
+                            .firstName(user.getFirstName())
+                            .lastName(user.getLastName())
+                            .roles(roleNames)
+                            .mfaRequired(user.isMfaRequired())
+                            .profilePictureUrl(user.getProfilePictureUrl())
+                            .build();
+
+                    // Permissions are server-resolved from User.getAllPermissions()
+                    List<Permissions> permissions = new ArrayList<>(user.getAllPermissions());
+
+                    return AuthResponse.success(
+                            authResult.getAccessToken(),
+                            authResult.getRefreshToken(),
+                            authResult.getAccessTokenExpiry(),
+                            authResult.getRefreshTokenExpiry(),
+                            userInfo,
+                            permissions
+                    );
+                })
+                .map(ResponseEntity::ok)
+                .doOnSuccess(res -> {
+                    Instant completionTime = clock.instant();
+                    Duration duration = Duration.between(loginTime, completionTime);
+
+                    log.info("✅ Login successful at {} in {} for {}",
+                            completionTime, duration, HelperUtils.maskEmail(loginRequest.getEmail()));
+                })
+                .doOnError(e -> {
+                    Instant errorTime = clock.instant();
+                    Duration duration = Duration.between(loginTime, errorTime);
+
+                    log.error("❌ Login failed at {} after {} for {}: {}",
+                            errorTime, duration, HelperUtils.maskEmail(loginRequest.getEmail()), e.getMessage());
+                });
     }
 
     /* =========================
@@ -159,7 +196,7 @@ public class AdminAuthController {
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("hasRole('SUPER_ADMIN')")
     public Mono<ResponseEntity<ApiResponse<String>>> registerAdmin(
-            @Valid @RequestBody UserDTO userDto,
+            @Valid @RequestBody UserRegistrationDTO userDto,
             ServerWebExchange exchange) {
 
         Instant startTime = clock.instant();
@@ -195,9 +232,7 @@ public class AdminAuthController {
     /**
      * Handle admin login result, checking email verification
      */
-    private Mono<ResponseEntity<AuthResponse>> handleAdminLoginResult(
-            AuthResult authResult,
-            String ipAddress) {
+    private Mono<ResponseEntity<AuthResponse>> handleAdminLoginResult(AuthResult authResult, String ipAddress, Instant loginTime) {
 
         if (!authResult.getUser().isEmailVerified()) {
             return handleUnverifiedAdminEmail(authResult.getUser(), ipAddress);
@@ -246,10 +281,15 @@ public class AdminAuthController {
      */
     private Set<String> getAdminPermissions() {
         return Set.of(
-                "ADMIN_READ",
-                "ADMIN_WRITE",
-                "USER_MANAGEMENT",
-                "SYSTEM_CONFIG"
+                "READ_USERS",
+                "WRITE_USERS",
+                "DELETE_USERS",
+                "MANAGE_ROLES",
+                "VIEW_AUDIT_LOGS",
+                "MANAGE_SYSTEM",
+                "APPROVE_USERS",
+                "REJECT_USERS",
+                "RESTORE_USERS"
         );
     }
 }

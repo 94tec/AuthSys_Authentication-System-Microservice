@@ -13,6 +13,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 import org.springframework.data.redis.cache.RedisCacheConfiguration;
+import org.springframework.data.redis.connection.ReactiveRedisConnectionFactory;
 import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceClientConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
@@ -299,30 +300,32 @@ public class RedisConfig {
     /**
      * Reactive RedisTemplate for FirebaseToken objects
      */
+    /**
+     * Configure ReactiveRedisTemplate for FirebaseToken
+     */
     @Bean
     public ReactiveRedisTemplate<String, FirebaseToken> firebaseTokenRedisTemplate(
-            LettuceConnectionFactory lettuceConnectionFactory,
-            ObjectMapper redisObjectMapper,
-            Clock clock
-    ) {
-        Instant now = clock.instant();
+            ReactiveRedisConnectionFactory connectionFactory) {
 
-        log.info("⚡ Configuring reactive RedisTemplate<String, FirebaseToken> at {}", now);
+        // Configure Jackson serializer
+        ObjectMapper objectMapper = new ObjectMapper();
+        objectMapper.registerModule(new JavaTimeModule());
+        objectMapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
 
         Jackson2JsonRedisSerializer<FirebaseToken> serializer =
-                new Jackson2JsonRedisSerializer<>(redisObjectMapper, FirebaseToken.class);
+                new Jackson2JsonRedisSerializer<>(objectMapper, FirebaseToken.class);
 
-        RedisSerializationContext<String, FirebaseToken> context = RedisSerializationContext
-                .<String, FirebaseToken>newSerializationContext(new StringRedisSerializer())
-                .value(serializer)
-                .build();
+        // Build serialization context
+        RedisSerializationContext<String, FirebaseToken> serializationContext =
+                RedisSerializationContext
+                        .<String, FirebaseToken>newSerializationContext()
+                        .key(new StringRedisSerializer())
+                        .value(serializer)
+                        .hashKey(new StringRedisSerializer())
+                        .hashValue(serializer)
+                        .build();
 
-        ReactiveRedisTemplate<String, FirebaseToken> template =
-                new ReactiveRedisTemplate<>(lettuceConnectionFactory, context);
-
-        log.info("✅ Reactive RedisTemplate<String, FirebaseToken> configured at {}", now);
-
-        return template;
+        return new ReactiveRedisTemplate<>(connectionFactory, serializationContext);
     }
 
     /* =========================

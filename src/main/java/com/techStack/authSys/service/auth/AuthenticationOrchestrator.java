@@ -4,6 +4,7 @@ import com.techStack.authSys.dto.internal.AuthResult;
 import com.techStack.authSys.exception.auth.AuthException;
 import com.techStack.authSys.exception.data.NetworkException;
 import com.techStack.authSys.exception.auth.TransientAuthenticationException;
+import com.techStack.authSys.models.authorization.Permissions;
 import com.techStack.authSys.repository.sucurity.RateLimiterService;
 import com.techStack.authSys.service.token.TokenGenerationService;
 import com.techStack.authSys.service.validation.CredentialValidationService;
@@ -17,6 +18,7 @@ import reactor.core.publisher.Mono;
 import reactor.util.retry.Retry;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Set;
 
 /**
@@ -46,9 +48,12 @@ public class AuthenticationOrchestrator {
             String email,
             String password,
             String ipAddress,
+            Instant timestamp,
             String deviceFingerprint,
             String userAgent,
-            Set<String> permissions) {
+            String reason,
+            Object source,
+            Set<Permissions> permissions) {
 
         Timer.Sample timer = Timer.start(meterRegistry);
 
@@ -57,11 +62,11 @@ public class AuthenticationOrchestrator {
                 )
                 .doOnSuccess(authResult -> {
                     timer.stop(meterRegistry.timer("auth.success"));
-                    authEventService.handleSuccessfulAuthentication(authResult, ipAddress, deviceFingerprint);
+                    authEventService.handleSuccessfulAuthentication(authResult, ipAddress, timestamp, deviceFingerprint, userAgent);
                 })
                 .doOnError(e -> {
                     timer.stop(meterRegistry.timer("auth.failure"));
-                    authEventService.handleFailedAuthentication(email, ipAddress, deviceFingerprint, e);
+                    authEventService.handleFailedAuthentication(email, source, timestamp, ipAddress, deviceFingerprint, reason, e);
                 })
                 .onErrorResume(this::normalizeAuthException);
     }
@@ -75,7 +80,7 @@ public class AuthenticationOrchestrator {
             String ipAddress,
             String deviceFingerprint,
             String userAgent,
-            Set<String> permissions) {
+            Set<Permissions> permissions) {
 
         return rateLimiterService.checkAuthRateLimit(ipAddress, email)
                 .then(credentialValidationService.validateAndFetchUser(email, password))

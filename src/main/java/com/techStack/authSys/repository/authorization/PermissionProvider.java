@@ -66,6 +66,8 @@ public interface PermissionProvider {
        ABAC: Attribute-Based Access Control
        ========================= */
 
+    Set<String> resolveEffectivePermission(User user);
+
     /**
      * Add an attribute to a user for ABAC evaluation
      */

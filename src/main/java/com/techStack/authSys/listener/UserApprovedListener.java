@@ -2,8 +2,7 @@ package com.techStack.authSys.listener;
 
 import com.techStack.authSys.event.UserApprovedEvent;
 import com.techStack.authSys.models.audit.ActionType;
-import com.techStack.authSys.service.notification.BrevoEmailService;
-import com.techStack.authSys.service.notification.EmailService;
+import com.techStack.authSys.repository.notification.EmailService;
 import com.techStack.authSys.service.observability.AuditLogService;
 import com.techStack.authSys.util.validation.HelperUtils;
 import lombok.RequiredArgsConstructor;
@@ -98,7 +97,7 @@ public class UserApprovedListener {
             emailService.sendUserApprovedNotification(
                     event.getUser().getEmail(),
                     event.getApprovedBy(),
-                    event.getTimestamp()
+                    event.getEventTimestamp()
             );
 
             Instant emailEnd = clock.instant();

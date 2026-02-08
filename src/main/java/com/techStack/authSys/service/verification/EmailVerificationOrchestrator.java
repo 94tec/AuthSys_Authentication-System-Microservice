@@ -5,7 +5,7 @@ import com.google.cloud.firestore.Firestore;
 import com.techStack.authSys.config.core.AppConfig;
 import com.techStack.authSys.models.audit.ActionType;
 import com.techStack.authSys.models.user.User;
-import com.techStack.authSys.service.notification.EmailService;
+import com.techStack.authSys.repository.notification.EmailService;
 import com.techStack.authSys.service.observability.AuditLogService;
 import com.techStack.authSys.service.security.EncryptionService;
 import com.techStack.authSys.service.token.JwtService;

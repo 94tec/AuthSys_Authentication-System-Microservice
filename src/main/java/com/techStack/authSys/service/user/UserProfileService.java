@@ -113,7 +113,7 @@ public class UserProfileService {
                     profile.setLastName(profileDTO.getLastName());
                     profile.setProfilePictureUrl(profileDTO.getProfilePictureUrl());
                     profile.setBio(profileDTO.getBio());
-                    profile.setPublicProfile(profileDTO.isPublic());
+                    profile.setPublic(profileDTO.isPublic());
                     profile.setUpdatedAt(now);
 
                     return userProfileRepository.save(profile);

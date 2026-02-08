@@ -85,6 +85,7 @@ public class EventPublisherService {
         log.debug("Published UserRegisteredEvent at {} for user: {}", now, user.getId());
     }
 
+
     /* =========================
        Login Events
        ========================= */

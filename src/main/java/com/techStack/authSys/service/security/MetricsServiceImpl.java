@@ -1,6 +1,7 @@
 package com.techStack.authSys.service.security;
 
 import com.techStack.authSys.repository.metrics.MetricsService;
+import com.techStack.authSys.util.auth.SecurityContextUtils;
 import io.micrometer.core.instrument.*;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
@@ -54,7 +55,26 @@ public class MetricsServiceImpl implements MetricsService {
 
     @Override
     public void recordBlacklistRemoval() {
+        try {
+            long timestamp = System.currentTimeMillis();
+            String user = SecurityContextUtils.getCurrentUser();
 
+            recordBlacklistEvent(
+                    "BLACKLIST_REMOVED",
+                    "system",
+                    Map.of(
+                            "timestamp", String.valueOf(timestamp),
+                            "action", "removal",
+                            "initiator", user != null ? user : "system",
+                            "timestamp_readable", java.time.Instant.ofEpochMilli(timestamp).toString()
+                    )
+            );
+
+            log.debug("Recorded blacklist removal event by {}", user);
+
+        } catch (Exception e) {
+            log.error("Failed to record blacklist removal metric: {}", e.getMessage(), e);
+        }
     }
 
     @Override

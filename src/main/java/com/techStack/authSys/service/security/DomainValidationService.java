@@ -10,14 +10,9 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
+import java.net.InetAddress;
 import java.util.List;
 
-/**
- * Domain Validation Service
- *
- * Validates email domains using DNS MX record lookup.
- * Ensures only valid, active email domains are accepted.
- */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -26,7 +21,7 @@ public class DomainValidationService {
     private final DnsResolver dnsResolver;
 
     /**
-     * Validate that email domain is active
+     * Validate that email domain is active (has MX or A record).
      */
     public Mono<Void> validateActiveDomain(UserRegistrationDTO userDto) {
         return Mono.fromCallable(() -> {
@@ -39,50 +34,51 @@ public class DomainValidationService {
                         );
                     }
 
-                    log.debug("Validated active domain for email: {}", email);
-                    return null;
+                    log.debug("✅ Active email domain validated: {}", domain);
+                    return true;
 
                 }).subscribeOn(Schedulers.boundedElastic())
                 .then();
     }
 
-    /**
-     * Extract domain from email address
-     */
     private String extractDomain(String email) {
         if (email == null || !email.contains("@")) {
             throw new CustomException(
                     HttpStatus.BAD_REQUEST,
-                    "Invalid email format"
+                    "Invalid email format",
+                    "email",
+                    "ERROR_EMAIL_INVALID"
             );
         }
-        return email.substring(email.indexOf('@') + 1);
+        return email.substring(email.indexOf('@') + 1).trim().toLowerCase();
     }
 
     /**
-     * Check if domain is active by verifying MX records or A record
+     * Domain is active if it has MX records or at least resolves to an IP (A record).
      */
     private boolean isDomainActive(String domain) {
         try {
-            // Check MX records
+            // 1) MX lookup
             List<String> mxRecords = dnsResolver.resolveMxRecords(domain);
             if (!mxRecords.isEmpty()) {
-                log.debug("Domain {} has {} MX records", domain, mxRecords.size());
+                log.debug("Domain {} has MX records: {}", domain, mxRecords);
                 return true;
             }
 
-            // Fallback: Check A record
-            boolean hasARecord = java.net.InetAddress.getByName(domain) != null;
+            // 2) A record fallback
+            InetAddress address = InetAddress.getByName(domain);
+            boolean hasARecord = address != null;
+
             if (hasARecord) {
-                log.debug("Domain {} has A record", domain);
+                log.debug("Domain {} resolves to IP: {}", domain, address.getHostAddress());
                 return true;
             }
 
-            log.warn("Domain {} has no MX or A records", domain);
+            log.warn("Domain {} has no MX and no A record", domain);
             return false;
 
         } catch (Exception e) {
-            log.error("Failed to resolve domain: {}", domain, e);
+            log.warn("Domain lookup failed for {}: {}", domain, e.getMessage());
             return false;
         }
     }

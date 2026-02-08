@@ -2,6 +2,7 @@ package com.techStack.authSys.service.user;
 
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseAuthException;
+import com.techStack.authSys.models.audit.ActionType;
 import com.techStack.authSys.models.user.*;
 import com.techStack.authSys.repository.user.FirestoreUserRepository;
 import com.techStack.authSys.service.authorization.PermissionService;
@@ -15,6 +16,8 @@ import reactor.core.publisher.Mono;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.*;
+
+import static com.techStack.authSys.models.audit.ActionType.RESTORED;
 
 /**
  * User Approval Service
@@ -568,19 +571,32 @@ public class UserApprovalService {
         user.setStatus(UserStatus.PENDING_APPROVAL);
         user.setAccountLocked(false);
         user.setEnabled(false);
-        user.setRestoredBy(restoredBy);
-        user.setRestoredAt(now.toString());
         user.setUpdatedAt(now);
+
+        // ✅ Store restoration metadata in attributes
+        user.getAttributes().put("restoredBy", restoredBy);
+        user.getAttributes().put("restoredAt", now.toString());
+
+        // Track restoration count
+        int currentCount = user.getAttributes().containsKey("restorationCount")
+                ? ((Number) user.getAttributes().get("restorationCount")).intValue()
+                : 0;
+        user.getAttributes().put("restorationCount", currentCount + 1);
 
         return userRepository.update(user)
                 .then(notificationService.notifyUserRestored(user))
                 .doOnSuccess(v -> {
                     auditLogService.logApprovalAction(
-                            user.getId(), restoredBy, "RESTORED", "",
-                            "User reinstated after review");
+                            user.getId(),
+                            restoredBy,
+                            String.valueOf(RESTORED),
+                            "",
+                            String.format("User reinstated after review (restoration #%d)",
+                                    currentCount + 1)
+                    );
 
-                    log.info("✅ User {} restored and moved to PENDING_APPROVAL at {}",
-                            user.getEmail(), now);
+                    log.info("✅ User {} restored and moved to PENDING_APPROVAL at {} (restoration #{})",
+                            user.getEmail(), now, currentCount + 1);
                 });
     }
 

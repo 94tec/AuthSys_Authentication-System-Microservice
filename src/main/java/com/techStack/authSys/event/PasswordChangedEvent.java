@@ -17,24 +17,24 @@ public class PasswordChangedEvent extends ApplicationEvent {
 
     private final User user;
     private final String ipAddress;
-    private final Instant timestamp;
+    private final Instant eventTimestamp;
     private final boolean forced; // true if admin-forced, false if user-initiated
 
     public PasswordChangedEvent(
             User user,
             String ipAddress,
-            Instant timestamp,
+            Instant eventTimestamp,
             boolean forced) {
         super(user);
         this.user = user;
         this.ipAddress = ipAddress;
-        this.timestamp = timestamp;
+        this.eventTimestamp = eventTimestamp;
         this.forced = forced;
     }
 
     // Simplified constructor for user-initiated changes
-    public PasswordChangedEvent(User user, String ipAddress, Instant timestamp) {
-        this(user, ipAddress, timestamp, false);
+    public PasswordChangedEvent(User user, String ipAddress, Instant eventTimestamp) {
+        this(user, ipAddress, eventTimestamp, false);
     }
 
     @Override
@@ -43,7 +43,7 @@ public class PasswordChangedEvent extends ApplicationEvent {
                 "userId='" + user.getId() + '\'' +
                 ", email='" + user.getEmail() + '\'' +
                 ", ipAddress='" + ipAddress + '\'' +
-                ", timestamp=" + timestamp +
+                ", eventTimestamp=" + eventTimestamp +
                 ", forced=" + forced +
                 '}';
     }

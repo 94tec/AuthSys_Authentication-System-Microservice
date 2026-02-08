@@ -1,6 +1,7 @@
 package com.techStack.authSys.dto.response;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.techStack.authSys.models.authorization.Permissions;
 import com.techStack.authSys.models.user.User;
 import lombok.*;
 
@@ -12,6 +13,7 @@ import java.util.stream.Collectors;
  * User Permissions DTO
  *
  * Used for authorization checks and permission verification.
+ * Converts server-side Roles & Permissions enums into Strings for API responses.
  */
 @Data
 @Builder
@@ -21,49 +23,50 @@ import java.util.stream.Collectors;
 public class UserPermissionsDTO {
 
     private String userId;
-    private List<String> roles;
-    private List<String> permissions;
-    private Set<String> allPermissions;  // Combined role-based + additional permissions
+    private List<String> roles;        // role names
+    private List<String> permissions;  // additional permissions
+    private Set<String> allPermissions; // combined role + additional permissions
 
     /**
      * Create UserPermissionsDTO from User entity.
      */
     public static UserPermissionsDTO fromEntity(User user) {
-        if (user == null) {
-            return null;
-        }
+        if (user == null) return null;
+
+        // Convert Permissions enums to Strings
+        Set<String> allPerms = user.getAllPermissions().stream()
+                .map(Permissions::name)
+                .collect(Collectors.toSet());
 
         return UserPermissionsDTO.builder()
                 .userId(user.getId())
-                .roles(user.getRoleNames())
-                .permissions(user.getAdditionalPermissions())
-                .allPermissions(user.getAllPermissions())
+                .roles(user.getRoleNames() != null ? user.getRoleNames() : List.of())
+                .permissions(user.getAdditionalPermissions() != null ? user.getAdditionalPermissions() : List.of())
+                .allPermissions(allPerms)
                 .build();
     }
 
     /**
-     * Check if user has a specific permission.
+     * Check if the user has a specific permission.
      */
     public boolean hasPermission(String permission) {
         return allPermissions != null && allPermissions.contains(permission);
     }
 
     /**
-     * Check if user has a specific role.
+     * Check if the user has a specific role.
      */
     public boolean hasRole(String role) {
         return roles != null && roles.contains(role);
     }
 
     /**
-     * Check if user has any of the specified roles.
+     * Check if the user has any of the specified roles.
      */
     public boolean hasAnyRole(String... roles) {
-        if (this.roles == null) return false;
+        if (this.roles == null || this.roles.isEmpty()) return false;
         for (String role : roles) {
-            if (this.roles.contains(role)) {
-                return true;
-            }
+            if (this.roles.contains(role)) return true;
         }
         return false;
     }

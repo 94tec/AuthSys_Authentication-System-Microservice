@@ -22,6 +22,8 @@ import reactor.core.publisher.Mono;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Authentication Controller
@@ -163,27 +165,53 @@ public class AuthController {
             ServerWebExchange exchange) {
 
         Instant loginTime = clock.instant();
+        // Step 1: Extract client IP
         String ipAddress = deviceVerificationService.extractClientIp(exchange);
+        // Step 2: Generate device fingerprint (single string)
         String deviceFingerprint = deviceVerificationService.generateDeviceFingerprint(
                 ipAddress, userAgent);
 
         log.info("Login attempt at {} for: {} from IP: {}",
                 loginTime, HelperUtils.maskEmail(loginRequest.getEmail()), ipAddress);
-
+        // Step 3: Authenticate user
         return authenticationOrchestrator.authenticate(
                         loginRequest.getEmail(),
                         loginRequest.getPassword(),
                         ipAddress,
+                        loginTime,
                         deviceFingerprint,
                         userAgent,
-                        null
+                        "USER_LOGIN",
+                        this,
+                        Set.of()
                 )
-                .flatMap(authResult -> handleLoginResult(
-                        authResult,
-                        loginRequest.getEmail(),
-                        ipAddress,
-                        deviceFingerprint
-                ))
+                // Step 4: Map AuthResult to AuthResponse
+                .map(authResult -> {
+                    // Convert Roles enum -> Set<String> for response
+                    Set<String> roleNames = authResult.getUser().getRoles().stream()
+                            .map(Enum::name)
+                            .collect(Collectors.toSet());
+                    // Map AuthResult to AuthResponse
+                    AuthResponse.UserInfo userInfo = AuthResponse.UserInfo.builder()
+                            .userId(authResult.getUser().getId())
+                            .email(authResult.getUser().getEmail())
+                            .firstName(authResult.getUser().getFirstName())
+                            .lastName(authResult.getUser().getLastName())
+                            .roles(roleNames)
+                            .mfaRequired(authResult.getUser().isMfaRequired())
+                            .profilePictureUrl(authResult.getUser().getProfilePictureUrl())
+                            .build();
+
+                    return AuthResponse.success(
+                            authResult.getAccessToken(),
+                            authResult.getRefreshToken(),
+                            authResult.getAccessTokenExpiry(),
+                            authResult.getRefreshTokenExpiry(),
+                            userInfo,
+                            authResult.getPermissions()   // server-resolved Permissions list
+                    );
+                })
+                .map(ResponseEntity::ok)
                 .doOnSuccess(res -> {
                     Instant completionTime = clock.instant();
                     Duration duration = Duration.between(loginTime, completionTime);

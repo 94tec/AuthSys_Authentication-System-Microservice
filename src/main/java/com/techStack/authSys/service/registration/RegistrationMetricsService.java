@@ -1,14 +1,13 @@
 package com.techStack.authSys.service.registration;
 
-import com.techStack.authSys.event.UserRegisteredEvent;
 import com.techStack.authSys.models.audit.ActionType;
 import com.techStack.authSys.models.user.User;
 import com.techStack.authSys.repository.metrics.MetricsService;
 import com.techStack.authSys.service.cache.RedisUserCacheService;
+import com.techStack.authSys.service.events.EventPublisherService;
 import com.techStack.authSys.service.observability.AuditLogService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import reactor.core.scheduler.Schedulers;
 
@@ -16,31 +15,45 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Registration Metrics Service
  *
  * Handles metrics, auditing, and event publishing for registration events.
  * Centralizes all observability concerns.
+ *
+ * ✅ REFACTORED: Uses EventPublisherService for proper event publishing
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class RegistrationMetricsService {
 
+    /* =========================
+       Dependencies
+       ========================= */
+
     private final MetricsService metricsService;
     private final AuditLogService auditLogService;
     private final RedisUserCacheService redisCacheService;
-    private final ApplicationEventPublisher eventPublisher;
+    private final EventPublisherService eventPublisherService;  // ✅ CHANGED: Use EventPublisherService
     private final Clock clock;
+
+    /* =========================
+       Public API
+       ========================= */
 
     /**
      * Record all metrics and audit logs for successful registration
+     *
+     * ✅ FIXED: Now accepts requestedRoles and deviceFingerprint
      */
     public void recordSuccessfulRegistration(
             User user,
             String ipAddress,
             String deviceFingerprint,
+            Set<String> requestedRoles,
             long durationMs
     ) {
         Instant now = clock.instant();
@@ -54,9 +67,33 @@ public class RegistrationMetricsService {
         // Record metrics
         recordMetrics(user, durationMs);
 
-        // Publish domain event
-        publishRegistrationEvent(user, ipAddress);
+        // ✅ FIXED: Publish domain event with all required parameters
+        publishRegistrationEvent(user, ipAddress, deviceFingerprint, requestedRoles);
     }
+
+    /**
+     * Record registration failure
+     */
+    public void recordRegistrationFailure(String email, String reason) {
+        try {
+            metricsService.incrementCounter(
+                    "user.registration.failure",
+                    String.valueOf(Map.of(
+                            "reason", reason,
+                            "email_domain", extractDomain(email)
+                    ))
+            );
+
+            log.debug("Recorded registration failure for: {} - Reason: {}", email, reason);
+
+        } catch (Exception e) {
+            log.warn("Failed to record failure metrics for {}: {}", email, e.getMessage());
+        }
+    }
+
+    /* =========================
+       Private Helpers
+       ========================= */
 
     /**
      * Create audit log entry for registration
@@ -144,37 +181,29 @@ public class RegistrationMetricsService {
 
     /**
      * Publish domain event for other subsystems
+     *
+     * ✅ FIXED: Uses EventPublisherService with proper parameters
      */
-    private void publishRegistrationEvent(User user, String ipAddress) {
+    private void publishRegistrationEvent(
+            User user,
+            String ipAddress,
+            String deviceFingerprint,
+            Set<String> requestedRoles) {
+
         try {
-            UserRegisteredEvent event = new UserRegisteredEvent(user, ipAddress);
-            eventPublisher.publishEvent(event);
+            // ✅ FIXED: Use EventPublisherService with all parameters
+            eventPublisherService.publishUserRegistered(
+                    user,
+                    ipAddress,
+                    deviceFingerprint,
+                    requestedRoles
+            );
 
             log.debug("✅ Published UserRegisteredEvent for: {}", user.getEmail());
 
         } catch (Exception e) {
             log.warn("Failed to publish UserRegisteredEvent for {}: {}",
                     user.getEmail(), e.getMessage());
-        }
-    }
-
-    /**
-     * Record registration failure
-     */
-    public void recordRegistrationFailure(String email, String reason) {
-        try {
-            metricsService.incrementCounter(
-                    "user.registration.failure",
-                    String.valueOf(Map.of(
-                            "reason", reason,
-                            "email_domain", extractDomain(email)
-                    ))
-            );
-
-            log.debug("Recorded registration failure for: {} - Reason: {}", email, reason);
-
-        } catch (Exception e) {
-            log.warn("Failed to record failure metrics for {}: {}", email, e.getMessage());
         }
     }
 

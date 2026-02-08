@@ -7,6 +7,7 @@ import com.google.firebase.auth.UserRecord;
 import com.techStack.authSys.config.security.JwtConfig;
 import com.techStack.authSys.exception.service.CustomException;
 import com.techStack.authSys.models.auth.*;
+import com.techStack.authSys.models.authorization.Permissions;
 import com.techStack.authSys.models.user.User;
 import com.techStack.authSys.service.observability.AuditLogService;
 import com.techStack.authSys.service.security.EncryptionService;
@@ -28,6 +29,7 @@ import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.stream.Collectors;
 
 import static com.techStack.authSys.constants.SecurityConstants.*;
 
@@ -65,7 +67,7 @@ public class JwtService {
             User user,
             String ipAddress,
             String userAgent,
-            Set<String> permissions
+            Set<Permissions> permissions
     ) {
         return generateTokenPairWithExpiry(user, ipAddress, userAgent, permissions)
                 .map(components -> new TokenPair(
@@ -81,7 +83,7 @@ public class JwtService {
             User user,
             String ipAddress,
             String userAgent,
-            Set<String> permissions
+            Set<Permissions> permissions
     ) {
         Instant now = clock.instant();
 
@@ -102,7 +104,7 @@ public class JwtService {
             String ipAddress,
             String userAgent,
             Instant issuedAt,
-            Set<String> permissions
+            Set<Permissions> permissions
     ) {
         return Mono.fromCallable(() -> {
                     String accessToken = generateAccessToken(user, ipAddress, userAgent, issuedAt, permissions);
@@ -142,10 +144,15 @@ public class JwtService {
             String ipAddress,
             String userAgent,
             Instant issuedAt,
-            Set<String> permissions
+            Set<Permissions> permissions
     ) {
+        // Convert Permissions objects to Strings for the JWT claims
+        Set<String> permissionsForClaims = permissions.stream()
+                .map(Permissions::name) // or Permissions::getKey if you have custom keys
+                .collect(Collectors.toSet());
+
         Map<String, Object> claims = buildEnhancedClaims(
-                user, ipAddress, userAgent, TOKEN_TYPE_ACCESS, permissions
+                user, ipAddress, userAgent, TOKEN_TYPE_ACCESS, permissionsForClaims
         );
 
         return jwtConfig.jwtBuilder()
@@ -159,6 +166,7 @@ public class JwtService {
                 .compact();
     }
 
+
     /**
      * Generate refresh token
      */
@@ -167,10 +175,15 @@ public class JwtService {
             String ipAddress,
             String userAgent,
             Instant issuedAt,
-            Set<String> permissions
+            Set<Permissions> permissions
     ) {
+        // Convert Permissions objects to Strings for JWT claims
+        Set<String> permissionsForClaims = permissions.stream()
+                .map(Permissions::name) // or Permissions::getKey() if using custom keys
+                .collect(Collectors.toSet());
+
         Map<String, Object> claims = buildEnhancedClaims(
-                user, ipAddress, userAgent, TOKEN_TYPE_REFRESH, permissions
+                user, ipAddress, userAgent, TOKEN_TYPE_REFRESH, permissionsForClaims
         );
 
         String jti = UUID.randomUUID().toString();
@@ -187,6 +200,7 @@ public class JwtService {
                 .signWith(jwtConfig.refreshTokenSecretKey(), SignatureAlgorithm.HS512)
                 .compact();
     }
+
 
     /**
      * Build enhanced JWT claims
@@ -458,7 +472,7 @@ public class JwtService {
             String refreshToken,
             String ipAddress,
             String userAgent,
-            Set<String> permissions
+            Set<Permissions> permissions
     ) {
         if (StringUtils.isBlank(refreshToken)) {
             return Mono.error(new CustomException(
@@ -482,7 +496,7 @@ public class JwtService {
             Claims claims,
             String ipAddress,
             String userAgent,
-            Set<String> permissions
+            Set<Permissions> permissions
     ) {
         return checkTokenRevocationStatus(claims.getId())
                 .then(retrieveUserFromClaims(claims))
@@ -499,7 +513,7 @@ public class JwtService {
             User user,
             String ipAddress,
             String userAgent,
-            Set<String> permissions
+            Set<Permissions> permissions
     ) {
         return generateTokenPair(user, ipAddress, userAgent, permissions)
                 .timeout(Duration.ofSeconds(5))
@@ -975,6 +989,10 @@ public class JwtService {
     private Mono<User> retrieveUserFromClaims(Claims claims) {
         return Mono.fromCallable(() -> {
                     String userId = claims.getSubject();
+                    if (userId == null || userId.isBlank()) {
+                        throw new CustomException(HttpStatus.UNAUTHORIZED, "Invalid token: no subject");
+                    }
+
                     DocumentSnapshot userDoc = firestore.collection("users")
                             .document(userId)
                             .get()
@@ -984,18 +1002,27 @@ public class JwtService {
                         throw new CustomException(HttpStatus.NOT_FOUND, "User not found");
                     }
 
+                    // Fetch roles as Strings
+                    List<String> roleNames = userDoc.get("roles", List.class);
+
+                    // Fetch known devices as a single String
+                    String knownFingerprints = userDoc.getString("knownDeviceFingerprints");
+
                     return User.builder()
                             .id(userId)
                             .email(userDoc.getString("email"))
-                            .roleNames(userDoc.get("roles", List.class))
+                            .roleNames(roleNames != null ? roleNames : List.of())
                             .firstName(userDoc.getString("firstName"))
                             .lastName(userDoc.getString("lastName"))
                             .mfaRequired(Boolean.TRUE.equals(userDoc.getBoolean("mfaRequired")))
-                            .knownDeviceFingerprints(userDoc.get("knownDeviceFingerprints", Set.class))
+                            .knownDeviceFingerprints(knownFingerprints != null ? knownFingerprints : "")
                             .build();
-                }).subscribeOn(Schedulers.boundedElastic())
-                .onErrorResume(e -> Mono.error(
-                        new CustomException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to retrieve user")
+                })
+                .subscribeOn(Schedulers.boundedElastic())
+                .onErrorMap(e -> new CustomException(
+                        HttpStatus.INTERNAL_SERVER_ERROR,
+                        "Failed to retrieve user",
+                        e
                 ));
     }
 

@@ -1,6 +1,6 @@
 package com.techStack.authSys.service.bootstrap;
 
-import com.techStack.authSys.service.auth.FirebaseServiceAuth;
+import com.techStack.authSys.repository.user.FirestoreUserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -29,7 +29,7 @@ public class BootstrapStateService {
        ========================= */
 
     private final RedisTemplate<String, Object> redisTemplate;
-    private final FirebaseServiceAuth firebaseServiceAuth;
+    private final FirestoreUserRepository firestoreUserRepository;
     private final Clock clock;
 
     /* =========================
@@ -94,7 +94,7 @@ public class BootstrapStateService {
      * Check Firestore for bootstrap completion flag
      */
     private Mono<Boolean> checkFirestoreState() {
-        return firebaseServiceAuth.getDocument(FIRESTORE_COLLECTION, FIRESTORE_DOCUMENT)
+        return firestoreUserRepository.getDocument(FIRESTORE_COLLECTION, FIRESTORE_DOCUMENT)
                 .map(doc -> doc.containsKey("completed") &&
                         Boolean.TRUE.equals(doc.get("completed")))
                 .defaultIfEmpty(false);
@@ -130,7 +130,7 @@ public class BootstrapStateService {
                 "version", "1.0"
         );
 
-        return firebaseServiceAuth.setDocument(FIRESTORE_COLLECTION, FIRESTORE_DOCUMENT, data)
+        return firestoreUserRepository.setDocument(FIRESTORE_COLLECTION, FIRESTORE_DOCUMENT, data)
                 .doOnSuccess(v -> log.debug("✅ Bootstrap state saved to Firestore at {}",
                         timestamp))
                 .doOnError(e -> log.error("❌ Failed to save to Firestore at {}: {}",
@@ -212,7 +212,7 @@ public class BootstrapStateService {
                     }
                 })
                 .subscribeOn(Schedulers.boundedElastic())
-                .then(firebaseServiceAuth.deleteDocument(FIRESTORE_COLLECTION, FIRESTORE_DOCUMENT))
+                .then(firestoreUserRepository.deleteDocument(FIRESTORE_COLLECTION, FIRESTORE_DOCUMENT))
                 .doOnSuccess(v -> log.info("✅ Bootstrap state fully reset at {}", now))
                 .doOnError(e -> log.error("❌ Failed to reset bootstrap state at {}: {}",
                         now, e.getMessage(), e));

@@ -1,6 +1,7 @@
 package com.techStack.authSys.service.notification;
 
 import com.techStack.authSys.exception.email.EmailSendingException;
+import com.techStack.authSys.repository.notification.EmailService;
 import com.techStack.authSys.repository.metrics.MetricsService;
 import com.techStack.authSys.util.validation.HelperUtils;
 import lombok.RequiredArgsConstructor;
@@ -21,7 +22,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 
 /**
- * Email Service Instance 1
+ * Email Service Instance
  *
  * Handles all email sending operations with Clock-based timestamp tracking.
  * Provides comprehensive email notifications for authentication events.
@@ -29,7 +30,7 @@ import java.util.Locale;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class EmailServiceInstance implements EmailService{
+public class EmailServiceInstance implements EmailService {
 
     /* =========================
        Dependencies
@@ -449,75 +450,43 @@ public class EmailServiceInstance implements EmailService{
     /**
      * Send account locked notification
      */
+    @Override
     public Mono<Void> sendAccountLockedNotification(
-            String userId,
+            String email,
+            Instant lockedAt,
             String reason,
-            Instant lockedAt) {
-
-        // Note: This method uses userId - you may need to fetch the email first
-        // For now, assuming userId can be used to retrieve email
+            String ipAddress) {
 
         String subject = "Account Locked - Security Alert";
         String body = String.format("""
-                Hello,
-                
-                Your account has been locked at %s.
-                
-                Reason: %s
-                
-                To unlock your account:
-                1. Wait for the automatic unlock period
-                2. Contact support for immediate assistance
-                3. Provide your user ID for verification
-                
-                Security is our top priority. Thank you for your understanding.
-                
-                Best regards,
-                The Security Team
-                """,
+            Hello,
+            
+            Your account has been locked for security reasons.
+            
+            Lock Details:
+            - Time: %s
+            - Reason: %s
+            - IP Address: %s
+            
+            What this means:
+            - You cannot log in until the lock is removed
+            - This is a security measure to protect your account
+            
+            To resolve this issue:
+            1. Wait for the automatic unlock period (typically 15-30 minutes)
+            2. Contact support for immediate assistance
+            3. Review recent account activity
+            
+            If you believe this is an error, please contact our support team immediately.
+            
+            Security is our top priority. Thank you for your understanding.
+            
+            Best regards,
+            The Security Team
+            """,
                 EMAIL_TIMESTAMP_FORMATTER.format(lockedAt),
-                reason
-        );
-
-        // Note: You'll need to implement email lookup by userId
-        return Mono.empty(); // Placeholder - implement email lookup
-    }
-
-    /**
-     * Send account locked notification with language support
-     */
-    public Mono<Void> sendAccountLockedNotification(
-            String email,
-            String reason,
-            String language) {
-
-        Instant now = clock.instant();
-
-        String subject = messageSource.getMessage(
-                "email.account.locked.subject",
-                null,
-                Locale.forLanguageTag(language)
-        );
-
-        String body = String.format("""
-                Hello,
-                
-                Your account has been locked due to: %s
-                
-                Locked at: %s
-                
-                To resolve this issue:
-                1. Review the lock reason above
-                2. Contact support if you believe this is an error
-                3. Follow any instructions provided
-                
-                Please contact support for assistance.
-                
-                Best regards,
-                The Security Team
-                """,
                 reason,
-                EMAIL_TIMESTAMP_FORMATTER.format(now)
+                ipAddress != null ? ipAddress : "Unknown"
         );
 
         return sendEmailInternal(email, subject, body);

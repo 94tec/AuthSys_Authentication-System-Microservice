@@ -3,9 +3,10 @@ package com.techStack.authSys.service.token;
 import com.google.cloud.Timestamp;
 import com.techStack.authSys.dto.internal.AuthResult;
 import com.techStack.authSys.models.auth.TokenPair;
+import com.techStack.authSys.models.authorization.Permissions;
 import com.techStack.authSys.models.user.Roles;
 import com.techStack.authSys.models.user.User;
-import com.techStack.authSys.repository.sucurity.RateLimiterService;
+import com.techStack.authSys.repository.session.SessionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -27,7 +28,7 @@ import java.util.*;
 public class TokenGenerationService {
 
     private final JwtService jwtService;
-    private final RateLimiterService.SessionService sessionService;
+    private final SessionService sessionService;
     private final Clock clock;
 
     /* =========================
@@ -42,7 +43,7 @@ public class TokenGenerationService {
             String ipAddress,
             String deviceFingerprint,
             String userAgent,
-            Set<String> permissions
+            Set<Permissions> permissions
     ) {
         Instant issuedAt = clock.instant();
         String sessionId = generateSessionId();
@@ -125,18 +126,15 @@ public class TokenGenerationService {
     /* =========================
        AuthResult Building
        ========================= */
-
-    /**
-     * Build the final AuthResult response object
-     */
     private AuthResult buildAuthResult(
             User user,
             String sessionId,
             TokenPair tokens,
             Instant issuedAt,
-            Instant refreshExpiry
-    ) {
+            Instant refreshExpiry) {
+
         List<Roles> roleList = new ArrayList<>(user.getRoles());
+        List<Permissions> permissionsList = new ArrayList<>(user.getAllPermissions()); // ⚡ Keep as Permissions objects
 
         return new AuthResult(
                 user,
@@ -147,6 +145,7 @@ public class TokenGenerationService {
                 issuedAt,
                 refreshExpiry,
                 roleList,
+                permissionsList,
                 user.isMfaRequired(),
                 user.getLoginAttempts(),
                 issuedAt

@@ -8,7 +8,7 @@ import com.google.firebase.auth.FirebaseAuth;
 import com.techStack.authSys.exception.security.SessionException;
 import com.techStack.authSys.models.session.SessionStatus;
 import com.techStack.authSys.repository.session.SessionExpirationService;
-import com.techStack.authSys.repository.sucurity.RateLimiterService;
+import com.techStack.authSys.repository.session.SessionService;
 import com.techStack.authSys.service.notification.BrevoEmailService;
 import com.techStack.authSys.service.observability.AuditLogService;
 import com.techStack.authSys.util.firebase.FirestoreUtil;
@@ -51,7 +51,7 @@ public class SessionExpirationServiceImpl implements SessionExpirationService {
     private final Clock clock;
 
     @Lazy
-    private final RateLimiterService.SessionService sessionService;
+    private final SessionService sessionService;
 
     /* =========================
        Configuration

@@ -16,19 +16,23 @@ public class EmailVerifiedEvent extends ApplicationEvent {
 
     private final String userId;
     private final String email;
-    private final Instant timestamp;
+
+    // ✅ DO NOT name it "timestamp"
+    private final Instant occurredAt;
+
     private final String ipAddress;
 
     public EmailVerifiedEvent(
             Object source,
             String userId,
             String email,
-            Instant timestamp,
-            String ipAddress) {
+            Instant occurredAt,
+            String ipAddress
+    ) {
         super(source);
         this.userId = userId;
         this.email = email;
-        this.timestamp = timestamp;
+        this.occurredAt = occurredAt;
         this.ipAddress = ipAddress;
     }
 
@@ -37,7 +41,7 @@ public class EmailVerifiedEvent extends ApplicationEvent {
         return "EmailVerifiedEvent{" +
                 "userId='" + userId + '\'' +
                 ", email='" + email + '\'' +
-                ", timestamp=" + timestamp +
+                ", occurredAt=" + occurredAt +
                 ", ipAddress='" + ipAddress + '\'' +
                 '}';
     }

@@ -1,11 +1,23 @@
 package com.techStack.authSys.constants;
 
+import lombok.Getter;
+import lombok.Setter;
+import org.springframework.beans.factory.annotation.Value;
+
+import javax.crypto.spec.SecretKeySpec;
 import java.time.Duration;
+import java.util.Collections;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 public final class SecurityConstants {
 
     private SecurityConstants() {}
+
+    public static final String OAUTH_PROVIDER = "GOOGLE";
+    public static final String OAUTH_ATTRIBUTE_PROVIDER = "oauth_provider";
+    public static final String OAUTH_ATTRIBUTE_PROVIDER_ID = "oauth_provider_id";
+    public static final String OAUTH_ATTRIBUTE_PICTURE = "oauth_picture";
     // Severity levels
     public static final String SEVERITY_ERROR = "ERROR";
     public static final String SEVERITY_WARN = "WARN";
@@ -21,6 +33,9 @@ public final class SecurityConstants {
     // Common actions
     public static final String ACTION_LOGIN_OR_RESET = "login_or_reset";
     public static final String ACTION_SECURITY_PROTECTION = "security_protection";
+
+    public static final String SYSTEM_IP = "127.0.0.1";
+    public static final String DEVICE_FINGERPRINT = "BOOTSTRAP_DEVICE";
 
     // JWT Configuration
     public static final int ACCESS_TOKEN_TTL_SECONDS = 900; // 15 minutes
@@ -88,6 +103,7 @@ public final class SecurityConstants {
     public static final String COLLECTION_USER_PERMISSIONS = "user_permissions";
     public static final String COLLECTION_AUTH_LOGS = "auth_logs";
     public static final String COLLECTION_REGISTRATION_METADATA = "registration_metadata";
+    public static final String COLLECTION_NAME = "user_fingerprints";
     // ==================== Key Prefixes ====================
     public static final class CacheKey {
         public static final String USER_PROFILE = "user:profile:";

@@ -473,7 +473,7 @@ public class FirestoreUserRepository {
                 .userId(user.getId())
                 .createdAt(Instant.now())
                 .changedFromIp(ipAddress)
-                .changedByUserAgent(deviceFingerprint)
+                .changedByUserAgent(deviceFingerprint.toString())
                 .build();
     }
 

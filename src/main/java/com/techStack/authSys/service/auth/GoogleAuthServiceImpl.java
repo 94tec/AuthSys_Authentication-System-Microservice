@@ -9,10 +9,10 @@ import com.techStack.authSys.models.user.PermissionData;
 import com.techStack.authSys.models.user.User;
 import com.techStack.authSys.models.user.UserFactory;
 import com.techStack.authSys.models.user.UserStatus;
+import com.techStack.authSys.repository.authorization.GoogleAuthService;
 import com.techStack.authSys.repository.metrics.MetricsService;
 import com.techStack.authSys.repository.user.FirestoreUserRepository;
 import com.techStack.authSys.service.authorization.PermissionService;
-import com.techStack.authSys.service.authorization.RoleAssignmentService;
 import com.techStack.authSys.util.validation.HelperUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -28,6 +28,8 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Map;
 import java.util.Set;
+
+import static com.techStack.authSys.constants.SecurityConstants.*;
 
 /**
  * Google Authentication Service Implementation
@@ -48,11 +50,6 @@ public class GoogleAuthServiceImpl implements GoogleAuthService {
 
     @Value("${google.oauth.client-id}")
     private String googleClientId;
-
-    private static final String OAUTH_PROVIDER = "GOOGLE";
-    private static final String OAUTH_ATTRIBUTE_PROVIDER = "oauth_provider";
-    private static final String OAUTH_ATTRIBUTE_PROVIDER_ID = "oauth_provider_id";
-    private static final String OAUTH_ATTRIBUTE_PICTURE = "oauth_picture";
 
     @Override
     public Mono<User> authenticateWithGoogle(String idToken, String ipAddress, String deviceFingerprint) {
@@ -242,7 +239,7 @@ public class GoogleAuthServiceImpl implements GoogleAuthService {
         // Add Google-specific attributes
         newUser.getAttributes().put(OAUTH_ATTRIBUTE_PICTURE, picture);
         newUser.setEmailVerified(payload.getEmailVerified());
-        newUser.setDeviceFingerprint(deviceFingerprint);
+        newUser.setKnownDeviceFingerprints(deviceFingerprint);
 
         // Prepare permissions
         Set<String> permissions = permissionService.resolveEffectivePermissions(newUser);

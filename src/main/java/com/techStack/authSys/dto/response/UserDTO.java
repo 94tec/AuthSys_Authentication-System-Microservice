@@ -158,7 +158,11 @@ public class UserDTO {
                 .phoneNumber(user.getPhoneNumber())
                 .roles(user.getRoleNames())
                 .permissions(user.getAdditionalPermissions())
-                .requestedRole(user.getRequestedRoles() != null ? user.getRequestedRoles().name() : null)
+                .roles(user.getRoles() != null
+                        ? user.getRoles().stream()
+                        .map(Enum::name)
+                        .collect(Collectors.toList())
+                        : List.of())
                 .department(user.getDepartment())
                 .status(user.getStatus())
                 .approvalLevel(user.getApprovalLevel())

@@ -19,7 +19,9 @@ public class UserRejectedEvent extends ApplicationEvent {
     private final String rejectedBy;
     private final String rejectorRole;
     private final String reason;
-    private final Instant timestamp;
+
+    // ✅ Rename this to avoid clashing with ApplicationEvent.getTimestamp()
+    private final Instant occurredAt;
 
     public UserRejectedEvent(
             Object source,
@@ -28,14 +30,15 @@ public class UserRejectedEvent extends ApplicationEvent {
             String rejectedBy,
             String rejectorRole,
             String reason,
-            Instant timestamp) {
+            Instant occurredAt
+    ) {
         super(source);
         this.userId = userId;
         this.email = email;
         this.rejectedBy = rejectedBy;
         this.rejectorRole = rejectorRole;
         this.reason = reason;
-        this.timestamp = timestamp;
+        this.occurredAt = occurredAt;
     }
 
     @Override
@@ -46,7 +49,7 @@ public class UserRejectedEvent extends ApplicationEvent {
                 ", rejectedBy='" + rejectedBy + '\'' +
                 ", rejectorRole='" + rejectorRole + '\'' +
                 ", reason='" + reason + '\'' +
-                ", timestamp=" + timestamp +
+                ", occurredAt=" + occurredAt +
                 '}';
     }
 }

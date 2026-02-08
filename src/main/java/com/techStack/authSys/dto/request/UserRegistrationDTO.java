@@ -68,6 +68,8 @@ public class UserRegistrationDTO {
     private Set<String> requestedRoles;
     private String department;
 
+    private String userAgent;
+
     public Set<Roles> getRequestedRoleEnums() {
         if (requestedRoles == null || requestedRoles.isEmpty()) {
             return Set.of(Roles.USER); // default role

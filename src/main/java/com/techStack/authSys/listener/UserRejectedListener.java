@@ -1,7 +1,7 @@
 package com.techStack.authSys.listener;
 
 import com.techStack.authSys.event.UserRejectedEvent;
-import com.techStack.authSys.service.notification.EmailService;
+import com.techStack.authSys.repository.notification.EmailService;
 import com.techStack.authSys.service.observability.AuditLogService;
 import com.techStack.authSys.util.validation.HelperUtils;
 import lombok.RequiredArgsConstructor;
@@ -97,7 +97,7 @@ public class UserRejectedListener {
             emailService.sendUserRejectedNotification(
                     event.getEmail(),
                     event.getReason(),
-                    event.getTimestamp()
+                    event.getOccurredAt()
             );
 
             Instant emailEnd = clock.instant();

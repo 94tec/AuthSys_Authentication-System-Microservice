@@ -1,4 +1,4 @@
-package com.techStack.authSys.service.notification;
+package com.techStack.authSys.repository.notification;
 
 
 import reactor.core.publisher.Mono;
@@ -35,10 +35,10 @@ public interface EmailService {
     Mono<Void> sendPasswordExpiredNotification(String email, long daysExpired, String language);
 
     /* Account Security */
-    Mono<Void> sendAccountLockedNotification(String userId, String reason, Instant lockedAt);
-    Mono<Void> sendAccountLockedNotification(String email, String reason, String language);
+    Mono<Void> sendAccountLockedNotification(String userId, Instant eventTime, String reason, String ipAddresst);
 
     /* Approval Workflow */
     Mono<Void> sendUserApprovedNotification(String email, String approvedBy, Instant approvedAt);
     Mono<Void> sendUserRejectedNotification(String email, String reason, Instant rejectedAt);
+
 }

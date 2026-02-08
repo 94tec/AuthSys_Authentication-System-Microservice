@@ -277,18 +277,21 @@ public class AuditLogService {
             log.warn("Attempted to log auth failure with null/empty email at {}", now);
             return;
         }
+
         if (ipAddress == null || ipAddress.isBlank()) {
             ipAddress = "UNKNOWN";
         }
+
         if (deviceFingerprint == null || deviceFingerprint.isBlank()) {
             deviceFingerprint = "UNKNOWN";
         }
+
         if (errorMessage == null || errorMessage.isBlank()) {
             errorMessage = "Unknown authentication error";
         }
 
-        log.warn("Authentication failure at {} for: {} from IP: {} - Error: {}",
-                now, HelperUtils.maskEmail(email), ipAddress, errorMessage);
+        log.warn("Authentication failure at {} for: {} from IP: {} device: {} - Error: {}",
+                now, HelperUtils.maskEmail(email), ipAddress, deviceFingerprint, errorMessage);
 
         Map<String, Object> logEntry = new HashMap<>();
         logEntry.put("eventType", "AUTH_FAILURE");
@@ -491,32 +494,52 @@ public class AuditLogService {
     /**
      * Log user event with full details
      */
-    public void logUserEvent(User user, ActionType actionType, String details, String ipAddress) {
-        Instant now = clock.instant();
+    public Mono<Void> logUserEvent(
+            User user,
+            ActionType actionType,
+            String details,
+            String ipAddress
+    ) {
+        return Mono.fromCallable(() -> {
+                    Instant now = clock.instant();
 
-        try {
-            Map<String, Object> logData = new HashMap<>();
-            logData.put("userId", user.getId());
-            logData.put("userEmail", HelperUtils.maskEmail(user.getEmail()));
-            logData.put("actionType", actionType.name());
-            logData.put("details", details);
-            logData.put("ipAddress", ipAddress);
-            logData.put("timestamp", now.toString());
-            logData.put("timestampMillis", now.toEpochMilli());
-            logData.put("firestoreTimestamp", Timestamp.now());
+                    Map<String, Object> logData = new HashMap<>();
+                    logData.put("userId", user.getId());
+                    logData.put("userEmail", HelperUtils.maskEmail(user.getEmail()));
+                    logData.put("actionType", actionType.name());
+                    logData.put("details", details);
+                    logData.put("ipAddress", ipAddress);
+                    logData.put("timestamp", now.toString());
+                    logData.put("timestampMillis", now.toEpochMilli());
+                    logData.put("firestoreTimestamp", Timestamp.now());
 
-            firestore.collection(AUDIT_COLLECTION).add(logData).get();
+                    // ❗ blocking call
+                    firestore.collection(AUDIT_COLLECTION).add(logData).get();
 
-            log.info("User audit logged at {} - User: {}, Action: {}, Details: {}",
-                    now, HelperUtils.maskEmail(user.getEmail()), actionType, details);
-        } catch (Exception e) {
-            log.error("Failed to log user audit event at {} for {}: {}",
-                    now, HelperUtils.maskEmail(user.getEmail()), e.getMessage(), e);
-            logSystemEvent("USER_AUDIT_LOG_FAILURE",
-                    "Failed to log user event at " + now + " for " +
-                            HelperUtils.maskEmail(user.getEmail()) + ": " + e.getMessage());
-        }
+                    log.info("User audit logged at {} - User: {}, Action: {}, Details: {}",
+                            now, HelperUtils.maskEmail(user.getEmail()), actionType, details);
+
+                    return true;
+                })
+                .subscribeOn(Schedulers.boundedElastic())
+                .then()
+                .onErrorResume(e -> {
+                    Instant now = clock.instant();
+
+                    log.error("Failed to log user audit event at {} for {}: {}",
+                            now, HelperUtils.maskEmail(user.getEmail()), e.getMessage(), e);
+
+                    // Best-effort fallback
+                    return Mono.fromRunnable(() ->
+                                    logSystemEvent("USER_AUDIT_LOG_FAILURE",
+                                            "Failed to log user event at " + now + " for " +
+                                                    HelperUtils.maskEmail(user.getEmail()) + ": " + e.getMessage())
+                            )
+                            .subscribeOn(Schedulers.boundedElastic())
+                            .then();
+                });
     }
+
 
     /**
      * Log simple user action

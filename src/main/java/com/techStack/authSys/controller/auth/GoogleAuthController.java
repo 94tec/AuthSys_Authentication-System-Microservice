@@ -2,9 +2,8 @@ package com.techStack.authSys.controller.auth;
 
 import com.techStack.authSys.dto.response.ApiResponse;
 import com.techStack.authSys.exception.service.CustomException;
-import com.techStack.authSys.models.user.User;
 import com.techStack.authSys.service.auth.DeviceVerificationService;
-import com.techStack.authSys.service.auth.GoogleAuthService;
+import com.techStack.authSys.repository.authorization.GoogleAuthService;
 import com.techStack.authSys.util.validation.HelperUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -194,7 +193,7 @@ public class GoogleAuthController {
                     return ResponseEntity.ok(new ApiResponse<>(
                             true,
                             "Google account linked successfully",
-                            Map.of(
+                            Map.<String, Object>of(
                                     "userId", user.getId(),
                                     "email", user.getEmail(),
                                     "googleLinked", true,
@@ -212,13 +211,14 @@ public class GoogleAuthController {
                             .body(new ApiResponse<>(
                                     false,
                                     "Failed to link Google account: " + e.getMessage(),
-                                    Map.of(
+                                    Map.<String, Object>of(
                                             "userId", userId,
                                             "timestamp", errorTime.toString()
                                     )
                             )));
                 });
     }
+
 
     /**
      * Unlink Google account from user
@@ -241,7 +241,7 @@ public class GoogleAuthController {
                     return ResponseEntity.ok(new ApiResponse<>(
                             true,
                             "Google account unlinked successfully",
-                            Map.of(
+                            Map.<String, Object>of(
                                     "userId", user.getId(),
                                     "googleLinked", false,
                                     "unlinkedAt", completionTime.toString()
@@ -258,13 +258,14 @@ public class GoogleAuthController {
                             .body(new ApiResponse<>(
                                     false,
                                     "Failed to unlink Google account: " + e.getMessage(),
-                                    Map.of(
+                                    Map.<String, Object>of(
                                             "userId", userId,
                                             "timestamp", errorTime.toString()
                                     )
                             )));
                 });
     }
+
 
     /* =========================
        Private Helper Methods

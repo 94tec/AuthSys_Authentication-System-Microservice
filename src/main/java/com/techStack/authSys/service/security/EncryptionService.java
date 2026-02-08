@@ -1,5 +1,6 @@
 package com.techStack.authSys.service.security;
 
+
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
@@ -7,7 +8,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-
 import javax.annotation.PostConstruct;
 import javax.crypto.Cipher;
 import javax.crypto.SecretKeyFactory;
@@ -23,25 +23,28 @@ import java.security.spec.KeySpec;
 import java.util.Base64;
 import java.util.regex.Pattern;
 
+
 @Service
 public class EncryptionService {
 
     private static final Logger logger = LoggerFactory.getLogger(EncryptionService.class);
 
     // AES Configuration
-    private static final String AES_ALGORITHM = "AES/CBC/PKCS5Padding";
-    private static final int IV_LENGTH = 16;
+    public static final String AES_ALGORITHM = "AES/CBC/PKCS5Padding";
+    public static final int IV_LENGTH = 16;
     @Value("${encryption.secret-key}")
-    @Getter @Setter private String secretKeyBase64;
-    private SecretKeySpec secretKey;
+    @Getter
+    @Setter
+    public String secretKeyBase64;
+    public SecretKeySpec secretKey;
 
     // Password Hashing Configuration
-    private static final String PBKDF2_ALGORITHM = "PBKDF2WithHmacSHA256";
-    private static final int PBKDF2_ITERATIONS = 100000;
-    private static final int PBKDF2_KEY_LENGTH = 256;
-    private static final int PBKDF2_SALT_LENGTH = 16;
-    private static final Pattern BASE64_PATTERN = Pattern.compile("^[A-Za-z0-9+/]+={0,2}$");
-    private static final String SHA_256_ALGORITHM = "SHA-256";
+    public static final String PBKDF2_ALGORITHM = "PBKDF2WithHmacSHA256";
+    public static final int PBKDF2_ITERATIONS = 100000;
+    public static final int PBKDF2_KEY_LENGTH = 256;
+    public static final int PBKDF2_SALT_LENGTH = 16;
+    public static final Pattern BASE64_PATTERN = Pattern.compile("^[A-Za-z0-9+/]+={0,2}$");
+    public static final String SHA_256_ALGORITHM = "SHA-256";
 
     @PostConstruct
     public void init() {

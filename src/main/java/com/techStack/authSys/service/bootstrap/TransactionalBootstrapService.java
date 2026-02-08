@@ -28,6 +28,9 @@ import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.TimeoutException;
 
+import static com.techStack.authSys.constants.SecurityConstants.DEVICE_FINGERPRINT;
+import static com.techStack.authSys.constants.SecurityConstants.SYSTEM_IP;
+
 /**
  * Transactional Super Admin creation with automatic rollback.
  * - Added retry logic for transient failures
@@ -54,8 +57,6 @@ public class TransactionalBootstrapService {
     private final FirestoreUserRepository firestoreUserRepository;
     private final Clock clock;
 
-    private static final String SYSTEM_IP = "127.0.0.1";
-    private static final String DEVICE_FINGERPRINT = "BOOTSTRAP_DEVICE";
 
     // Retry configuration
     private static final int MAX_RETRIES = 3;
