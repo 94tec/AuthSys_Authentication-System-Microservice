@@ -5,6 +5,7 @@ import com.techStack.authSys.dto.request.LoginRequest;
 import com.techStack.authSys.dto.request.UserRegistrationDTO;
 import com.techStack.authSys.dto.response.ApiResponse;
 import com.techStack.authSys.dto.response.AuthResponse;
+import com.techStack.authSys.dto.response.BootstrapResult;
 import com.techStack.authSys.models.authorization.Permissions;
 import com.techStack.authSys.models.user.User;
 import com.techStack.authSys.service.auth.AuthenticationOrchestrator;
@@ -66,12 +67,11 @@ public class AdminAuthController {
        ========================= */
 
     /**
-     * Manually registers a Super Admin (for emergency situations)
-     * Should be disabled in production or protected by additional security
+     * Manual Super Admin registration endpoint.
+     * Returns detailed result about what actually happened.
      */
     @PostMapping("/register")
-    @ResponseStatus(HttpStatus.CREATED)
-    public Mono<ResponseEntity<ApiResponse<Object>>> registerSuperAdmin(
+    public Mono<ResponseEntity<ApiResponse<BootstrapResult>>> registerSuperAdmin(
             @RequestParam String email,
             @RequestParam String phone) {
 
@@ -81,34 +81,29 @@ public class AdminAuthController {
                 startTime, HelperUtils.maskEmail(email));
 
         return transactionalBootstrapService.createSuperAdminTransactionally(email, phone)
-                .then(Mono.fromCallable(() -> {
+                .map(result -> {
                     Instant endTime = clock.instant();
+                    Duration duration = Duration.between(startTime, endTime);
 
-                    log.info("✅ Super Admin registration completed at {}", endTime);
+                    log.info("✅ Super Admin registration completed at {} in {} | created={} exists={} emailSent={}",
+                            endTime, duration,
+                            result.created(),
+                            result.alreadyExists(),
+                            result.emailSent());
 
-                    return ResponseEntity
-                            .status(HttpStatus.CREATED)
-                            .body(new ApiResponse<>(
-                                    true,
-                                    "Super Admin created successfully. Check email for credentials.",
-                                    null
-                            ));
-                }))
-                .onErrorResume(e -> {
-                    Instant endTime = clock.instant();
+                    // Use 201 CREATED if new, 200 OK if already exists
+                    HttpStatus status = result.created() ? HttpStatus.CREATED : HttpStatus.OK;
 
-                    log.error("❌ Manual Super Admin registration failed at {}: {}",
-                            endTime, e.getMessage(), e);
-
-                    return Mono.just(ResponseEntity
-                            .status(HttpStatus.BAD_REQUEST)
-                            .body(new ApiResponse<>(
-                                    false,
-                                    e.getMessage(),
-                                    null
-                            ))
+                    ApiResponse<BootstrapResult> response = new ApiResponse<>(
+                            true,
+                            result.message(),
+                            result
                     );
+
+                    return ResponseEntity.status(status).body(response);
                 });
+
+        // ❗ Error handling delegated to GlobalExceptionHandler
     }
 
     @PostMapping("/login")

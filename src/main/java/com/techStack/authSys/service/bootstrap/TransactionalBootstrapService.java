@@ -3,6 +3,7 @@ package com.techStack.authSys.service.bootstrap;
 import com.google.cloud.firestore.*;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseAuthException;
+import com.techStack.authSys.dto.response.BootstrapResult;
 import com.techStack.authSys.exception.bootstrap.BootstrapInitializationException;
 import com.techStack.authSys.models.user.PermissionData;
 import com.techStack.authSys.models.user.User;
@@ -68,9 +69,9 @@ public class TransactionalBootstrapService {
 
     /**
      * Creates Super Admin with full transactional guarantees.
-     * If any step fails, all previous steps are rolled back.
+     * Returns BootstrapResult indicating what actually happened.
      */
-    public Mono<Void> createSuperAdminTransactionally(String email, String phone) {
+    public Mono<BootstrapResult> createSuperAdminTransactionally(String email, String phone) {
         // Validate inputs
         if (email == null || email.isBlank()) {
             log.error("❌ Email cannot be null or empty");
@@ -86,7 +87,7 @@ public class TransactionalBootstrapService {
         TransactionContext ctx = new TransactionContext();
         ctx.startTime = System.currentTimeMillis();
 
-        log.info("🚀 Bootstrap transaction initiated at {} for: {}",ctx.startTime, HelperUtils.maskEmail(finalEmail));
+        log.info("🚀 Bootstrap transaction initiated at {} for: {}", ctx.startTime, HelperUtils.maskEmail(finalEmail));
 
         return checkExistingAdmin(finalEmail)
                 .flatMap(exists -> {
@@ -126,20 +127,25 @@ public class TransactionalBootstrapService {
 
     /**
      * Handles scenario where admin already exists.
+     * Returns BootstrapResult instead of Mono<Void>
      */
-    private Mono<Void> handleExistingAdmin(String email, TransactionContext ctx) {
+    private Mono<BootstrapResult> handleExistingAdmin(String email, TransactionContext ctx) {
         log.info("⚠️ Super Admin already exists: {}", HelperUtils.maskEmail(email));
 
         return stateService.markBootstrapComplete()
-                .doOnSuccess(v -> {
+                .then(firebaseServiceAuth.findByEmail(email))
+                .map(existingUser -> {
                     ctx.endTime = System.currentTimeMillis();
                     log.info("✅ Bootstrap verification completed in {}ms - Admin exists",
                             ctx.getTotalDuration());
                     recordMetric("bootstrap.super_admin.already_exists");
+
+                    return BootstrapResult.alreadyExists(existingUser.getId());
                 })
                 .onErrorResume(e -> {
                     log.warn("⚠️ Failed to mark bootstrap complete: {}", e.getMessage());
-                    return Mono.empty();
+                    // Still return success result since user exists
+                    return Mono.just(BootstrapResult.alreadyExists(null));
                 });
     }
 
@@ -152,7 +158,7 @@ public class TransactionalBootstrapService {
      * 3. Mark bootstrap complete
      * 4. Send notification email
      */
-    private Mono<Void> executeTransactionalCreation(
+    private Mono<BootstrapResult> executeTransactionalCreation(
             String email,
             String phone,
             TransactionContext ctx) {
@@ -189,18 +195,19 @@ public class TransactionalBootstrapService {
                             .flatMap(user -> {
                                 log.info("▶ Step 4/4: Sending notification email to {}", HelperUtils.maskEmail(email));
                                 return sendNotificationWithFallback(email, password, ctx)
+                                        .then(Mono.just(user))  // ✅ Changed: Return user instead of void
                                         .doOnSuccess(x -> {
                                             log.info("✓ Step 4/4: Notification completed");
                                             logStepComplete(4, "Notification sent", ctx);
                                         });
                             })
-                            // SUCCESS: Log and record metrics
-                            .doOnSuccess(v -> {
+
+                            // ✅ SUCCESS: Create BootstrapResult DTO
+                            .map(user -> {
                                 logSuccessfulBootstrap(email, ctx);
                                 recordSuccessMetrics(ctx);
-                            })
-
-                            .then(); // Ensure void return
+                                return BootstrapResult.created(user.getId(), ctx.emailSent);
+                            });
                 })
                 .timeout(OPERATION_TIMEOUT)
                 .doOnError(e -> {
@@ -670,7 +677,11 @@ public class TransactionalBootstrapService {
     /**
      * Final error handler after rollback.
      */
-    private Mono<Void> handleFinalError(String email, TransactionContext ctx, Throwable e) {
+    /**
+     * Final error handler after rollback.
+     * Returns Mono<BootstrapResult> to match signature
+     */
+    private Mono<BootstrapResult> handleFinalError(String email, TransactionContext ctx, Throwable e) {
         log.error("💥 Bootstrap failed after rollback for {}: {}",
                 HelperUtils.maskEmail(email), e.getMessage());
 
@@ -689,7 +700,11 @@ public class TransactionalBootstrapService {
             if ("EMAIL_EXISTS".equals(errorCode) || "EMAIL_ALREADY_EXISTS".equals(errorCode)) {
                 log.warn("⚠️ Email conflict detected - attempting to mark bootstrap complete");
                 return stateService.markBootstrapComplete()
-                        .doOnSuccess(v -> log.info("✅ Bootstrap marked complete despite email conflict"))
+                        .then(firebaseServiceAuth.findByEmail(email))
+                        .map(user -> {
+                            log.info("✅ Bootstrap marked complete despite email conflict");
+                            return BootstrapResult.alreadyExists(user.getId());
+                        })
                         .onErrorResume(ex -> {
                             // If we can't mark complete, this is a fatal error
                             return Mono.error(new BootstrapInitializationException(
@@ -702,7 +717,7 @@ public class TransactionalBootstrapService {
             }
         }
 
-        // Return error instead of empty - FAIL LOUDLY
+        // Return error - FAIL LOUDLY
         return Mono.error(new BootstrapInitializationException(
                 "Bootstrap transaction failed: " + e.getMessage(),
                 failurePoint,
