@@ -8,6 +8,9 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.Collections;
+import java.util.List;
+import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.TimeoutException;
 
 /**
@@ -279,6 +282,7 @@ public class HelperUtils {
     public static User buildSuperAdminUser(String email, String phone, String password) {
         Instant now = Instant.now();
         User admin = new User();
+        admin.setId(UUID.randomUUID().toString());
         admin.setCreatedAt(now);
         admin.setUpdatedAt(now);
         admin.setCreatedBy(SYSTEM_CREATOR);
@@ -293,7 +297,8 @@ public class HelperUtils {
         admin.setFirstName("Super");
         admin.setLastName("Admin");
         admin.setUsername("superadmin");
-        admin.setKnownDeviceFingerprints("DEVICE_FINGERPRINT");
+        admin.setKnownDeviceFingerprints(DEVICE_FINGERPRINT);
+        admin.setRoleNames(List.of("SUPER_ADMIN"));
         return admin;
     }
 }
