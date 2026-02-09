@@ -189,7 +189,7 @@ public class PermissionService implements PermissionProvider {
      * @return set of permission names
      */
     @Override
-    @Cacheable(value = "effectivePermissions", key = "#user.id")
+    @Cacheable(value = "effectivePermissions", key = "#user.email")
     public Set<String> resolveEffectivePermissions(User user) {
         Set<Permissions> effectivePermsEnum = new HashSet<>();
 
