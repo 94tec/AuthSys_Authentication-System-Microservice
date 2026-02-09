@@ -9,6 +9,7 @@ import com.techStack.authSys.exception.auth.AuthException;
 import com.techStack.authSys.exception.auth.InvalidTokenException;
 import com.techStack.authSys.exception.auth.TransientAuthenticationException;
 import com.techStack.authSys.exception.authorization.PermissionDeniedException;
+import com.techStack.authSys.exception.bootstrap.BootstrapInitializationException;
 import com.techStack.authSys.exception.data.CacheException;
 import com.techStack.authSys.exception.data.DataIntegrityException;
 import com.techStack.authSys.exception.data.DataMappingException;
@@ -146,6 +147,33 @@ public class GlobalExceptionHandler {
                 .doOnNext(response -> logErrorResponse(
                         ex, email, (HttpStatus) response.getStatusCode(), "authentication", handlingTime)
                 );
+    }
+    /**
+     * Handle bootstrap initialization exceptions
+     * These are FATAL and should not be caught during startup
+     */
+    @ExceptionHandler(BootstrapInitializationException.class)
+    public Mono<ResponseEntity<Map<String, Object>>> handleBootstrapException(
+            BootstrapInitializationException ex) {
+
+        Instant now = clock.instant();
+
+        log.error("🚨 FATAL BOOTSTRAP ERROR at {} - Application should not have started: {}",
+                now, ex.getMessage(), ex);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("success", false);
+        response.put("status", HttpStatus.INTERNAL_SERVER_ERROR.value());
+        response.put("errorCode", "BOOTSTRAP_FAILED");
+        response.put("message", "Application bootstrap failed - system is not operational");
+        response.put("failurePoint", ex.getFailurePoint());
+        response.put("retryable", ex.isRetryable());
+        response.put("timestamp", now.toString());
+        response.put("timestampMillis", now.toEpochMilli());
+
+        return Mono.just(ResponseEntity
+                .status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(response));
     }
 
     /* =========================

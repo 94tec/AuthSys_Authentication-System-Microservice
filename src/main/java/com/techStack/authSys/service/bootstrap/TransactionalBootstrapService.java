@@ -3,6 +3,7 @@ package com.techStack.authSys.service.bootstrap;
 import com.google.cloud.firestore.*;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseAuthException;
+import com.techStack.authSys.exception.bootstrap.BootstrapInitializationException;
 import com.techStack.authSys.models.user.PermissionData;
 import com.techStack.authSys.models.user.User;
 import com.techStack.authSys.models.user.UserStatus;
@@ -670,11 +671,18 @@ public class TransactionalBootstrapService {
      * Final error handler after rollback.
      */
     private Mono<Void> handleFinalError(String email, TransactionContext ctx, Throwable e) {
-        log.error("💥 Bootstrap failed after rollback for {}: {}", HelperUtils.maskEmail(email), e.getMessage());
+        log.error("💥 Bootstrap failed after rollback for {}: {}",
+                HelperUtils.maskEmail(email), e.getMessage());
+
+        // Determine if error is retryable
+        boolean retryable = HelperUtils.isRetryableError(e);
+
+        String failurePoint = ctx.failurePoint != null ? ctx.failurePoint : "UNKNOWN";
 
         // Handle specific error cases
-        if (e instanceof FirebaseAuthException) {
-            FirebaseAuthException fbEx = (FirebaseAuthException) e;
+        if (e instanceof com.google.firebase.auth.FirebaseAuthException) {
+            com.google.firebase.auth.FirebaseAuthException fbEx =
+                    (com.google.firebase.auth.FirebaseAuthException) e;
             String errorCode = fbEx.getAuthErrorCode() != null ?
                     fbEx.getAuthErrorCode().name() : "UNKNOWN";
 
@@ -682,12 +690,25 @@ public class TransactionalBootstrapService {
                 log.warn("⚠️ Email conflict detected - attempting to mark bootstrap complete");
                 return stateService.markBootstrapComplete()
                         .doOnSuccess(v -> log.info("✅ Bootstrap marked complete despite email conflict"))
-                        .onErrorResume(ex -> Mono.empty());
+                        .onErrorResume(ex -> {
+                            // If we can't mark complete, this is a fatal error
+                            return Mono.error(new BootstrapInitializationException(
+                                    "Email exists but cannot mark bootstrap complete",
+                                    "EMAIL_CONFLICT_RECOVERY",
+                                    ex,
+                                    false
+                            ));
+                        });
             }
         }
 
-        // Return empty to prevent application crash
-        return Mono.empty();
+        // Return error instead of empty - FAIL LOUDLY
+        return Mono.error(new BootstrapInitializationException(
+                "Bootstrap transaction failed: " + e.getMessage(),
+                failurePoint,
+                e,
+                retryable
+        ));
     }
 
     // ============================================================================
