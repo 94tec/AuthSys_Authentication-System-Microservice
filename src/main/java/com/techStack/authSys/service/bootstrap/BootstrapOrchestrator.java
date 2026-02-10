@@ -1,6 +1,7 @@
 package com.techStack.authSys.service.bootstrap;
 
 import com.techStack.authSys.config.core.AppConfigProperties;
+import com.techStack.authSys.dto.response.BootstrapResult;
 import com.techStack.authSys.exception.bootstrap.BootstrapInitializationException;
 import com.techStack.authSys.repository.metrics.MetricsService;
 import lombok.RequiredArgsConstructor;
@@ -147,9 +148,16 @@ public class BootstrapOrchestrator implements CommandLineRunner {
                     log.info("🔐 Creating Super Admin with transactional guarantees at {}", now);
 
                     return transactionalService.createSuperAdminTransactionally(
-                            appConfig.getSuperAdminEmail(),
-                            appConfig.getSuperAdminPhone()
-                    );
+                                    appConfig.getSuperAdminEmail(),
+                                    appConfig.getSuperAdminPhone()
+                            )
+                            .doOnSuccess(result -> {
+                                log.info("✅ Bootstrap result: created={} exists={} emailSent={}",
+                                        result.created(),
+                                        result.alreadyExists(),
+                                        result.emailSent());
+                            })
+                            .then(); // ✅ Convert Mono<BootstrapResult> to Mono<Void>
                 })
                 .onErrorResume(e -> {
                     // Convert any error to BootstrapInitializationException
