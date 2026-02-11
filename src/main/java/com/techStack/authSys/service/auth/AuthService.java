@@ -3,7 +3,7 @@ package com.techStack.authSys.service.auth;
 import com.techStack.authSys.dto.request.UserRegistrationDTO;
 import com.techStack.authSys.models.user.User;
 import com.techStack.authSys.service.registration.UserRegistrationOrchestrator;
-import com.techStack.authSys.service.security.DomainValidationService;
+import com.techStack.authSys.service.security.EmailValidationService;
 import com.techStack.authSys.service.verification.EmailVerificationService;
 import com.techStack.authSys.util.validation.HelperUtils;
 import lombok.RequiredArgsConstructor;
@@ -29,7 +29,7 @@ public class AuthService {
 
     private final UserRegistrationOrchestrator registrationOrchestrator;
     private final EmailVerificationService emailVerificationService;
-    private final DomainValidationService domainValidationService;
+    private final EmailValidationService emailValidationService;
     private final Clock clock;
 
     /* =========================
@@ -54,7 +54,7 @@ public class AuthService {
         log.info("Registration request at {} for: {}",
                 start, HelperUtils.maskEmail(registrationDTO.getEmail()));
 
-        return domainValidationService.validateActiveDomain(registrationDTO) // ✅ ADDED
+        return emailValidationService.validateEmailForRegistration(registrationDTO) // ✅ ADDED
                 .then(registrationOrchestrator.registerUser(registrationDTO, exchange))
                 .doOnSuccess(user -> {
                     Instant end = clock.instant();

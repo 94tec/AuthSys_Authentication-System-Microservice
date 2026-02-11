@@ -45,7 +45,6 @@ public class UserApprovalController {
        ========================= */
 
     private final RoleAssignmentService roleAssignmentService;
-    //private final AdminManagementService adminManagementService;
     private final UserApprovalService userApprovalService;
     private final FirebaseServiceAuth firebaseServiceAuth;
     private final SecurityContextService securityContextService;

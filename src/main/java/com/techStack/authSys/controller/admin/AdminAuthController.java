@@ -271,20 +271,4 @@ public class AdminAuthController {
                 });
     }
 
-    /**
-     * Get admin permissions
-     */
-    private Set<String> getAdminPermissions() {
-        return Set.of(
-                "READ_USERS",
-                "WRITE_USERS",
-                "DELETE_USERS",
-                "MANAGE_ROLES",
-                "VIEW_AUDIT_LOGS",
-                "MANAGE_SYSTEM",
-                "APPROVE_USERS",
-                "REJECT_USERS",
-                "RESTORE_USERS"
-        );
-    }
 }

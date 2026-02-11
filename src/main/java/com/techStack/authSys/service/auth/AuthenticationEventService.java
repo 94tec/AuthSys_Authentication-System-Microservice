@@ -36,10 +36,10 @@ public class AuthenticationEventService {
     private final RateLimiterService rateLimiterService;
     private final ApplicationEventPublisher eventPublisher;
 
-    @Value("${security.auth.max-attempts:5}")
+    @Value("${security.auth.max-attempts}")
     private int maxAuthAttempts;
 
-    @Value("${security.auth.lockout-minutes:30}")
+    @Value("${security.auth.lockout-minutes}")
     private int lockoutMinutes;
 
     /**

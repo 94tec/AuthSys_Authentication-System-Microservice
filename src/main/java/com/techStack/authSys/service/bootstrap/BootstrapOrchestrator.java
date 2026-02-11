@@ -16,6 +16,10 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 
+/**
+ * Bootstrap Orchestrator
+
+ */
 @Slf4j
 @Component
 @Order(2)
@@ -34,21 +38,23 @@ public class BootstrapOrchestrator implements CommandLineRunner {
     private static final int MAX_RETRIES = 3;
     private static final Duration RETRY_DELAY = Duration.ofSeconds(5);
 
+    /* =========================
+       CommandLineRunner Entry
+       ========================= */
+
     @Override
     public void run(String... args) {
         Instant startTime = clock.instant();
-
         log.info("🚀 Initiating Super Admin bootstrap check at {}", startTime);
 
-        // Validate configuration FIRST - fail immediately if invalid
+        // Validate configuration FIRST — fail immediately on bad config
         if (!validationService.validateBootstrapConfig(appConfig)) {
-            String errorMsg = "Bootstrap configuration validation failed - check email and phone settings";
-            log.error("❌ {}", errorMsg);
+            String msg = "Bootstrap configuration validation failed — check email and phone settings";
+            log.error("❌ {}", msg);
             metricsService.incrementCounter("bootstrap.config.invalid");
-            throw new BootstrapInitializationException(errorMsg, "CONFIG_VALIDATION");
+            throw new BootstrapInitializationException(msg, "CONFIG_VALIDATION");
         }
 
-        // Execute bootstrap with retry and fail-loud semantics
         try {
             performBootstrapWithLock()
                     .timeout(BOOTSTRAP_TIMEOUT)
@@ -57,129 +63,129 @@ public class BootstrapOrchestrator implements CommandLineRunner {
                             .filter(this::isRetryableError)
                             .doBeforeRetry(signal -> {
                                 log.warn("⚠️ Retrying bootstrap (attempt {}/{}): {}",
-                                        signal.totalRetries() + 1,
-                                        MAX_RETRIES,
+                                        signal.totalRetries() + 1, MAX_RETRIES,
                                         signal.failure().getMessage());
                                 metricsService.incrementCounter("bootstrap.retry.attempt");
                             })
-                            .onRetryExhaustedThrow((retryBackoffSpec, retrySignal) -> {
-                                Throwable lastError = retrySignal.failure();
+                            .onRetryExhaustedThrow((spec, signal) -> {
                                 String msg = String.format("Bootstrap failed after %d retries: %s",
-                                        MAX_RETRIES, lastError.getMessage());
+                                        MAX_RETRIES, signal.failure().getMessage());
                                 log.error("💥 {}", msg);
                                 return new BootstrapInitializationException(
-                                        msg,
-                                        "RETRY_EXHAUSTED",
-                                        lastError,
-                                        false
-                                );
+                                        msg, "RETRY_EXHAUSTED", signal.failure(), false);
                             }))
-                    .doOnSuccess(v -> {
+                    .doOnSuccess(result -> {
                         Instant endTime = clock.instant();
                         Duration duration = Duration.between(startTime, endTime);
-                        log.info("✅ Bootstrap completed successfully at {} (duration: {})",
-                                endTime, duration);
+
+                        if (result.created()) {
+                            log.info("✅ Super Admin CREATED at {} (duration: {}) — Email sent: {}",
+                                    endTime, duration, result.emailSent());
+                            metricsService.incrementCounter("bootstrap.super_admin.created");
+                        } else if (result.alreadyExists()) {
+                            log.info("✅ Super Admin already EXISTS — verified at {} (duration: {})",
+                                    endTime, duration);
+                            metricsService.incrementCounter("bootstrap.super_admin.already_exists");
+                        }
+
                         metricsService.incrementCounter("bootstrap.completed");
                         metricsService.recordTimer("bootstrap.total.time", duration);
                     })
-                    .doOnError(e -> {
-                        Instant endTime = clock.instant();
-                        Duration duration = Duration.between(startTime, endTime);
-                        log.error("💥 Bootstrap FAILED after {} at {}: {}",
-                                duration, endTime, e.getMessage(), e);
-                        metricsService.incrementCounter("bootstrap.failure");
+                    /*
+                     * ✅ FIXED: was .doOnError(e -> { throw new ... })
+                     *
+                     * Throwing inside doOnError() is a Project Reactor violation.
+                     * The thrown exception bypasses the reactive error channel and
+                     * becomes an UndeliverableException — it is NOT caught by the
+                     * outer try/catch and crashes the thread silently.
+                     *
+                     * onErrorMap() correctly transforms the error within the pipeline
+                     * so it surfaces through .block() as a normal exception.
+                     */
+                    .onErrorMap(e -> {
+                        if (e instanceof BootstrapInitializationException) return e;
+                        return new BootstrapInitializationException(
+                                "Bootstrap failed: " + e.getMessage(),
+                                "EXECUTION_FAILED", e, false);
                     })
-                    .block(); // 🔥 CRITICAL: Block and fail startup if error occurs
+                    .block(); // 🔥 Block and fail startup on error — intentional
 
         } catch (Exception e) {
-            // Re-throw as BootstrapInitializationException if not already
-            if (e instanceof BootstrapInitializationException) {
-                throw e;
-            }
+            if (e instanceof BootstrapInitializationException) throw e;
             String msg = "Bootstrap initialization failed: " + e.getMessage();
             log.error("💥 FATAL: {}", msg, e);
             throw new BootstrapInitializationException(msg, "UNKNOWN", e, false);
         }
     }
 
-    private Mono<Void> performBootstrapWithLock() {
+    /* =========================
+       Lock Coordination
+       ========================= */
+
+    /**
+     * ✅ FIXED: Returns Mono<BootstrapResult> (was Mono<Void>).
+     * The lock-wait else-branch now correctly returns a BootstrapResult.
+     */
+    private Mono<BootstrapResult> performBootstrapWithLock() {
         Instant now = clock.instant();
 
         return lockService.acquireBootstrapLock()
                 .flatMap(lockAcquired -> {
                     if (lockAcquired) {
                         log.info("🔒 Bootstrap lock acquired at {}", now);
-
                         return executeBootstrapProcess()
                                 .doFinally(signal -> {
                                     lockService.releaseBootstrapLock();
                                     log.info("🔓 Bootstrap lock released at {}", clock.instant());
                                 });
                     } else {
-                        log.info("⏳ Another instance performing bootstrap at {}", now);
-                        return stateService.waitForBootstrapCompletion();
+                        log.info("⏳ Another instance is bootstrapping at {}", now);
+                        // Wait for the other instance to finish, then report existing
+                        return stateService.waitForBootstrapCompletion()
+                                .then(Mono.just(BootstrapResult.alreadyExists(null)));
                     }
                 })
                 .onErrorResume(e -> {
-                    log.error("❌ Bootstrap coordination failed at {}: {}",
-                            clock.instant(), e.getMessage(), e);
+                    log.error("❌ Bootstrap coordination failed: {}", e.getMessage(), e);
                     lockService.releaseBootstrapLock();
-
-                    // Convert to BootstrapInitializationException
                     return Mono.error(new BootstrapInitializationException(
                             "Bootstrap coordination failed: " + e.getMessage(),
-                            "LOCK_COORDINATION",
-                            e,
-                            isRetryableError(e)
-                    ));
+                            "LOCK_COORDINATION", e, isRetryableError(e)));
                 });
     }
 
-    private Mono<Void> executeBootstrapProcess() {
+    /* =========================
+       Bootstrap Process
+       ========================= */
+
+    private Mono<BootstrapResult> executeBootstrapProcess() {
         Instant now = clock.instant();
 
         return stateService.isBootstrapCompleted()
-                .flatMap(alreadyBootstrapped -> {
-                    if (alreadyBootstrapped) {
+                .flatMap(alreadyDone -> {
+                    if (alreadyDone) {
                         log.info("✅ Bootstrap previously completed — skipping at {}", now);
-                        return Mono.empty();
+                        return Mono.just(BootstrapResult.alreadyExists(null));
                     }
 
-                    log.info("🔐 Creating Super Admin with transactional guarantees at {}", now);
-
+                    log.info("🔐 Creating Super Admin at {}", now);
                     return transactionalService.createSuperAdminTransactionally(
-                                    appConfig.getSuperAdminEmail(),
-                                    appConfig.getSuperAdminPhone()
-                            )
-                            .doOnSuccess(result -> {
-                                log.info("✅ Bootstrap result: created={} exists={} emailSent={}",
-                                        result.created(),
-                                        result.alreadyExists(),
-                                        result.emailSent());
-                            })
-                            .then(); // ✅ Convert Mono<BootstrapResult> to Mono<Void>
+                            appConfig.getSuperAdminEmail(),
+                            appConfig.getSuperAdminPhone());
                 })
-                .onErrorResume(e -> {
-                    // Convert any error to BootstrapInitializationException
-                    String msg = "Bootstrap process failed: " + e.getMessage();
-                    return Mono.error(new BootstrapInitializationException(
-                            msg,
-                            "BOOTSTRAP_EXECUTION",
-                            e,
-                            isRetryableError(e)
-                    ));
-                });
+                .onErrorResume(e -> Mono.error(new BootstrapInitializationException(
+                        "Bootstrap process failed: " + e.getMessage(),
+                        "BOOTSTRAP_EXECUTION", e, isRetryableError(e))));
     }
 
-    /**
-     * Determine if an error is retryable (transient Firebase/Firestore issues).
-     */
+    /* =========================
+       Retry Classification
+       ========================= */
+
     private boolean isRetryableError(Throwable error) {
         if (error instanceof BootstrapInitializationException) {
             return ((BootstrapInitializationException) error).isRetryable();
         }
-
-        // Use your existing HelperUtils method
         return com.techStack.authSys.util.validation.HelperUtils.isRetryableError(error);
     }
 }

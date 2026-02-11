@@ -26,10 +26,6 @@ import java.util.Set;
 
 /**
  * Firebase Authentication Service
- *
- * Handles Firebase Auth operations and coordinates with Firestore.
- * This service is deliberately scoped to authentication and persistence,
- * while higher-level registration workflows are orchestrated by UserCreationService.
  */
 @Service
 @RequiredArgsConstructor
@@ -60,15 +56,15 @@ public class FirebaseServiceAuth {
             User user,
             String password,
             String ipAddress,
-            String deviceFingerprint
-    ) {
+            String deviceFingerprint) {
+
         Instant now = clock.instant();
         log.info("Creating Firebase user for {} at {}", user.getEmail(), now);
 
         return createFirebaseAuthUser(user.getEmail(), password, user.getPhoneNumber(), false)
                 .flatMap(userRecord -> {
                     user.setId(userRecord.getUid());
-                    log.info("✅ Firebase user created with UID: {} at {}", userRecord.getUid(), now);
+                    log.info("✅ Firebase Auth user created UID: {} at {}", userRecord.getUid(), now);
                     return saveUserAtomic(user, ipAddress, deviceFingerprint);
                 })
                 .doOnError(e -> log.error("❌ Failed to create Firebase user for {} at {}: {}",
@@ -76,63 +72,59 @@ public class FirebaseServiceAuth {
     }
 
     /**
-     * Create Super Admin (standalone method for initial setup).
-     * This bypasses approval workflows and grants immediate full permissions.
+     * Create Super Admin — bypasses approval workflows, grants immediate full permissions.
+     * Called by TransactionalBootstrapService.
      */
     public Mono<User> createSuperAdmin(
             User user,
             String password,
             String ipAddress,
-            String deviceFingerprint
-    ) {
+            String deviceFingerprint) {
+
         Instant now = clock.instant();
         log.info("🔐 Creating Super Admin: {} at {}", user.getEmail(), now);
 
         return createFirebaseAuthUser(user.getEmail(), password, user.getPhoneNumber(), true)
                 .flatMap(userRecord -> {
-                    user.setId(userRecord.getUid());
+                    user.setId(userRecord.getUid()); // UID set HERE before Firestore save
                     return saveUserAtomic(user, ipAddress, deviceFingerprint);
                 })
-                .doOnSuccess(u -> log.info("✅ Super Admin created: {} at {}", u.getEmail(), now))
-                .doOnError(e -> log.error("❌ Super Admin creation failed at {}: {}", now, e.getMessage()));
+                .doOnSuccess(u -> log.info("✅ Super Admin created UID: {} at {}", u.getId(), now))
+                .doOnError(e -> log.error("❌ Super Admin creation failed at {}: {}",
+                        now, e.getMessage()));
     }
 
     /* =========================
-       Atomic Save
+       Atomic Save (private)
        ========================= */
 
-    /**
-     * Save user atomically to Firestore with permissions and device fingerprint.
-     */
-    private Mono<User> saveUserAtomic(User user, String ipAddress, String deviceFingerprint) {
+    private Mono<User> saveUserAtomic(
+            User user, String ipAddress, String deviceFingerprint) {
         Instant now = clock.instant();
 
         return userPermissionWorkflowService.preparePermissionData(user)
-                .flatMap(permData -> userRepository.saveUserAtomic(user, ipAddress, deviceFingerprint, permData))
-                .flatMap(savedUser -> deviceVerificationService.saveUserFingerprint(savedUser.getId(), deviceFingerprint)
-                        .thenReturn(savedUser))
-                .doOnSuccess(savedUser -> log.info("✅ User saved to Firestore: {} at {}", savedUser.getId(), now))
-                .doOnError(e -> log.error("❌ Failed to save user to Firestore at {}: {}", now, e.getMessage()));
+                .flatMap(permData ->
+                        userRepository.saveUserAtomic(user, ipAddress, deviceFingerprint, permData))
+                .flatMap(savedUser ->
+                        deviceVerificationService.saveUserFingerprint(
+                                        savedUser.getId(), deviceFingerprint)
+                                .thenReturn(savedUser))
+                .doOnSuccess(saved ->
+                        log.info("✅ User saved to Firestore UID: {} at {}", saved.getId(), now))
+                .doOnError(e ->
+                        log.error("❌ Failed to save user to Firestore at {}: {}", now, e.getMessage()));
     }
 
     /* =========================
        Authentication
        ========================= */
 
-    /**
-     * Validate user credentials
-     */
     public Mono<Void> validateCredentials(String email, String password) {
-        Instant now = clock.instant();
-
         return authValidator.validateCredentials(email, password)
-                .doOnSuccess(v -> log.info("🔓 Credentials validated for: {} at {}", email, now))
-                .doOnError(e -> log.warn("🔒 Validation failed for: {} at {}", email, now));
+                .doOnSuccess(v -> log.info("🔓 Credentials validated: {}", email))
+                .doOnError(e -> log.warn("🔒 Validation failed: {}", email));
     }
 
-    /**
-     * Get Firebase UserRecord by email
-     */
     public Mono<UserRecord> getUserRecord(String email) {
         return authValidator.getUserRecord(email);
     }
@@ -141,58 +133,32 @@ public class FirebaseServiceAuth {
        User Retrieval
        ========================= */
 
-    /**
-     * Find user by email
-     */
     public Mono<User> findByEmail(String email) {
         return userRepository.findByEmail(email);
     }
 
-    /**
-     * Get user by ID
-     */
     public Mono<User> getUserById(String userId) {
         return userRepository.findById(userId);
     }
 
-    /**
-     * Fetch user with complete permissions
-     */
     public Mono<User> fetchUserDetailsWithPermissions(String userId) {
         return userRepository.fetchUserWithPermissions(userId);
     }
 
-    /**
-     * Find all users
-     */
     public Flux<User> findAllUsers() {
         return userRepository.findAll();
     }
 
-    /**
-     * Find active users only
-     */
     public Flux<User> findActiveUsers() {
-        return userRepository.findByStatus(UserStatus.ACTIVE)
-                .filter(User::isEnabled);
+        return userRepository.findByStatus(UserStatus.ACTIVE).filter(User::isEnabled);
     }
 
-    /**
-     * Find users by status
-     */
     public Flux<User> findAllUsersByStatus(UserStatus status) {
         return userRepository.findByStatus(status);
     }
 
-    /**
-     * Get pending users with approval context
-     */
-    public Flux<PendingUserResponse> getPendingUsersWithApprovalContext(SecurityContext securityContext) {
-        Instant now = clock.instant();
-
-        log.info("📋 Fetching pending users - Requester: {} at {}",
-                securityContext.getRequesterEmail(), now);
-
+    public Flux<PendingUserResponse> getPendingUsersWithApprovalContext(
+            SecurityContext securityContext) {
         return findAllUsersByStatus(UserStatus.PENDING_APPROVAL)
                 .map(user -> buildPendingUserResponse(user, securityContext));
     }
@@ -201,50 +167,30 @@ public class FirebaseServiceAuth {
        User Updates
        ========================= */
 
-    /**
-     * Save user
-     */
     public Mono<User> save(User user) {
         return userRepository.save(user);
     }
 
-    /**
-     * Update user in Firestore
-     */
     public Mono<Void> updateUserInFirestore(User user) {
         return userRepository.update(user);
     }
 
-    /**
-     * Update last login timestamp
-     */
     public Mono<Void> updateLastLogin(String userId, String ipAddress) {
-        Instant now = clock.instant();
-
         return userRepository.updateLastLogin(userId, ipAddress)
-                .doOnSuccess(v -> log.debug("Updated last login for {} at {}", userId, now));
+                .doOnSuccess(v -> log.debug("Updated last login for {}", userId));
     }
 
     /* =========================
        Permission Management
        ========================= */
 
-    /**
-     * Approve user and grant permissions
-     */
     public Mono<Void> approveUserAndGrantPermissions(String userId, String approvedBy) {
-        Instant now = clock.instant();
-
         return getUserById(userId)
-                .flatMap(user -> userPermissionWorkflowService.approveAndGrantPermissions(user, approvedBy))
-                .doOnSuccess(v -> log.info("✅ User approved: {} at {}", userId, now))
-                .doOnError(e -> log.error("❌ Approval failed for {} at {}: {}",
-                        userId, now, e.getMessage()));
+                .flatMap(user -> userPermissionWorkflowService
+                        .approveAndGrantPermissions(user, approvedBy))
+                .doOnSuccess(v -> log.info("✅ User approved: {}", userId));
     }
 
-    /**
-     * Get user permissions
-     */
     public Mono<Map<String, Object>> getUserPermissions(String userId) {
         return userPermissionWorkflowService.getActivePermissions(userId);
     }
@@ -253,39 +199,43 @@ public class FirebaseServiceAuth {
        User Deletion
        ========================= */
 
-    /**
-     * Delete user from Firebase and Firestore
-     */
     public Mono<Void> deleteUser(String userId) {
-        Instant now = clock.instant();
-
         if (userId == null) {
             return Mono.error(new IllegalArgumentException("User ID cannot be null"));
         }
-
         return deleteFromFirebaseAuth(userId)
                 .then(userRepository.delete(userId))
-                .doOnSuccess(v -> log.info("🗑️ User deleted: {} at {}", userId, now))
-                .doOnError(e -> log.error("❌ Deletion failed for {} at {}: {}",
-                        userId, now, e.getMessage()));
+                .doOnSuccess(v -> log.info("🗑️ User deleted: {}", userId));
     }
 
     /* =========================
-       Utility Methods
+       Email Existence Checks
        ========================= */
 
     /**
-     * Check if email is available (returns true if user exists)
+     * Check if a user exists in Firebase Auth by email.
+     *
+     * Returns: true  = user EXISTS in Firebase Auth (email is taken)
+     *          false = user does NOT exist (email is available)
+     *
+     * Called by DuplicateEmailCheckService which treats true = "already registered".
+     *
+     * ✅ FIXED: Non-USER_NOT_FOUND errors (network, quota, etc.) now propagate
+     * as Mono.error() so DuplicateEmailCheckService can log and handle them
+     * appropriately, rather than silently returning false and allowing duplicates.
      */
     public Mono<Boolean> checkEmailAvailability(String email) {
         return Mono.fromCallable(() -> {
                     try {
                         firebaseAuth.getUserByEmail(email);
-                        return true; // User exists
+                        return true; // User found → email is taken
                     } catch (FirebaseAuthException e) {
-                        if ("USER_NOT_FOUND".equals(e.getAuthErrorCode().name())) {
-                            return false; // Email available
+                        String code = e.getAuthErrorCode() != null
+                                ? e.getAuthErrorCode().name() : "";
+                        if ("USER_NOT_FOUND".equals(code)) {
+                            return false; // Email is available
                         }
+                        // Rethrow — network/quota/auth errors should not silently pass
                         throw e;
                     }
                 })
@@ -293,36 +243,46 @@ public class FirebaseServiceAuth {
     }
 
     /**
-     * Check if user exists by email
+     * Check if a user exists in Firestore by email.
+     * Used by bootstrap and TransactionalBootstrapService.existsByEmail().
      */
     public Mono<Boolean> existsByEmail(String email) {
         return userRepository.existsByEmail(email);
     }
 
-    /**
-     * Cleanup failed registration
-     */
-    public Mono<Void> cleanupFailedRegistration(String email) {
-        Instant now = clock.instant();
+    /* =========================
+       Cleanup / Rollback
+       ========================= */
 
+    public Mono<Void> cleanupFailedRegistration(String email) {
         return rollbackFirebaseUser(email)
-                .doOnSuccess(v -> log.info("✅ Cleaned up failed registration: {} at {}",
-                        email, now));
+                .doOnSuccess(v -> log.info("✅ Cleaned up failed registration: {}", email));
+    }
+
+    public Mono<Void> rollbackFirebaseUser(String email) {
+        return Mono.fromCallable(() -> {
+                    try {
+                        UserRecord record = firebaseAuth.getUserByEmail(email);
+                        if (record != null) {
+                            firebaseAuth.deleteUser(record.getUid());
+                            log.info("♻️ Rolled back Firebase user: {}", email);
+                        }
+                    } catch (FirebaseAuthException e) {
+                        log.warn("⚠️ Rollback skipped for {} (may not exist): {}", email, e.getMessage());
+                    }
+                    return null;
+                })
+                .subscribeOn(Schedulers.boundedElastic())
+                .then();
     }
 
     /* =========================
        Private Helpers
        ========================= */
 
-    /**
-     * Create Firebase Auth user
-     */
     private Mono<UserRecord> createFirebaseAuthUser(
-            String email,
-            String password,
-            String phoneNumber,
-            boolean emailVerified
-    ) {
+            String email, String password, String phoneNumber, boolean emailVerified) {
+
         return Mono.fromCallable(() -> {
             UserRecord.CreateRequest request = new UserRecord.CreateRequest()
                     .setEmail(email)
@@ -338,9 +298,6 @@ public class FirebaseServiceAuth {
         }).subscribeOn(Schedulers.boundedElastic());
     }
 
-    /**
-     * Delete user from Firebase Auth
-     */
     private Mono<Void> deleteFromFirebaseAuth(String userId) {
         return Mono.fromCallable(() -> {
                     firebaseAuth.deleteUser(userId);
@@ -349,40 +306,19 @@ public class FirebaseServiceAuth {
                 })
                 .subscribeOn(Schedulers.boundedElastic())
                 .onErrorResume(FirebaseAuthException.class, e -> {
-                    if ("USER_NOT_FOUND".equals(e.getAuthErrorCode().name())) {
-                        log.warn("⚠️ User not found in Firebase Auth: {}", userId);
+                    String code = e.getAuthErrorCode() != null
+                            ? e.getAuthErrorCode().name() : "";
+                    if ("USER_NOT_FOUND".equals(code)) {
+                        log.warn("⚠️ User not found in Firebase Auth (already deleted?): {}", userId);
                         return Mono.empty();
                     }
                     return Mono.error(e);
                 });
     }
 
-    /**
-     * Rollback Firebase user creation on error
-     */
-    public Mono<Void> rollbackFirebaseUser(String email) {
-        return Mono.fromCallable(() -> {
-                    try {
-                        UserRecord userRecord = firebaseAuth.getUserByEmail(email);
-                        if (userRecord != null) {
-                            firebaseAuth.deleteUser(userRecord.getUid());
-                            log.info("♻️ Rolled back Firebase user: {}", email);
-                        }
-                    } catch (FirebaseAuthException e) {
-                        log.warn("⚠️ Rollback failed for {}: {}", email, e.getMessage());
-                    }
-                    return null;
-                })
-                .subscribeOn(Schedulers.boundedElastic())
-                .then();
-    }
-
-    /**
-     * Build pending user response DTO
-     */
-    private PendingUserResponse buildPendingUserResponse(User user, SecurityContext securityContext) {
+    private PendingUserResponse buildPendingUserResponse(
+            User user, SecurityContext securityContext) {
         Instant now = clock.instant();
-
         return PendingUserResponse.builder()
                 .id(user.getId())
                 .email(user.getEmail())
@@ -398,10 +334,8 @@ public class FirebaseServiceAuth {
                 .build();
     }
 
-    /**
-     * Build requester context
-     */
-    private RequesterContext buildRequesterContext(SecurityContext securityContext, Instant timestamp) {
+    private RequesterContext buildRequesterContext(
+            SecurityContext securityContext, Instant timestamp) {
         return RequesterContext.builder()
                 .requesterEmail(securityContext.getRequesterEmail())
                 .requesterRole(securityContext.getRequesterRole())

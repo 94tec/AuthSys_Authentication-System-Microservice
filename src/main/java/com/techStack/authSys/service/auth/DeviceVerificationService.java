@@ -25,6 +25,10 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
+
+import static com.techStack.authSys.constants.SecurityConstants.FALLBACK_IP;
+import static com.techStack.authSys.constants.SecurityConstants.UNKNOWN_DEVICE;
+
 @Service
 @RequiredArgsConstructor
 public class DeviceVerificationService {
@@ -35,12 +39,6 @@ public class DeviceVerificationService {
     private final ThreatDetectionService threatDetectionService;
     private final RedisSecurityService redisService;
     private final Firestore firestore;
-
-    private static final Pattern IPV4_PATTERN = Pattern.compile("^([0-9]{1,3}\\.){3}[0-9]{1,3}$");
-    private static final Pattern IPV6_PATTERN = Pattern.compile("^[0-9a-fA-F:]+$");
-
-    private static final String FALLBACK_IP = "0.0.0.0";
-    private static final String UNKNOWN_DEVICE = "unknown-device";
 
     @Value("${device.verification.enabled:true}")
     private boolean verificationEnabled;

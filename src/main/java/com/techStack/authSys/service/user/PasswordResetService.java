@@ -10,7 +10,7 @@ import com.techStack.authSys.exception.password.PasswordUpdateException;
 import com.techStack.authSys.models.user.User;
 import com.techStack.authSys.service.auth.FirebaseServiceAuth;
 import com.techStack.authSys.repository.notification.EmailService;
-import com.techStack.authSys.service.security.DomainValidationService;
+import com.techStack.authSys.service.security.EmailValidationService;
 import com.techStack.authSys.service.token.PasswordResetTokenService;
 import com.techStack.authSys.util.validation.HelperUtils;
 import lombok.RequiredArgsConstructor;
@@ -56,7 +56,7 @@ public class PasswordResetService {
     private final EmailService emailService;
     private final PasswordResetTokenService tokenService;
     private final PasswordPolicyService passwordPolicyService;
-    private final DomainValidationService domainValidationService;
+    private final EmailValidationService emailValidationService;
     private final Clock clock;
 
     /* =========================
@@ -133,7 +133,7 @@ public class PasswordResetService {
         UserRegistrationDTO dto = new UserRegistrationDTO();
         dto.setEmail(email);
 
-        return domainValidationService.validateActiveDomain(dto)
+        return emailValidationService.validateEmailForRegistration(dto)
                 .then(Mono.fromCallable(() -> {
                     log.debug("✅ Domain validated at {} for: {}",
                             clock.instant(), HelperUtils.maskEmail(email));

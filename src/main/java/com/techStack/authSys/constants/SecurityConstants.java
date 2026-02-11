@@ -91,6 +91,10 @@ public final class SecurityConstants {
     public static final int MAX_RETRY_ATTEMPTS = 3;
     public static final Duration RETRY_DELAY = Duration.ofMillis(500);
 
+    public static final Duration AUTH_TIMEOUT = Duration.ofSeconds(20);
+    public static final Duration RETRY_BACKOFF = Duration.ofMillis(100);
+
+
     // OTP
     public static final int OTP_LENGTH = 6;
     public static final Duration OTP_TTL = Duration.ofMinutes(5);
@@ -151,6 +155,12 @@ public final class SecurityConstants {
     public static final Pattern KENYAN_ID_PATTERN = Pattern.compile("\\d{8}");
 
     public static final Pattern KENYAN_PHONE_PATTERN = Pattern.compile("\\+254[17]\\d{8}");
+
+    public static final Pattern IPV4_PATTERN = Pattern.compile("^([0-9]{1,3}\\.){3}[0-9]{1,3}$");
+    public static final Pattern IPV6_PATTERN = Pattern.compile("^[0-9a-fA-F:]+$");
+
+    public static final String FALLBACK_IP = "0.0.0.0";
+    public static final String UNKNOWN_DEVICE = "unknown-device";
 
     /* =========================
        Field Constants

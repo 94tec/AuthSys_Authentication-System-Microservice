@@ -21,6 +21,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Set;
 
+import static com.techStack.authSys.constants.SecurityConstants.*;
+
 /**
  * Orchestrates the complete authentication workflow.
  * Coordinates rate limiting, credential validation, token generation, and monitoring.
@@ -35,10 +37,6 @@ public class AuthenticationOrchestrator {
     private final TokenGenerationService tokenGenerationService;
     private final AuthenticationEventService authEventService;
     private final MeterRegistry meterRegistry;
-
-    private static final Duration AUTH_TIMEOUT = Duration.ofSeconds(20);
-    private static final int MAX_RETRY_ATTEMPTS = 3;
-    private static final Duration RETRY_BACKOFF = Duration.ofMillis(100);
 
     /**
      * Main authentication entry point.

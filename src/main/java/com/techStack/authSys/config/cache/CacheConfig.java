@@ -31,10 +31,10 @@ import java.util.concurrent.TimeUnit;
 @EnableCaching
 public class CacheConfig {
 
-    @Value("${permissions.cache.ttl:300}")
+    @Value("${permissions.cache.ttl}")
     private long permissionCacheTtl;
 
-    @Value("${permissions.cache.max-size:1000}")
+    @Value("${permissions.cache.max-size}")
     private long permissionCacheMaxSize;
 
     /**
