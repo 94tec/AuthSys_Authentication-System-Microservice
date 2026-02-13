@@ -1,18 +1,18 @@
 package com.techStack.authSys.models.user;
 
-import com.techStack.authSys.models.security.SecurityMetadata;
 import org.jetbrains.annotations.NotNull;
 
 import java.time.Clock;
 import java.time.Instant;
 import java.util.*;
 
+import static com.techStack.authSys.util.validation.ValidationUtils.validateEmail;
+import static com.techStack.authSys.util.validation.ValidationUtils.validateName;
+
 /**
  * User Factory
  *
  * Centralized user creation with Clock-based timestamps.
- * Single Responsibility: Only handles user creation.
- * Security/risk helpers belong in SecurityMetadata or User.
  */
 public class UserFactory {
 
@@ -24,15 +24,15 @@ public class UserFactory {
 
     /**
      * Common builder initialization for all user creation flows.
-     * All timestamps come from Clock for testability.
      */
-    private static User.UserBuilder baseBuilder(
+    private static User.Builder baseBuilder(
             @NotNull String email,
             @NotNull String firstName,
             @NotNull String lastName,
-            @NotNull Clock clock
+            @NotNull Clock clock,
+            String message
     ) {
-        validateEmail(email);
+        validateEmail(email, message);
         validateName(firstName, "First name");
         validateName(lastName, "Last name");
 
@@ -40,23 +40,25 @@ public class UserFactory {
 
         return User.builder()
                 .email(email.toLowerCase().trim())
-                .username(email.toLowerCase().trim())
                 .firstName(firstName.trim())
                 .lastName(lastName.trim())
-                .enabled(false)
-                .emailVerified(false)
-                .accountLocked(false)
-                .accountDisabled(false)
-                .mfaRequired(false)
-                .mfaEnabled(false)
-                .forcePasswordChange(false)
+                .username(email.toLowerCase().trim())
                 .roleNames(new ArrayList<>())
                 .additionalPermissions(new ArrayList<>())
                 .attributes(new HashMap<>())
-                .passwordHistoryEntries(new ArrayList<>())
-                .knownDeviceFingerprints("")
+                .status(UserStatus.PENDING_APPROVAL)
+                .enabled(false)
+                .accountLocked(false)
+                .accountDisabled(false)
+                .emailVerified(false)
+                .forcePasswordChange(false)
+                .phoneVerified(false)
+                .mfaEnabled(false)
+                .mfaRequired(false)
                 .loginAttempts(0)
                 .failedLoginAttempts(0)
+                .knownDeviceFingerprints("")
+                .passwordHistoryEntries(new ArrayList<>())
                 .createdAt(now)
                 .updatedAt(now);
     }
@@ -66,7 +68,7 @@ public class UserFactory {
        ========================= */
 
     public static User createNewUser(String email, String firstName, String lastName) {
-        return createNewUser(email, firstName, lastName, DEFAULT_CLOCK);
+        return createNewUser(email, firstName, lastName, DEFAULT_CLOCK, null);
     }
 
     public static User createNewUser(
@@ -75,7 +77,17 @@ public class UserFactory {
             String lastName,
             Clock clock
     ) {
-        return baseBuilder(email, firstName, lastName, clock)
+        return createNewUser(email, firstName, lastName, clock, null);
+    }
+
+    public static User createNewUser(
+            String email,
+            String firstName,
+            String lastName,
+            Clock clock,
+            String message
+    ) {
+        return baseBuilder(email, firstName, lastName, clock, message)
                 .status(UserStatus.PENDING_APPROVAL)
                 .approvalLevel(ApprovalLevel.PENDING_L1)
                 .build();
@@ -91,7 +103,7 @@ public class UserFactory {
             String lastName,
             Roles role
     ) {
-        return createPreApprovedUser(email, firstName, lastName, role, DEFAULT_CLOCK);
+        return createPreApprovedUser(email, firstName, lastName, role, DEFAULT_CLOCK, null);
     }
 
     public static User createPreApprovedUser(
@@ -101,7 +113,18 @@ public class UserFactory {
             Roles role,
             Clock clock
     ) {
-        User user = baseBuilder(email, firstName, lastName, clock)
+        return createPreApprovedUser(email, firstName, lastName, role, clock, null);
+    }
+
+    public static User createPreApprovedUser(
+            String email,
+            String firstName,
+            String lastName,
+            Roles role,
+            Clock clock,
+            String message
+    ) {
+        User user = baseBuilder(email, firstName, lastName, clock, message)
                 .status(UserStatus.ACTIVE)
                 .approvalLevel(ApprovalLevel.NOT_REQUIRED)
                 .enabled(true)
@@ -116,23 +139,46 @@ public class UserFactory {
        Administrative Users
        ========================= */
 
+    /**
+     * Create admin user with default clock
+     */
     public static User createAdminUser(String email, String firstName, String lastName) {
-        return createAdminUser(email, firstName, lastName, DEFAULT_CLOCK);
+        return createAdminUser(email, firstName, lastName, DEFAULT_CLOCK, null);
     }
 
+    /**
+     * Create admin user with custom clock
+     */
     public static User createAdminUser(
             String email,
             String firstName,
             String lastName,
             Clock clock
     ) {
-        User user = createPreApprovedUser(email, firstName, lastName, Roles.ADMIN, clock);
+        return createAdminUser(email, firstName, lastName, clock, null);
+    }
+
+    /**
+     * Create admin user with custom clock and validation message
+     */
+    public static User createAdminUser(
+            String email,
+            String firstName,
+            String lastName,
+            Clock clock,
+            String message
+    ) {
+        User user = createPreApprovedUser(email, firstName, lastName, Roles.ADMIN, clock, message);
         user.setMfaRequired(true);
         return user;
     }
 
+    /* =========================
+       Manager Users
+       ========================= */
+
     public static User createManagerUser(String email, String firstName, String lastName) {
-        return createManagerUser(email, firstName, lastName, DEFAULT_CLOCK);
+        return createManagerUser(email, firstName, lastName, DEFAULT_CLOCK, null);
     }
 
     public static User createManagerUser(
@@ -141,15 +187,25 @@ public class UserFactory {
             String lastName,
             Clock clock
     ) {
-        return createPreApprovedUser(email, firstName, lastName, Roles.MANAGER, clock);
+        return createManagerUser(email, firstName, lastName, clock, null);
+    }
+
+    public static User createManagerUser(
+            String email,
+            String firstName,
+            String lastName,
+            Clock clock,
+            String message
+    ) {
+        return createPreApprovedUser(email, firstName, lastName, Roles.MANAGER, clock, message);
     }
 
     /* =========================
-       System Users
+       Super Admin Users
        ========================= */
 
     public static User createSuperAdminUser(String email, String passwordHash) {
-        return createSuperAdmin(email, passwordHash, DEFAULT_CLOCK);
+        return createSuperAdmin(email, passwordHash, DEFAULT_CLOCK, null);
     }
 
     public static User createSuperAdmin(
@@ -157,9 +213,18 @@ public class UserFactory {
             String passwordHash,
             Clock clock
     ) {
-        validateEmail(email);
+        return createSuperAdmin(email, passwordHash, clock, null);
+    }
 
-        User user = baseBuilder(email, "System", "Administrator", clock)
+    public static User createSuperAdmin(
+            String email,
+            String passwordHash,
+            Clock clock,
+            String message
+    ) {
+        validateEmail(email, message);
+
+        User user = baseBuilder(email, "System", "Administrator", clock, message)
                 .status(UserStatus.ACTIVE)
                 .approvalLevel(ApprovalLevel.NOT_REQUIRED)
                 .enabled(true)
@@ -173,8 +238,12 @@ public class UserFactory {
         return user;
     }
 
+    /* =========================
+       Service Accounts
+       ========================= */
+
     public static User createServiceAccount(String serviceName, String email) {
-        return createServiceAccount(serviceName, email, DEFAULT_CLOCK);
+        return createServiceAccount(serviceName, email, DEFAULT_CLOCK, null);
     }
 
     public static User createServiceAccount(
@@ -182,9 +251,18 @@ public class UserFactory {
             String email,
             Clock clock
     ) {
+        return createServiceAccount(serviceName, email, clock, null);
+    }
+
+    public static User createServiceAccount(
+            String serviceName,
+            String email,
+            Clock clock,
+            String message
+    ) {
         validateName(serviceName, "Service name");
 
-        return baseBuilder(email, "Service", serviceName, clock)
+        User user = baseBuilder(email, "Service", serviceName, clock, message)
                 .status(UserStatus.ACTIVE)
                 .approvalLevel(ApprovalLevel.NOT_REQUIRED)
                 .enabled(true)
@@ -193,10 +271,13 @@ public class UserFactory {
                 .mfaRequired(false)
                 .createdBy("SYSTEM")
                 .build();
+
+        user.addRole(Roles.MANAGER);
+        return user;
     }
 
     /* =========================
-       Specialized Users
+       OAuth Users
        ========================= */
 
     public static User createOAuthUser(
@@ -206,7 +287,7 @@ public class UserFactory {
             String provider,
             String providerId
     ) {
-        return createOAuthUser(email, firstName, lastName, provider, providerId, DEFAULT_CLOCK);
+        return createOAuthUser(email, firstName, lastName, provider, providerId, DEFAULT_CLOCK, null);
     }
 
     public static User createOAuthUser(
@@ -217,11 +298,27 @@ public class UserFactory {
             String providerId,
             Clock clock
     ) {
-        User user = createPreApprovedUser(email, firstName, lastName, Roles.USER, clock);
+        return createOAuthUser(email, firstName, lastName, provider, providerId, clock, null);
+    }
+
+    public static User createOAuthUser(
+            String email,
+            String firstName,
+            String lastName,
+            String provider,
+            String providerId,
+            Clock clock,
+            String message
+    ) {
+        User user = createPreApprovedUser(email, firstName, lastName, Roles.USER, clock, message);
         user.getAttributes().put("oauth_provider", provider);
         user.getAttributes().put("oauth_provider_id", providerId);
         return user;
     }
+
+    /* =========================
+       Invited Users
+       ========================= */
 
     public static User createInvitedUser(
             String email,
@@ -230,7 +327,7 @@ public class UserFactory {
             String invitedBy,
             Roles role
     ) {
-        return createInvitedUser(email, firstName, lastName, invitedBy, role, DEFAULT_CLOCK);
+        return createInvitedUser(email, firstName, lastName, invitedBy, role, DEFAULT_CLOCK, null);
     }
 
     public static User createInvitedUser(
@@ -241,7 +338,19 @@ public class UserFactory {
             Roles role,
             Clock clock
     ) {
-        User user = createPreApprovedUser(email, firstName, lastName, role, clock);
+        return createInvitedUser(email, firstName, lastName, invitedBy, role, clock, null);
+    }
+
+    public static User createInvitedUser(
+            String email,
+            String firstName,
+            String lastName,
+            String invitedBy,
+            Roles role,
+            Clock clock,
+            String message
+    ) {
+        User user = createPreApprovedUser(email, firstName, lastName, role, clock, message);
         user.setCreatedBy(invitedBy);
         user.setEmailVerified(false);
         user.setForcePasswordChange(true);
@@ -251,27 +360,197 @@ public class UserFactory {
     }
 
     /* =========================
-       Validation Helpers
+       Utility Methods
        ========================= */
 
-    private static void validateEmail(@NotNull String email) {
-        if (email == null || email.isBlank()) {
-            throw new IllegalArgumentException("Email cannot be null or blank");
+    public static User withRoles(User user, Roles... roles) {
+        for (Roles role : roles) {
+            user.addRole(role);
+        }
+        return user;
+    }
+
+    public static User withRole(User user, Roles role) {
+        user.addRole(role);
+        return user;
+    }
+
+    public static User withPermissions(User user, String... permissions) {
+        for (String permission : permissions) {
+            user.addPermission(permission);
+        }
+        return user;
+    }
+
+    public static User withAttributes(User user, Map<String, Object> attributes) {
+        user.getAttributes().putAll(attributes);
+        return user;
+    }
+
+    /* =========================
+       Builder for complex user creation
+       ========================= */
+
+    public static class FactoryBuilder {
+        private String email;
+        private String firstName;
+        private String lastName;
+        private String phoneNumber;
+        private String identityNo;
+        private final List<Roles> roles = new ArrayList<>();
+        private final List<String> permissions = new ArrayList<>();
+        private UserStatus status = UserStatus.PENDING_APPROVAL;
+        private ApprovalLevel approvalLevel = ApprovalLevel.PENDING_L1;
+        private boolean emailVerified = false;
+        private boolean phoneVerified = false;
+        private boolean mfaEnabled = false;
+        private boolean mfaRequired = false;
+        private String createdBy;
+        private final Map<String, Object> attributes = new HashMap<>();
+        private Clock clock = DEFAULT_CLOCK;
+        private String message;
+
+        public FactoryBuilder email(String email) {
+            this.email = email;
+            return this;
         }
 
-        String trimmed = email.trim();
-        if (!trimmed.matches("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$")) {
-            throw new IllegalArgumentException("Invalid email format: " + email);
+        public FactoryBuilder firstName(String firstName) {
+            this.firstName = firstName;
+            return this;
+        }
+
+        public FactoryBuilder lastName(String lastName) {
+            this.lastName = lastName;
+            return this;
+        }
+
+        public FactoryBuilder phoneNumber(String phoneNumber) {
+            this.phoneNumber = phoneNumber;
+            return this;
+        }
+
+        public FactoryBuilder identityNo(String identityNo) {
+            this.identityNo = identityNo;
+            return this;
+        }
+
+        public FactoryBuilder withRole(Roles role) {
+            this.roles.add(role);
+            return this;
+        }
+
+        public FactoryBuilder withRoles(Roles... roles) {
+            this.roles.addAll(Arrays.asList(roles));
+            return this;
+        }
+
+        public FactoryBuilder withPermission(String permission) {
+            this.permissions.add(permission);
+            return this;
+        }
+
+        public FactoryBuilder withPermissions(String... permissions) {
+            this.permissions.addAll(Arrays.asList(permissions));
+            return this;
+        }
+
+        public FactoryBuilder status(UserStatus status) {
+            this.status = status;
+            return this;
+        }
+
+        public FactoryBuilder approvalLevel(ApprovalLevel approvalLevel) {
+            this.approvalLevel = approvalLevel;
+            return this;
+        }
+
+        public FactoryBuilder emailVerified(boolean verified) {
+            this.emailVerified = verified;
+            return this;
+        }
+
+        public FactoryBuilder phoneVerified(boolean verified) {
+            this.phoneVerified = verified;
+            return this;
+        }
+
+        public FactoryBuilder mfaEnabled(boolean enabled) {
+            this.mfaEnabled = enabled;
+            return this;
+        }
+
+        public FactoryBuilder mfaRequired(boolean required) {
+            this.mfaRequired = required;
+            return this;
+        }
+
+        public FactoryBuilder createdBy(String createdBy) {
+            this.createdBy = createdBy;
+            return this;
+        }
+
+        public FactoryBuilder attribute(String key, Object value) {
+            this.attributes.put(key, value);
+            return this;
+        }
+
+        public FactoryBuilder attributes(Map<String, Object> attributes) {
+            this.attributes.putAll(attributes);
+            return this;
+        }
+
+        public FactoryBuilder clock(Clock clock) {
+            this.clock = clock;
+            return this;
+        }
+
+        public FactoryBuilder message(String message) {
+            this.message = message;
+            return this;
+        }
+
+        public User build() {
+            validateEmail(email, message);
+            validateName(firstName, "First name");
+            validateName(lastName, "Last name");
+
+            Instant now = clock.instant();
+
+            User.Builder builder = User.builder()
+                    .email(email.toLowerCase().trim())
+                    .firstName(firstName.trim())
+                    .lastName(lastName.trim())
+                    .username(email.toLowerCase().trim())
+                    .phoneNumber(phoneNumber)
+                    .identityNo(identityNo)
+                    .status(status)
+                    .approvalLevel(approvalLevel)
+                    .enabled(status == UserStatus.ACTIVE)
+                    .emailVerified(emailVerified)
+                    .phoneVerified(phoneVerified)
+                    .mfaEnabled(mfaEnabled)
+                    .mfaRequired(mfaRequired)
+                    .createdBy(createdBy)
+                    .attributes(attributes)
+                    .createdAt(now)
+                    .updatedAt(now);
+
+            User user = builder.build();
+
+            for (Roles role : roles) {
+                user.addRole(role);
+            }
+
+            for (String permission : permissions) {
+                user.addPermission(permission);
+            }
+
+            return user;
         }
     }
 
-    private static void validateName(@NotNull String name, @NotNull String fieldName) {
-        if (name == null || name.isBlank()) {
-            throw new IllegalArgumentException(fieldName + " cannot be null or blank");
-        }
-
-        if (name.trim().length() < 2) {
-            throw new IllegalArgumentException(fieldName + " must be at least 2 characters");
-        }
+    public static FactoryBuilder builder() {
+        return new FactoryBuilder();
     }
 }

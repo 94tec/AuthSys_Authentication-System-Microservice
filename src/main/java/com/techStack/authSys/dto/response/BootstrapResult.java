@@ -10,7 +10,8 @@ public record BootstrapResult(
         boolean bootstrapMarkedComplete,
         boolean emailSent,
         String userId,
-        String message
+        String message,
+        boolean requiresFirstTimeSetup
 ) {
     public static BootstrapResult created(String userId, boolean emailSent) {
         return new BootstrapResult(
@@ -21,7 +22,8 @@ public record BootstrapResult(
                 userId,
                 emailSent
                         ? "Super Admin created successfully. Check email for credentials."
-                        : "Super Admin created successfully. Email delivery failed - check logs for password."
+                        : "Super Admin created successfully. Email delivery failed - check logs for password.",
+                true
         );
     }
 
@@ -32,7 +34,8 @@ public record BootstrapResult(
                 true,
                 false,
                 userId,
-                "Super Admin already exists. Bootstrap marked complete."
+                "Super Admin already exists. Bootstrap marked complete.",
+                false
         );
     }
 }

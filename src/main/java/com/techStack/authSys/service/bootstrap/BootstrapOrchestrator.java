@@ -91,17 +91,6 @@ public class BootstrapOrchestrator implements CommandLineRunner {
                         metricsService.incrementCounter("bootstrap.completed");
                         metricsService.recordTimer("bootstrap.total.time", duration);
                     })
-                    /*
-                     * ✅ FIXED: was .doOnError(e -> { throw new ... })
-                     *
-                     * Throwing inside doOnError() is a Project Reactor violation.
-                     * The thrown exception bypasses the reactive error channel and
-                     * becomes an UndeliverableException — it is NOT caught by the
-                     * outer try/catch and crashes the thread silently.
-                     *
-                     * onErrorMap() correctly transforms the error within the pipeline
-                     * so it surfaces through .block() as a normal exception.
-                     */
                     .onErrorMap(e -> {
                         if (e instanceof BootstrapInitializationException) return e;
                         return new BootstrapInitializationException(
@@ -122,17 +111,13 @@ public class BootstrapOrchestrator implements CommandLineRunner {
        Lock Coordination
        ========================= */
 
-    /**
-     * ✅ FIXED: Returns Mono<BootstrapResult> (was Mono<Void>).
-     * The lock-wait else-branch now correctly returns a BootstrapResult.
-     */
     private Mono<BootstrapResult> performBootstrapWithLock() {
         Instant now = clock.instant();
 
         return lockService.acquireBootstrapLock()
                 .flatMap(lockAcquired -> {
                     if (lockAcquired) {
-                        log.info("🔒 Bootstrap lock acquired at {}", now);
+                        //log.info("🔒 Bootstrap lock acquired at {}", now);
                         return executeBootstrapProcess()
                                 .doFinally(signal -> {
                                     lockService.releaseBootstrapLock();

@@ -12,6 +12,7 @@ import com.techStack.authSys.repository.user.FirestoreUserRepository;
 import com.techStack.authSys.service.authorization.RoleAssignmentService;
 import com.techStack.authSys.service.user.UserApprovalService;
 import com.techStack.authSys.service.validation.FirebaseAuthValidator;
+import com.techStack.authSys.util.validation.HelperUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -121,8 +122,8 @@ public class FirebaseServiceAuth {
 
     public Mono<Void> validateCredentials(String email, String password) {
         return authValidator.validateCredentials(email, password)
-                .doOnSuccess(v -> log.info("🔓 Credentials validated: {}", email))
-                .doOnError(e -> log.warn("🔒 Validation failed: {}", email));
+                .doOnSuccess(v -> log.info("🔓 Credentials validated: {}", HelperUtils.maskEmail(email)))
+                .doOnError(e -> log.warn("🔒 Validation failed: {}", HelperUtils.maskEmail(email)));
     }
 
     public Mono<UserRecord> getUserRecord(String email) {
@@ -265,10 +266,10 @@ public class FirebaseServiceAuth {
                         UserRecord record = firebaseAuth.getUserByEmail(email);
                         if (record != null) {
                             firebaseAuth.deleteUser(record.getUid());
-                            log.info("♻️ Rolled back Firebase user: {}", email);
+                            log.info("♻️ Rolled back Firebase user: {}", HelperUtils.maskEmail(email));
                         }
                     } catch (FirebaseAuthException e) {
-                        log.warn("⚠️ Rollback skipped for {} (may not exist): {}", email, e.getMessage());
+                        log.warn("⚠️ Rollback skipped for {} (may not exist): {}", HelperUtils.maskEmail(email), e.getMessage());
                     }
                     return null;
                 })

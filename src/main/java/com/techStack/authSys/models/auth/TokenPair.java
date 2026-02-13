@@ -1,16 +1,25 @@
 package com.techStack.authSys.models.auth;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
 
+/**
+ * Token Pair Model
+ *
+ * Contains access token and refresh token.
+ */
 @Getter
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class TokenPair {
-    private final String accessToken;
-    private final String refreshToken;
 
-    public TokenPair(String accessToken, String refreshToken) {
-        this.accessToken = accessToken;
-        this.refreshToken = refreshToken;
-    }
+        @JsonProperty("accessToken")
+        private String accessToken;
 
+        @JsonProperty("refreshToken")
+        private String refreshToken;
 }
-

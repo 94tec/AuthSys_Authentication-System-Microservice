@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseToken;
+import com.techStack.authSys.dto.request.TokenProcessingResult;
+import com.techStack.authSys.models.security.TokenType;
 import com.techStack.authSys.service.cache.RedisUserCacheService;
 import com.techStack.authSys.service.firebase.FirebaseTokenCacheService;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +25,7 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 import static com.techStack.authSys.constants.SecurityConstants.*;
+import static com.techStack.authSys.models.security.TokenType.*;
 
 /**
  * Token Processing Service
@@ -67,13 +70,24 @@ public class TokenProcessingService {
     }
 
     /**
-     * Process token safely
+     * Process token safely - FIXED with all TokenType cases
      */
     private Mono<TokenProcessingResult> processTokenSafely(SafeToken safeToken) {
         return determineTokenType(safeToken.getToken())
-                .flatMap(tokenType -> switch (tokenType) {
-                    case FIREBASE -> processFirebaseToken(safeToken);
-                    case CUSTOM_JWT -> processJwtToken(safeToken);
+                .flatMap(tokenType -> {
+                    switch (tokenType) {
+                        case FIREBASE:
+                            return processFirebaseToken(safeToken);
+                        case CUSTOM_JWT:
+                        case ACCESS:
+                        case REFRESH:
+                        case TEMPORARY:
+                        case PASSWORD_RESET:
+                            return processJwtToken(safeToken, tokenType);
+                        default:
+                            return Mono.error(new AuthenticationServiceException(
+                                    "Unsupported token type: " + tokenType));
+                    }
                 })
                 .doOnSuccess(result -> logAuthSuccess(result.userId()))
                 .doOnError(e -> logAuthFailure(safeToken.getFingerprint(), e));
@@ -91,8 +105,19 @@ public class TokenProcessingService {
             verifyTokenNotEmpty(token);
             verifyTokenStructure(token);
 
-            if (isFirebaseToken(token)) return TokenType.FIREBASE;
-            if (isCustomJwt(token)) return TokenType.CUSTOM_JWT;
+            if (isFirebaseToken(token)) return FIREBASE;
+            if (isCustomJwt(token)) {
+                JsonNode payload = extractTokenPayload(token);
+                String tokenType = payload.has(CLAIM_TYPE) ? payload.get(CLAIM_TYPE).asText() : "";
+
+                return switch (tokenType) {
+                    case CLAIM_TYPE_ACCESS -> ACCESS;
+                    case CLAIM_TYPE_REFRESH -> REFRESH;
+                    case CLAIM_TYPE_TEMPORARY -> TEMPORARY;
+                    case CLAIM_TYPE_PASSWORD_RESET -> PASSWORD_RESET;
+                    default -> CUSTOM_JWT; // Default to CUSTOM_JWT if no specific type
+                };
+            }
 
             throw new AuthenticationServiceException("Unsupported token type");
         }).subscribeOn(Schedulers.boundedElastic());
@@ -136,8 +161,7 @@ public class TokenProcessingService {
     private boolean isCustomJwt(String token) {
         try {
             JsonNode payload = extractTokenPayload(token);
-            return payload.has(CLAIM_TYPE) &&
-                    CLAIM_TYPE_ACCESS.equalsIgnoreCase(payload.get(CLAIM_TYPE).asText());
+            return payload.has(CLAIM_TYPE);
         } catch (Exception e) {
             log.debug("Custom JWT check failed", e);
             return false;
@@ -191,7 +215,7 @@ public class TokenProcessingService {
         return new TokenProcessingResult(
                 token.getUid(),
                 token.getEmail(),
-                TokenType.FIREBASE,
+                FIREBASE,
                 makeMutable(token.getClaims()),
                 extractAuthorities(token.getClaims())
         );
@@ -202,17 +226,17 @@ public class TokenProcessingService {
        ========================= */
 
     /**
-     * Process custom JWT token
+     * Process JWT token with specific type
      */
-    private Mono<TokenProcessingResult> processJwtToken(SafeToken safeToken) {
+    private Mono<TokenProcessingResult> processJwtToken(SafeToken safeToken, TokenType tokenType) {
         Instant now = clock.instant();
 
         return redisCacheService.getTokenClaims(safeToken.getToken())
                 .flatMap(this::createMutableClaimsMap)
-                .switchIfEmpty(Mono.defer(() -> validateAndCacheJwtToken(safeToken)))
+                .switchIfEmpty(Mono.defer(() -> validateAndCacheJwtToken(safeToken, tokenType)))
                 .map(this::createJwtTokenResult)
                 .doOnSuccess(result ->
-                        log.debug("Processed JWT token at {}", now))
+                        log.debug("Processed {} token at {}", tokenType, now))
                 .onErrorResume(e -> handleAuthError("JWT", safeToken.getFingerprint(), e));
     }
 
@@ -229,11 +253,24 @@ public class TokenProcessingService {
     }
 
     /**
-     * Validate and cache JWT token
+     * Validate and cache JWT token with specific type
      */
-    private Mono<Map<String, Object>> validateAndCacheJwtToken(SafeToken safeToken) {
-        return jwtValidationService.validateToken(safeToken.getToken(), CLAIM_TYPE_ACCESS)
-                .flatMap(claims -> cacheClaimsWithFallback(safeToken.getToken(), claims));
+    private Mono<Map<String, Object>> validateAndCacheJwtToken(SafeToken safeToken, TokenType tokenType) {
+        String expectedClaimType = switch (tokenType) {
+            case ACCESS -> CLAIM_TYPE_ACCESS;
+            case REFRESH -> CLAIM_TYPE_REFRESH;
+            case TEMPORARY -> CLAIM_TYPE_TEMPORARY;
+            case PASSWORD_RESET -> CLAIM_TYPE_PASSWORD_RESET;
+            default -> CLAIM_TYPE_ACCESS;
+        };
+
+        return jwtValidationService.validateToken(safeToken.getToken(), expectedClaimType)
+                .flatMap(claims -> cacheClaimsWithFallback(safeToken.getToken(), claims))
+                .map(claims -> {
+                    // Add token type to claims for reference
+                    claims.put("token_type", tokenType.name());
+                    return claims;
+                });
     }
 
     /**
@@ -255,7 +292,7 @@ public class TokenProcessingService {
         return new TokenProcessingResult(
                 claims.get("sub").toString(),
                 (String) claims.get("email"),
-                TokenType.CUSTOM_JWT,
+                CUSTOM_JWT,
                 claims,
                 extractAuthorities(claims)
         );
@@ -392,22 +429,4 @@ public class TokenProcessingService {
         String getFingerprint() { return fingerprint; }
     }
 
-    /**
-     * Token processing result
-     */
-    public record TokenProcessingResult(
-            String userId,
-            String email,
-            TokenType tokenType,
-            Map<String, Object> claims,
-            Collection<GrantedAuthority> authorities
-    ) {}
-
-    /**
-     * Token type enum
-     */
-    public enum TokenType {
-        FIREBASE,
-        CUSTOM_JWT
-    }
 }

@@ -1,38 +1,72 @@
 package com.techStack.authSys.dto.response;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Getter;
 import lombok.Setter;
 
 import java.io.Serial;
 import java.io.Serializable;
 import java.time.Instant;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
- * Standardized API Response Wrapper
+ * Enhanced Standardized API Response Wrapper
  *
- * Provides consistent response structure across all API endpoints.
- * Uses Instant for timestamp tracking (Clock-compatible).
+ * Provides consistent response structure across all API endpoints with:
+ * - Error codes for programmatic handling
+ * - Metadata for additional context
+ * - Validation error details
+ * - Timestamp tracking (Clock-compatible)
+ * - Swagger/OpenAPI annotations
  *
  * @param <T> Type of the data in success response
  */
 @Setter
 @Getter
 @JsonInclude(JsonInclude.Include.NON_NULL)
+@Schema(description = "Standard API response wrapper")
 public class ApiResponse<T> implements Serializable {
 
     @Serial
     private static final long serialVersionUID = 1L;
 
     /* =========================
-       Response Fields
+       Core Response Fields
        ========================= */
 
+    @Schema(description = "Indicates if the request was successful", example = "true")
     private boolean success;
+
+    @Schema(description = "Human-readable message describing the result",
+            example = "Login successful")
     private String message;
+
+    @Schema(description = "Response data payload")
     private T data;
+
+    @Schema(description = "Timestamp of the response (ISO-8601)",
+            example = "2026-02-13T10:30:00Z")
     private Instant timestamp;
-    private Long timestampMillis; // For backward compatibility
+
+    @Schema(description = "Timestamp in milliseconds since epoch",
+            example = "1707822600000")
+    private Long timestampMillis;
+
+    /* =========================
+       Error Handling Fields
+       ========================= */
+
+    @Schema(description = "Error code for programmatic handling",
+            example = "INVALID_CREDENTIALS")
+    private String errorCode;
+
+    @Schema(description = "Validation errors (field -> error message)")
+    private Map<String, String> validationErrors;
+
+    @Schema(description = "Additional metadata")
+    private Map<String, Object> metadata;
 
     /* =========================
        Constructors
@@ -53,6 +87,18 @@ public class ApiResponse<T> implements Serializable {
         this.success = success;
         this.message = message;
         this.data = data;
+        this.timestamp = Instant.now();
+        this.timestampMillis = this.timestamp.toEpochMilli();
+    }
+
+    /**
+     * Constructor with error code
+     */
+    public ApiResponse(boolean success, String message, T data, String errorCode) {
+        this.success = success;
+        this.message = message;
+        this.data = data;
+        this.errorCode = errorCode;
         this.timestamp = Instant.now();
         this.timestampMillis = this.timestamp.toEpochMilli();
     }
@@ -119,10 +165,17 @@ public class ApiResponse<T> implements Serializable {
        ========================= */
 
     /**
-     * Error response (no generics, safe for all paths)
+     * Error response with message only
      */
     public static ApiResponse<Void> error(String message) {
         return new ApiResponse<>(false, message, null);
+    }
+
+    /**
+     * Error response with message and error code
+     */
+    public static ApiResponse<Void> error(String message, String errorCode) {
+        return new ApiResponse<>(false, message, null, errorCode);
     }
 
     /**
@@ -140,10 +193,95 @@ public class ApiResponse<T> implements Serializable {
     }
 
     /**
+     * Error response with data and error code
+     */
+    public static <T> ApiResponse<T> error(String message, T data, String errorCode) {
+        return new ApiResponse<>(false, message, data, errorCode);
+    }
+
+    /**
      * Error response with data and explicit timestamp
      */
     public static <T> ApiResponse<T> error(String message, T data, Instant timestamp) {
         return new ApiResponse<>(false, message, data, timestamp);
+    }
+
+    /* =========================
+       Validation Error Methods
+       ========================= */
+
+    /**
+     * Validation error response
+     */
+    public static ApiResponse<Void> validationError(String message, Map<String, String> errors) {
+        ApiResponse<Void> response = new ApiResponse<>(false, message, null, "VALIDATION_ERROR");
+        response.setValidationErrors(errors);
+        return response;
+    }
+
+    /**
+     * Add validation error
+     */
+    public ApiResponse<T> addValidationError(String field, String error) {
+        if (this.validationErrors == null) {
+            this.validationErrors = new HashMap<>();
+        }
+        this.validationErrors.put(field, error);
+        return this;
+    }
+
+    /* =========================
+       Metadata Methods
+       ========================= */
+
+    /**
+     * Add metadata entry
+     */
+    public ApiResponse<T> addMetadata(String key, Object value) {
+        if (this.metadata == null) {
+            this.metadata = new HashMap<>();
+        }
+        this.metadata.put(key, value);
+        return this;
+    }
+
+    /**
+     * Add multiple metadata entries
+     */
+    public ApiResponse<T> addMetadata(Map<String, Object> entries) {
+        if (this.metadata == null) {
+            this.metadata = new HashMap<>();
+        }
+        this.metadata.putAll(entries);
+        return this;
+    }
+
+    /* =========================
+       Builder Pattern Support
+       ========================= */
+
+    /**
+     * Set error code (builder style)
+     */
+    public ApiResponse<T> withErrorCode(String errorCode) {
+        this.errorCode = errorCode;
+        return this;
+    }
+
+    /**
+     * Set validation errors (builder style)
+     */
+    public ApiResponse<T> withValidationErrors(Map<String, String> errors) {
+        this.validationErrors = errors;
+        return this;
+    }
+
+    /**
+     * Set metadata (builder style)
+     */
+    public ApiResponse<T> withMetadata(Map<String, Object> metadata) {
+        this.metadata = metadata;
+        return this;
     }
 
     /* =========================
@@ -162,6 +300,20 @@ public class ApiResponse<T> implements Serializable {
      */
     public boolean isError() {
         return !success;
+    }
+
+    /**
+     * Check if response has validation errors
+     */
+    public boolean hasValidationErrors() {
+        return validationErrors != null && !validationErrors.isEmpty();
+    }
+
+    /**
+     * Check if response has metadata
+     */
+    public boolean hasMetadata() {
+        return metadata != null && !metadata.isEmpty();
     }
 
     /**
@@ -189,6 +341,9 @@ public class ApiResponse<T> implements Serializable {
                 "success=" + success +
                 ", message='" + message + '\'' +
                 ", data=" + data +
+                ", errorCode='" + errorCode + '\'' +
+                ", validationErrors=" + validationErrors +
+                ", metadata=" + metadata +
                 ", timestamp=" + timestamp +
                 ", timestampMillis=" + timestampMillis +
                 '}';
@@ -204,6 +359,8 @@ public class ApiResponse<T> implements Serializable {
         if (success != that.success) return false;
         if (!message.equals(that.message)) return false;
         if (data != null ? !data.equals(that.data) : that.data != null) return false;
+        if (errorCode != null ? !errorCode.equals(that.errorCode) : that.errorCode != null)
+            return false;
         return timestamp != null ? timestamp.equals(that.timestamp) : that.timestamp == null;
     }
 
@@ -212,6 +369,7 @@ public class ApiResponse<T> implements Serializable {
         int result = (success ? 1 : 0);
         result = 31 * result + (message != null ? message.hashCode() : 0);
         result = 31 * result + (data != null ? data.hashCode() : 0);
+        result = 31 * result + (errorCode != null ? errorCode.hashCode() : 0);
         result = 31 * result + (timestamp != null ? timestamp.hashCode() : 0);
         return result;
     }

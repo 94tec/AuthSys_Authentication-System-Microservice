@@ -2,6 +2,8 @@ package com.techStack.authSys.security.authorization;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.techStack.authSys.dto.request.TokenProcessingResult;
+import com.techStack.authSys.models.security.TokenType;
 import com.techStack.authSys.service.token.TokenProcessingService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -39,8 +41,8 @@ public class CustomAccessDeniedHandler implements ServerAccessDeniedHandler {
                 });
     }
 
-    private TokenProcessingService.TokenProcessingResult createAnonymousResult() {
-        return new TokenProcessingService.TokenProcessingResult(
+    private TokenProcessingResult createAnonymousResult() {
+        return new TokenProcessingResult(
                 "Anonymous",
                 "N/A",
                 null,
@@ -48,7 +50,7 @@ public class CustomAccessDeniedHandler implements ServerAccessDeniedHandler {
                 List.of()
         );
     }
-    private void logAccessDenied(TokenProcessingService.TokenProcessingResult result, ServerWebExchange exchange) {
+    private void logAccessDenied(TokenProcessingResult result, ServerWebExchange exchange) {
         String path = exchange.getRequest().getPath().toString();
         String method = exchange.getRequest().getMethod().name();
         String ip = exchange.getRequest().getRemoteAddress() != null ?
@@ -57,7 +59,7 @@ public class CustomAccessDeniedHandler implements ServerAccessDeniedHandler {
         logger.warn("Access denied: UserID={}, Email={}, Method={}, Path={}, IP={}",
                 result.userId(), result.email(), method, path, ip);
     }
-    private Mono<Void> createErrorResponse(ServerWebExchange exchange, TokenProcessingService.TokenProcessingResult result) {
+    private Mono<Void> createErrorResponse(ServerWebExchange exchange, TokenProcessingResult result) {
         exchange.getResponse().setStatusCode(HttpStatus.FORBIDDEN);
         exchange.getResponse().getHeaders().setContentType(MediaType.APPLICATION_JSON);
 
@@ -69,7 +71,7 @@ public class CustomAccessDeniedHandler implements ServerAccessDeniedHandler {
                 "path", exchange.getRequest().getPath().toString(),
                 "userId", result.userId(),
                 "email", result.email(),
-                "tokenType", result.tokenType() != null ? ((TokenProcessingService.TokenType) result.tokenType()).name() : "NONE"
+                "tokenType", result.tokenType() != null ? ((TokenType) result.tokenType()).name() : "NONE"
 
 
         );

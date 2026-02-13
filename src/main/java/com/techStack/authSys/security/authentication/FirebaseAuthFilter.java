@@ -57,7 +57,8 @@ public class FirebaseAuthFilter implements WebFilter {
             "/api/auth/verify-email",
             "/api/register",
             "/api/otp",
-            "/api/v1/password-reset/**"
+            "/api/v1/password-reset/**",
+            "/api/auth/first-time-setup/**"
     );
 
     private static final Set<String> SENSITIVE_PATHS = Set.of(

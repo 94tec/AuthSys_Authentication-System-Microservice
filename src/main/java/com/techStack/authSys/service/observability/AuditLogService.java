@@ -114,6 +114,48 @@ public class AuditLogService {
             log.error("❌ Failed to log partial save at {}: {}", now, e.getMessage());
         }
     }
+    public Mono<Void> logFirstTimeSetup(String userId, String step, boolean success) {
+        Map<String, Object> details = Map.of(
+                "userId", userId,
+                "step", step,
+                "success", success,
+                "timestamp", Instant.now()
+        );
+
+        return logAuditEvent(userId, ActionType.FIRST_TIME_SETUP,
+                "First-time setup: " + step, details);
+    }
+    /**
+     * Log audit event
+     */
+    public Mono<Void> logAuditEvent(
+            String userId,
+            ActionType actionType,
+            String description,
+            Map<String, Object> details) {
+
+        return Mono.fromRunnable(() -> {
+            try {
+                Map<String, Object> auditLog = Map.of(
+                        "id", UUID.randomUUID().toString(),
+                        "userId", userId,
+                        "actionType", actionType.name(),
+                        "description", description,
+                        "details", details,
+                        "timestamp", clock.instant()
+                );
+
+                firestore.collection(AUDIT_COLLECTION)
+                        .document(UUID.randomUUID().toString())
+                        .set(auditLog)
+                        .get();
+
+                log.debug("✅ Audit event logged: {} - {}", actionType, userId);
+            } catch (Exception e) {
+                log.error("❌ Failed to log audit event: {}", e.getMessage(), e);
+            }
+        }).subscribeOn(Schedulers.boundedElastic()).then();
+    }
 
     /**
      * Log successful bootstrap completion

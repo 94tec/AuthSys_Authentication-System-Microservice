@@ -32,6 +32,10 @@ public class HelperUtils {
     /* =========================
        Email Utilities
        ========================= */
+    public static String maskOtp(String otp) {
+        if (otp == null || otp.length() < 2) return "***";
+        return otp.charAt(0) + "***" + otp.charAt(otp.length() - 1);
+    }
 
     /**
      * Masks email for GDPR-compliant logging

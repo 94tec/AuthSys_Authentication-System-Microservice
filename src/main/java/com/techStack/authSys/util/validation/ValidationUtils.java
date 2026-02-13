@@ -2,6 +2,7 @@ package com.techStack.authSys.util.validation;
 
 import com.techStack.authSys.dto.internal.SecurityContext;
 import com.techStack.authSys.models.user.User;
+import jakarta.validation.constraints.NotNull;
 import org.springframework.security.core.Authentication;
 
 import java.util.ArrayList;
@@ -82,6 +83,28 @@ public class ValidationUtils {
             throw new IllegalArgumentException(message);
         }
         return cleanEmail;
+    }
+    /**
+     * Validate name fields
+     */
+    public static void validateName(@NotNull String name, @NotNull String fieldName) {
+        if (name == null || name.isBlank()) {
+            throw new IllegalArgumentException(fieldName + " cannot be null or blank");
+        }
+
+        String trimmed = name.trim();
+        if (trimmed.length() < 2) {
+            throw new IllegalArgumentException(fieldName + " must be at least 2 characters");
+        }
+
+        if (trimmed.length() > 50) {
+            throw new IllegalArgumentException(fieldName + " cannot exceed 50 characters");
+        }
+
+        // Check for invalid characters (only letters, spaces, hyphens, apostrophes)
+        if (!trimmed.matches("^[a-zA-Z\\s\\-']+$")) {
+            throw new IllegalArgumentException(fieldName + " contains invalid characters");
+        }
     }
 
     /**

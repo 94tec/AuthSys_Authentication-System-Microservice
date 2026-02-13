@@ -2,10 +2,7 @@ package com.techStack.authSys.dto.request;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.*;
 
 /**
  * Password Change Request DTO
@@ -13,6 +10,7 @@ import lombok.NoArgsConstructor;
  * Request payload for user-initiated password changes.
  * Requires current password for verification.
  */
+@Getter
 @Data
 @Builder
 @NoArgsConstructor

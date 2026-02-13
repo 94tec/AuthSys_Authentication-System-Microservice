@@ -1,7 +1,12 @@
 package com.techStack.authSys.controller.auth;
 
-import com.techStack.authSys.service.verification.OtpService;
+import com.techStack.authSys.dto.response.ApiResponse;
+import com.techStack.authSys.dto.response.OtpResult;
+import com.techStack.authSys.dto.response.OtpVerificationResult;
+import com.techStack.authSys.service.security.OtpService;
 import com.techStack.authSys.util.validation.HelperUtils;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -11,156 +16,174 @@ import reactor.core.publisher.Mono;
 
 import java.time.Clock;
 import java.time.Instant;
-import java.util.HashMap;
-import java.util.Map;
 
 /**
  * OTP Controller
  *
- * Handles OTP generation, sending, and verification.
- * Uses Clock for timestamp tracking and reactive patterns.
+ * Handles OTP operations for testing and admin purposes.
+ * For production flows, use FirstTimeSetupController and LoginOtpController.
  */
 @Slf4j
 @RestController
 @RequestMapping("/api/otp")
 @RequiredArgsConstructor
+@Tag(name = "OTP", description = "OTP generation and verification (testing/admin)")
 public class OtpController {
-
-    /* =========================
-       Dependencies
-       ========================= */
 
     private final OtpService otpService;
     private final Clock clock;
 
-    /* =========================
-       OTP Operations
-       ========================= */
-
     /**
-     * Send OTP to phone number (async)
+     * Send Setup OTP (for testing)
      */
-    @PostMapping("/send")
-    public Mono<ResponseEntity<Map<String, Object>>> sendOtp(
+    @Operation(
+            summary = "Send Setup OTP",
+            description = "Generate and send setup OTP for testing purposes"
+    )
+    @PostMapping("/send/setup")
+    public Mono<ResponseEntity<ApiResponse<String>>> sendSetupOtp(
+            @RequestParam String userId,
             @RequestParam String phoneNumber) {
 
-        Instant sendTime = clock.instant();
+        Instant now = clock.instant();
+        log.info("🔐 Setup OTP request at {} for: {}", now, HelperUtils.maskPhone(phoneNumber));
 
-        log.info("OTP send request at {} for phone: {}",
-                sendTime, HelperUtils.maskPhone(phoneNumber));
+        return otpService.generateAndSendSetupOtp(userId, phoneNumber)
+                .map(result -> {
+                    if (result.isRateLimited()) {
+                        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                                .body(new ApiResponse<>(
+                                        false,
+                                        result.getMessage(),
+                                        null
+                                ));
+                    }
 
-        return Mono.fromCallable(() -> otpService.generateOTP(phoneNumber))
-                .flatMap(otp -> {
-                    // Save OTP
-                    otpService.saveOtp(phoneNumber, otp);
+                    if (!result.isSent()) {
+                        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                                .body(new ApiResponse<>(
+                                        false,
+                                        result.getMessage(),
+                                        null
+                                ));
+                    }
 
-                    // Send OTP asynchronously
-                    return otpService.sendOtpAsync(phoneNumber, otp)
-                            .then(Mono.fromCallable(() -> {
-                                Instant completionTime = clock.instant();
-                                log.info("✅ OTP sent successfully at {} to: {}",
-                                        completionTime, HelperUtils.maskPhone(phoneNumber));
-
-                                // Use HashMap to ensure Object type
-                                Map<String, Object> response = new HashMap<>();
-                                response.put("success", true);
-                                response.put("message", "OTP sent successfully to " +
-                                        HelperUtils.maskPhone(phoneNumber));
-                                response.put("timestamp", completionTime.toString());
-
-                                return ResponseEntity.ok(response);
-                            }));
-                })
-                .onErrorResume(e -> {
-                    Instant errorTime = clock.instant();
-                    log.error("❌ Failed to send OTP at {} to {}: {}",
-                            errorTime, HelperUtils.maskPhone(phoneNumber), e.getMessage());
-
-                    // Use HashMap to ensure Object type
-                    Map<String, Object> errorResponse = new HashMap<>();
-                    errorResponse.put("success", false);
-                    errorResponse.put("message", "Failed to send OTP: " + e.getMessage());
-                    errorResponse.put("timestamp", errorTime.toString());
-
-                    return Mono.just(ResponseEntity
-                            .status(HttpStatus.INTERNAL_SERVER_ERROR)
-                            .body(errorResponse));
+                    return ResponseEntity.ok(new ApiResponse<>(
+                            true,
+                            result.getMessage(),
+                            "OTP sent to " + HelperUtils.maskPhone(phoneNumber)
+                    ));
                 });
     }
 
     /**
-     * Verify OTP
+     * Send Login OTP (for testing)
      */
-    @PostMapping("/verify")
-    public Mono<ResponseEntity<Map<String, Object>>> verifyOtp(
-            @RequestParam String phoneNumber,
+    @Operation(
+            summary = "Send Login OTP",
+            description = "Generate and send login OTP for testing purposes"
+    )
+    @PostMapping("/send/login")
+    public Mono<ResponseEntity<ApiResponse<String>>> sendLoginOtp(
+            @RequestParam String userId,
+            @RequestParam String phoneNumber) {
+
+        Instant now = clock.instant();
+        log.info("🔐 Login OTP request at {} for: {}", now, HelperUtils.maskPhone(phoneNumber));
+
+        return otpService.generateAndSendLoginOtp(userId, phoneNumber)
+                .map(result -> {
+                    if (result.isRateLimited()) {
+                        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                                .body(new ApiResponse<>(
+                                        false,
+                                        result.getMessage(),
+                                        null
+                                ));
+                    }
+
+                    if (!result.isSent()) {
+                        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                                .body(new ApiResponse<>(
+                                        false,
+                                        result.getMessage(),
+                                        null
+                                ));
+                    }
+
+                    return ResponseEntity.ok(new ApiResponse<>(
+                            true,
+                            result.getMessage(),
+                            "OTP sent to " + HelperUtils.maskPhone(phoneNumber)
+                    ));
+                });
+    }
+
+    /**
+     * Verify Setup OTP (for testing)
+     */
+    @Operation(
+            summary = "Verify Setup OTP",
+            description = "Verify setup OTP for testing purposes"
+    )
+    @PostMapping("/verify/setup")
+    public Mono<ResponseEntity<ApiResponse<OtpVerificationResult>>> verifySetupOtp(
+            @RequestParam String userId,
             @RequestParam String otp) {
 
-        Instant verifyTime = clock.instant();
+        Instant now = clock.instant();
+        log.info("🔍 Setup OTP verification at {} for user: {}", now, userId);
 
-        log.info("OTP verification request at {} for phone: {}",
-                verifyTime, HelperUtils.maskPhone(phoneNumber));
-
-        return Mono.fromCallable(() -> otpService.verifyOtp(phoneNumber, otp))
-                .map(verified -> {
-                    Instant completionTime = clock.instant();
-
-                    if (verified) {
-                        log.info("✅ OTP verified successfully at {} for: {}",
-                                completionTime, HelperUtils.maskPhone(phoneNumber));
-
-                        // Use HashMap to ensure Object type
-                        Map<String, Object> response = new HashMap<>();
-                        response.put("success", true);
-                        response.put("message", "OTP verified successfully");
-                        response.put("timestamp", completionTime.toString());
-
-                        return ResponseEntity.ok(response);
+        return otpService.verifySetupOtp(userId, otp)
+                .map(result -> {
+                    if (result.isValid()) {
+                        return ResponseEntity.ok(new ApiResponse<>(
+                                true,
+                                result.getMessage(),
+                                result
+                        ));
                     } else {
-                        log.warn("❌ OTP verification failed at {} for: {}",
-                                completionTime, HelperUtils.maskPhone(phoneNumber));
-
-                        // Use HashMap to ensure Object type
-                        Map<String, Object> errorResponse = new HashMap<>();
-                        errorResponse.put("success", false);
-                        errorResponse.put("message", "Invalid or expired OTP");
-                        errorResponse.put("timestamp", completionTime.toString());
-
-                        return ResponseEntity
-                                .status(HttpStatus.UNAUTHORIZED)
-                                .body(errorResponse);
+                        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                                .body(new ApiResponse<>(
+                                        false,
+                                        result.getMessage(),
+                                        result
+                                ));
                     }
-                })
-                .onErrorResume(e -> {
-                    Instant errorTime = clock.instant();
-                    log.error("❌ OTP verification error at {} for {}: {}",
-                            errorTime, HelperUtils.maskPhone(phoneNumber), e.getMessage());
-
-                    // Use HashMap to ensure Object type
-                    Map<String, Object> errorResponse = new HashMap<>();
-                    errorResponse.put("success", false);
-                    errorResponse.put("message", "Failed to verify OTP: " + e.getMessage());
-                    errorResponse.put("timestamp", errorTime.toString());
-
-                    return Mono.just(ResponseEntity
-                            .status(HttpStatus.INTERNAL_SERVER_ERROR)
-                            .body(errorResponse));
                 });
     }
 
     /**
-     * Resend OTP
+     * Verify Login OTP (for testing)
      */
-    @PostMapping("/resend")
-    public Mono<ResponseEntity<Map<String, Object>>> resendOtp(
-            @RequestParam String phoneNumber) {
+    @Operation(
+            summary = "Verify Login OTP",
+            description = "Verify login OTP for testing purposes"
+    )
+    @PostMapping("/verify/login")
+    public Mono<ResponseEntity<ApiResponse<OtpVerificationResult>>> verifyLoginOtp(
+            @RequestParam String userId,
+            @RequestParam String otp) {
 
-        Instant resendTime = clock.instant();
+        Instant now = clock.instant();
+        log.info("🔍 Login OTP verification at {} for user: {}", now, userId);
 
-        log.info("OTP resend request at {} for phone: {}",
-                resendTime, HelperUtils.maskPhone(phoneNumber));
-
-        // Call the same send OTP logic
-        return sendOtp(phoneNumber);
+        return otpService.verifyLoginOtp(userId, otp)
+                .map(result -> {
+                    if (result.isValid()) {
+                        return ResponseEntity.ok(new ApiResponse<>(
+                                true,
+                                result.getMessage(),
+                                result
+                        ));
+                    } else {
+                        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                                .body(new ApiResponse<>(
+                                        false,
+                                        result.getMessage(),
+                                        result
+                                ));
+                    }
+                });
     }
 }

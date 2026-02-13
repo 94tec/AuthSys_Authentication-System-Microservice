@@ -48,6 +48,8 @@ public final class SecurityConstants {
     public static final String TOKEN_TYPE_ACCESS = "access";
     public static final String TOKEN_TYPE_REFRESH = "refresh";
     public static final String TOKEN_TYPE_EMAIL_VERIFICATION = "email_verification";
+    public static final String TOKEN_TYPE_TEMPORARY_SETUP = "TEMPORARY_SETUP";
+    public static final String TOKEN_TYPE_TEMPORARY_LOGIN = "TEMPORARY_LOGIN_OTP";
 
     public static final String ROLE_PREFIX = "ROLE_";
     public static final String PERM_PREFIX = "PERM_";
@@ -58,6 +60,10 @@ public final class SecurityConstants {
     public static final String CLAIM_TYPE = "type";
     public static final String CLAIM_TYPE_ACCESS = "access";
     public static final String SESSION_COLLECTION = "sessions";
+    public static final String CLAIM_TYPE_REFRESH = "refresh";
+    public static final String CLAIM_TYPE_TEMPORARY = "temporary";
+    public static final String CLAIM_TYPE_PASSWORD_RESET = "password_reset";
+
 
     public static final String FIELD_VERIFICATION_TOKEN_HASH = "verificationTokenHash";
     public static final String FIELD_TOKEN_EXPIRES_AT = "verificationTokenExpiresAt";

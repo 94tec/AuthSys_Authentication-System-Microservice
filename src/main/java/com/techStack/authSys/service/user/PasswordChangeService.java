@@ -76,6 +76,63 @@ public class PasswordChangeService {
     /* =========================
        User-Initiated Password Change
        ========================= */
+    /**
+     * Change password (first-time setup, no current password required)
+     *
+     * Used when:
+     * - user logs in using temporary token / bootstrap login
+     * - user has forcePasswordChange = true
+     *
+     * This method does NOT affect normal changePassword() or forcePasswordChange().
+     */
+    public Mono<User> changePasswordFirstTime(String userId, String newPassword) {
+
+        Instant start = clock.instant();
+
+        log.info("🔐 First-time password change initiated at {} for userId={}",
+                start, userId);
+
+        return firebaseServiceAuth.getUserById(userId)
+                .switchIfEmpty(Mono.error(() -> {
+                    Instant errorTime = clock.instant();
+                    log.error("User not found at {} for first-time password change: {}",
+                            errorTime, userId);
+                    return new CustomException(HttpStatus.NOT_FOUND, "User not found");
+                }))
+                .flatMap(user -> {
+
+                    if (!user.isForcePasswordChange()) {
+                        Instant errorTime = clock.instant();
+                        log.warn("⚠️ First-time password change rejected at {} for {} (not in force-change state)",
+                                errorTime, HelperUtils.maskEmail(user.getEmail()));
+
+                        return Mono.error(new CustomException(
+                                HttpStatus.BAD_REQUEST,
+                                "Password change not allowed: user is not in first-time setup state"
+                        ));
+                    }
+
+                    return Mono.just(user);
+                })
+                .flatMap(user -> validateNewPassword(user, newPassword, start))
+                .flatMap(user -> checkPasswordHistory(user, newPassword, start))
+                .flatMap(user -> updatePassword(user, newPassword, false, null, start))
+                .doOnSuccess(user -> {
+                    Instant end = clock.instant();
+                    Duration duration = Duration.between(start, end);
+
+                    log.info("✅ First-time password change completed at {} in {} for: {}",
+                            end, duration, HelperUtils.maskEmail(user.getEmail()));
+                })
+                .doOnError(e -> {
+                    Instant errorTime = clock.instant();
+                    Duration duration = Duration.between(start, errorTime);
+
+                    log.error("❌ First-time password change failed at {} after {} for userId={}: {}",
+                            errorTime, duration, userId, e.getMessage());
+                });
+    }
+
 
     /**
      * Change password (user-initiated, requires current password)

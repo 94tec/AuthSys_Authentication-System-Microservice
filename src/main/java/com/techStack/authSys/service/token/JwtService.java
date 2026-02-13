@@ -12,6 +12,7 @@ import com.techStack.authSys.models.user.User;
 import com.techStack.authSys.service.observability.AuditLogService;
 import com.techStack.authSys.service.security.EncryptionService;
 import com.techStack.authSys.util.firebase.FirestoreUtil;
+import com.techStack.authSys.util.firebase.FirestoreUtils;
 import io.jsonwebtoken.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -59,6 +60,248 @@ public class JwtService {
     /* =========================
        Token Generation
        ========================= */
+    /* =========================
+       ACCESS TOKEN - Overloaded Methods
+       ========================= */
+
+    /**
+     * Generate access token (simple - for first-time setup completion)
+     */
+    public String generateAccessToken(User user) {
+        Instant now = clock.instant();
+        return generateAccessToken(
+                user,
+                "unknown",  // IP not available in this context
+                "unknown",  // User agent not available
+                now,
+                user.getAllPermissions()
+        );
+    }
+
+    /**
+     * Generate access token (full version with context)
+     */
+    public String generateAccessToken(
+            User user,
+            String ipAddress,
+            String userAgent,
+            Instant issuedAt,
+            Set<Permissions> permissions
+    ) {
+        // Convert Permissions objects to Strings for the JWT claims
+        Set<String> permissionsForClaims = permissions.stream()
+                .map(Permissions::name)
+                .collect(Collectors.toSet());
+
+        Map<String, Object> claims = buildEnhancedClaims(
+                user, ipAddress, userAgent, TOKEN_TYPE_ACCESS, permissionsForClaims
+        );
+
+        return jwtConfig.jwtBuilder()
+                .setClaims(claims)
+                .setSubject(user.getId())
+                .setIssuer(jwtConfig.getIssuer())
+                .setIssuedAt(Date.from(issuedAt))
+                .setExpiration(Date.from(issuedAt.plusSeconds(
+                        jwtConfig.getAccessTokenExpirationInSeconds())))
+                .signWith(jwtConfig.accessTokenSecretKey(), SignatureAlgorithm.HS512)
+                .compact();
+    }
+
+    /* =========================
+       REFRESH TOKEN - Overloaded Methods
+       ========================= */
+
+    /**
+     * Generate refresh token (simple - for first-time setup completion)
+     */
+    public String generateRefreshToken(String userId) {
+        Instant now = clock.instant();
+
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("type", TOKEN_TYPE_REFRESH);
+        claims.put("userId", userId);
+
+        String jti = UUID.randomUUID().toString();
+        claims.put("jti", jti);
+
+        return jwtConfig.refreshTokenJwtBuilder()
+                .setClaims(claims)
+                .setSubject(userId)
+                .setIssuer(jwtConfig.getIssuer())
+                .setId(jti)
+                .setIssuedAt(Date.from(now))
+                .setExpiration(Date.from(now.plusSeconds(
+                        jwtConfig.getRefreshTokenExpirationInSeconds())))
+                .signWith(jwtConfig.refreshTokenSecretKey(), SignatureAlgorithm.HS512)
+                .compact();
+    }
+
+    /**
+     * Generate refresh token (full version with context)
+     */
+    public String generateRefreshToken(
+            User user,
+            String ipAddress,
+            String userAgent,
+            Instant issuedAt,
+            Set<Permissions> permissions
+    ) {
+        // Convert Permissions objects to Strings for JWT claims
+        Set<String> permissionsForClaims = permissions.stream()
+                .map(Permissions::name)
+                .collect(Collectors.toSet());
+
+        Map<String, Object> claims = buildEnhancedClaims(
+                user, ipAddress, userAgent, TOKEN_TYPE_REFRESH, permissionsForClaims
+        );
+
+        String jti = UUID.randomUUID().toString();
+        claims.put("jti", jti);
+
+        return jwtConfig.refreshTokenJwtBuilder()
+                .setClaims(claims)
+                .setSubject(user.getId())
+                .setIssuer(jwtConfig.getIssuer())
+                .setId(jti)
+                .setIssuedAt(Date.from(issuedAt))
+                .setExpiration(Date.from(issuedAt.plusSeconds(
+                        jwtConfig.getRefreshTokenExpirationInSeconds())))
+                .signWith(jwtConfig.refreshTokenSecretKey(), SignatureAlgorithm.HS512)
+                .compact();
+    }
+
+    /* =========================
+       TEMPORARY TOKENS
+       ========================= */
+
+    /**
+     * Generate temporary token for first-time setup
+     * Scope: FIRST_TIME_SETUP (password change + OTP)
+     * Expiry: 30 minutes
+     */
+    public String generateTemporaryToken(String userId) {
+        Instant now = clock.instant();
+
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("type", TOKEN_TYPE_TEMPORARY_SETUP);
+        claims.put("scope", "FIRST_TIME_SETUP");
+        claims.put("userId", userId);
+
+        return jwtConfig.jwtBuilder()
+                .setClaims(claims)
+                .setSubject(userId)
+                .setIssuer(jwtConfig.getIssuer())
+                .setIssuedAt(Date.from(now))
+                .setExpiration(Date.from(now.plusSeconds(1800))) // 30 minutes
+                .signWith(jwtConfig.accessTokenSecretKey(), SignatureAlgorithm.HS512)
+                .compact();
+    }
+
+    /**
+     * Generate temporary token for login OTP verification
+     * Scope: LOGIN_OTP (verify OTP only)
+     * Expiry: 5 minutes
+     */
+    public String generateTemporaryLoginToken(String userId) {
+        Instant now = clock.instant();
+
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("type", TOKEN_TYPE_TEMPORARY_LOGIN);
+        claims.put("scope", "LOGIN_OTP");
+        claims.put("userId", userId);
+
+        return jwtConfig.jwtBuilder()
+                .setClaims(claims)
+                .setSubject(userId)
+                .setIssuer(jwtConfig.getIssuer())
+                .setIssuedAt(Date.from(now))
+                .setExpiration(Date.from(now.plusSeconds(300))) // 5 minutes
+                .signWith(jwtConfig.accessTokenSecretKey(), SignatureAlgorithm.HS512)
+                .compact();
+    }
+
+    /* =========================
+       TOKEN EXTRACTION
+       ========================= */
+
+    /**
+     * Extract user ID from temporary setup token
+     */
+    public String extractUserIdFromTemporaryToken(String token) {
+        try {
+            Claims claims = extractAllClaims(token);
+            String type = claims.get("type", String.class);
+
+            if (!TOKEN_TYPE_TEMPORARY_SETUP.equals(type)) {
+                log.warn("Invalid token type for setup: {}", type);
+                return null;
+            }
+
+            return claims.getSubject();
+        } catch (Exception e) {
+            log.error("Failed to extract user ID from temporary setup token: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Extract user ID from temporary login OTP token
+     */
+    public String extractUserIdFromTemporaryLoginToken(String token) {
+        try {
+            Claims claims = extractAllClaims(token);
+            String type = claims.get("type", String.class);
+
+            if (!TOKEN_TYPE_TEMPORARY_LOGIN.equals(type)) {
+                log.warn("Invalid token type for login OTP: {}", type);
+                return null;
+            }
+
+            return claims.getSubject();
+        } catch (Exception e) {
+            log.error("Failed to extract user ID from temporary login token: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Extract all claims from token
+     */
+    private Claims extractAllClaims(String token) {
+        return jwtConfig.jwtParser()
+                .parseClaimsJws(token)
+                .getBody();
+    }
+
+    /* =========================
+       HELPER METHODS
+       ========================= */
+
+    /**
+     * Build enhanced claims for JWT
+     */
+    private Map<String, Object> buildEnhancedClaims(
+            User user,
+            String ipAddress,
+            String userAgent,
+            String tokenType,
+            Set<String> permissions
+    ) {
+        Map<String, Object> claims = new HashMap<>();
+
+        claims.put("type", tokenType);
+        claims.put("userId", user.getId());
+        claims.put("email", user.getEmail());
+        claims.put("roles", user.getRoleNames());
+        claims.put("permissions", permissions);
+        claims.put("ipAddress", ipAddress);
+        claims.put("userAgent", userAgent);
+        claims.put("emailVerified", user.isEmailVerified());
+        claims.put("phoneVerified", user.isPhoneVerified());
+
+        return claims;
+    }
 
     /**
      * Generate access and refresh token pair
@@ -136,107 +379,7 @@ public class JwtService {
                 });
     }
 
-    /**
-     * Generate access token
-     */
-    private String generateAccessToken(
-            User user,
-            String ipAddress,
-            String userAgent,
-            Instant issuedAt,
-            Set<Permissions> permissions
-    ) {
-        // Convert Permissions objects to Strings for the JWT claims
-        Set<String> permissionsForClaims = permissions.stream()
-                .map(Permissions::name) // or Permissions::getKey if you have custom keys
-                .collect(Collectors.toSet());
 
-        Map<String, Object> claims = buildEnhancedClaims(
-                user, ipAddress, userAgent, TOKEN_TYPE_ACCESS, permissionsForClaims
-        );
-
-        return jwtConfig.jwtBuilder()
-                .setClaims(claims)
-                .setSubject(user.getId())
-                .setIssuer(jwtConfig.getIssuer())
-                .setIssuedAt(Date.from(issuedAt))
-                .setExpiration(Date.from(issuedAt.plusSeconds(
-                        jwtConfig.getAccessTokenExpirationInSeconds())))
-                .signWith(jwtConfig.accessTokenSecretKey(), SignatureAlgorithm.HS512)
-                .compact();
-    }
-
-
-    /**
-     * Generate refresh token
-     */
-    private String generateRefreshToken(
-            User user,
-            String ipAddress,
-            String userAgent,
-            Instant issuedAt,
-            Set<Permissions> permissions
-    ) {
-        // Convert Permissions objects to Strings for JWT claims
-        Set<String> permissionsForClaims = permissions.stream()
-                .map(Permissions::name) // or Permissions::getKey() if using custom keys
-                .collect(Collectors.toSet());
-
-        Map<String, Object> claims = buildEnhancedClaims(
-                user, ipAddress, userAgent, TOKEN_TYPE_REFRESH, permissionsForClaims
-        );
-
-        String jti = UUID.randomUUID().toString();
-        claims.put("jti", jti);
-
-        return jwtConfig.refreshTokenJwtBuilder()
-                .setClaims(claims)
-                .setSubject(user.getId())
-                .setIssuer(jwtConfig.getIssuer())
-                .setId(jti)
-                .setIssuedAt(Date.from(issuedAt))
-                .setExpiration(Date.from(issuedAt.plusSeconds(
-                        jwtConfig.getRefreshTokenExpirationInSeconds())))
-                .signWith(jwtConfig.refreshTokenSecretKey(), SignatureAlgorithm.HS512)
-                .compact();
-    }
-
-
-    /**
-     * Build enhanced JWT claims
-     */
-    private Map<String, Object> buildEnhancedClaims(
-            User user,
-            String ipAddress,
-            String userAgent,
-            String tokenType,
-            Set<String> permissions
-    ) {
-        Instant now = clock.instant();
-
-        Map<String, Object> claims = new HashMap<>();
-
-        // Core identity claims
-        claims.put("userId", user.getId());
-        claims.put("email", user.getEmail());
-        claims.put("type", tokenType);
-
-        // Security context claims
-        claims.put("ipAddress", ipAddress);
-        claims.put("userAgent", userAgent);
-        claims.put("authTime", now.getEpochSecond());
-
-        // Authorization claims
-        claims.put("roles", user.getRoles());
-        claims.put("permissions", new ArrayList<>(permissions));
-
-        // Additional metadata
-        claims.put("fullName", formatFullName(user.getFirstName(), user.getLastName()));
-        claims.put("mfaEnabled", user.isMfaRequired());
-        claims.put("deviceId", user.getKnownDeviceFingerprints());
-
-        return claims;
-    }
 
     /* =========================
        Token Storage
@@ -619,19 +762,24 @@ public class JwtService {
     private Mono<Void> revokeOldToken(String jti, TokenPair newTokens) {
         Instant now = clock.instant();
 
-        return Mono.fromRunnable(() -> {
-            try {
-                firestore.collection(COLLECTION_REVOKED_TOKENS)
-                        .document(jti)
-                        .set(Map.of(
-                                "revokedAt", now,
-                                "replacedBy", newTokens.getRefreshToken()
-                        ))
-                        .get(2, TimeUnit.SECONDS);
-            } catch (Exception e) {
-                log.error("Failed to revoke old refresh token", e);
-            }
-        }).subscribeOn(Schedulers.boundedElastic()).then();
+        Map<String, Object> revokedTokenData = Map.of(
+                "revokedAt", now.toString(),
+                "replacedBy", newTokens.getRefreshToken(),
+                "tokenType", "REFRESH_TOKEN",
+                "revocationReason", "TOKEN_REFRESHED"
+        );
+
+        return FirestoreUtils.apiFutureToMono(
+                        firestore.collection(COLLECTION_REVOKED_TOKENS)
+                                .document(jti)
+                                .set(revokedTokenData)
+                )
+                .doOnSuccess(v -> log.debug("✅ Old refresh token revoked: {}", jti))
+                .doOnError(e -> log.error("❌ Failed to revoke old refresh token: {}", e.getMessage()))
+                .onErrorResume(e -> {
+                    log.warn("⚠️ Non-critical: Could not revoke old token, continuing with refresh");
+                    return Mono.empty();
+                }).then();
     }
 
     /**
@@ -838,6 +986,7 @@ public class JwtService {
        ========================= */
 
     /**
+     /**
      * Get claims from token
      */
     public Mono<Claims> getClaimsFromToken(String token) {
@@ -849,12 +998,12 @@ public class JwtService {
         }
 
         return parseToken(token)
-                .subscribeOn(Schedulers.boundedElastic())
                 .timeout(Duration.ofSeconds(2))
-                .doOnSuccess(claims -> log.debug("Successfully extracted claims from token"))
-                .doOnError(e -> log.warn("Failed to extract claims from token: {}", e.getMessage()))
+                .doOnSuccess(claims -> log.debug("✅ Successfully extracted claims from token"))
+                .doOnError(e -> log.warn("❌ Failed to extract claims from token: {}", e.getMessage()))
                 .onErrorMap(this::mapToSecurityException);
     }
+
 
     /**
      * Get user ID from token
@@ -1209,6 +1358,9 @@ public class JwtService {
     /**
      * Log refresh success
      */
+    /**
+     * Log refresh success
+     */
     private void logRefreshSuccess(TokenPair tokens, String ipAddress) {
         Instant now = clock.instant();
 
@@ -1216,7 +1368,7 @@ public class JwtService {
 
         auditLogService.logSecurityEvent(
                 "TOKEN_REFRESH",
-                tokens.getAccessToken().substring(0, Math.min(10, tokens.getAccessToken().length())) + "...",
+                tokens.getAccessToken().substring(0, Math.min(10, tokens.getAccessToken().length())) + "...",  // ✅ Fixed
                 Map.of(
                         "ipAddress", ipAddress,
                         "status", "success",

@@ -178,17 +178,6 @@ public class TransactionalBootstrapService {
        Step 1 — Firebase Auth + Firestore
        ========================= */
 
-    /**
-     * ✅ FIXED: Delegates to firebaseServiceAuth.createSuperAdmin() which:
-     *   1. Calls FirebaseAuth.createUser() → obtains a real UID
-     *   2. Sets user.setId(uid)
-     *   3. Saves to Firestore with that UID atomically
-     *
-     * OLD (broken):
-     *   Called firestoreUserRepository.saveUserAtomic(user, ...) directly.
-     *   user.getId() was null — Firestore document had no valid path.
-     *   FirebaseAuth record was created but never linked to a Firestore document.
-     */
     private Mono<User> createFirebaseUserAtomically(
             User user, String password, TransactionContext ctx) {
 

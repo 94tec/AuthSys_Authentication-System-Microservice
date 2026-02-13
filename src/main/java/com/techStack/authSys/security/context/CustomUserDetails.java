@@ -16,11 +16,10 @@ public class CustomUserDetails implements UserDetails {
     private final User user;
     private final List<String> roles;
     private final List<String> permissions;
-    //private final boolean forcePasswordChange;
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
-        return user.getAuthorities(); // or convert roles to GrantedAuthority
+        return user.getAuthorities();
     }
 
     @Override
@@ -30,17 +29,17 @@ public class CustomUserDetails implements UserDetails {
 
     @Override
     public String getUsername() {
-        return user.getEmail(); // or user.getUsername(), depending on your User model
+        return user.getEmail();
     }
 
     @Override
     public boolean isAccountNonExpired() {
-        return true; // or user.isAccountNonExpired()
+        return true;
     }
 
     @Override
     public boolean isAccountNonLocked() {
-        return !user.isAccountLocked(); // if you track this
+        return !user.isAccountLocked();
     }
 
     @Override
@@ -50,12 +49,34 @@ public class CustomUserDetails implements UserDetails {
 
     @Override
     public boolean isEnabled() {
-        return user.isEnabled(); // depending on your logic
+        return user.isEnabled();
     }
 
+    /**
+     * Check if user needs to change password
+     */
     public boolean isForcePasswordChange() {
         return user.isForcePasswordChange();
     }
 
-}
+    /**
+     * Check if user has verified their phone
+     */
+    public boolean isPhoneVerified() {
+        return user.isPhoneVerified();
+    }
 
+    /**
+     * Check if first-time setup is complete
+     */
+    public boolean isFirstTimeSetupComplete() {
+        return !user.isForcePasswordChange() && user.isPhoneVerified();
+    }
+
+    /**
+     * Get user ID
+     */
+    public String getUserId() {
+        return user.getId();
+    }
+}

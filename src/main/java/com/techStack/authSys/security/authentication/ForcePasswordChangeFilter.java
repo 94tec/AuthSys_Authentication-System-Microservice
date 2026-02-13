@@ -22,9 +22,9 @@ import java.time.Instant;
 import java.util.List;
 
 /**
- * Force Password Change Filter
+ * Force Password Change Filter with OTP Verification
  *
- * Enforces password change requirements for users.
+ * Enforces both password change AND phone verification for first-time users.
  * Uses Clock for all timestamp operations.
  */
 @Component
@@ -36,6 +36,7 @@ public class ForcePasswordChangeFilter implements WebFilter {
     private static final List<String> ALLOWED_PATHS = List.of(
             "/change-password",
             "/api/auth/change-password",
+            "/api/auth/first-time-setup/**",
             "/api/auth/logout",
             "/login",
             "/logout",
@@ -83,13 +84,15 @@ public class ForcePasswordChangeFilter implements WebFilter {
                     Object principal = auth.getPrincipal();
 
                     if (principal instanceof CustomUserDetails user) {
-                        logger.debug("User: {}, forcePasswordChange: {} at {}",
-                                user.getUsername(), user.isForcePasswordChange(), now);
+                        logger.debug("User: {}, forcePasswordChange: {}, phoneVerified: {} at {}",
+                                user.getUsername(),
+                                user.isForcePasswordChange(),
+                                user.getUser().isPhoneVerified(),
+                                now);
 
-                        if (user.isForcePasswordChange()) {
-                            logger.info("Redirecting user {} to password change at {}",
-                                    user.getUsername(), now);
-                            return handleForcePasswordChange(exchange, user, now);
+                        // ✅ Check BOTH password change requirement AND phone verification
+                        if (user.isForcePasswordChange() || !user.getUser().isPhoneVerified()) {
+                            return handleIncompleteSetup(exchange, user, now);
                         }
                     } else {
                         logger.warn("Principal is not CustomUserDetails: {} at {}",
@@ -105,36 +108,59 @@ public class ForcePasswordChangeFilter implements WebFilter {
     }
 
     /* =========================
-       Password Change Handling
+       Setup Handling
        ========================= */
 
     /**
-     * Handle force password change
+     * Handle incomplete setup (password change OR phone verification pending)
      */
-    private Mono<Void> handleForcePasswordChange(
+    private Mono<Void> handleIncompleteSetup(
             ServerWebExchange exchange,
             CustomUserDetails user,
             Instant now
     ) {
-        // For API requests, return 403 with custom header
+        String setupStatus = getSetupStatus(user);
+
+        // For API requests, return 403 with setup requirements
         if (isApiRequest(exchange)) {
             ServerHttpResponse response = exchange.getResponse();
             response.setStatusCode(HttpStatus.FORBIDDEN);
-            response.getHeaders().add("X-Force-Password-Change", "true");
+            response.getHeaders().add("X-Setup-Required", "true");
+            response.getHeaders().add("X-Setup-Status", setupStatus);
+            response.getHeaders().add("X-Force-Password-Change",
+                    String.valueOf(user.isForcePasswordChange()));
+            response.getHeaders().add("X-Phone-Verified",
+                    String.valueOf(user.getUser().isPhoneVerified()));
             response.getHeaders().add("X-Timestamp", now.toString());
-            response.getHeaders().add("Location", "/change-password");
+            response.getHeaders().add("Location", "/api/auth/first-time-setup/change-password");
 
-            logger.warn("Blocked API request from {} requiring password change at {}",
-                    user.getUsername(), now);
+            logger.warn("Blocked API request from {} requiring setup ({}) at {}",
+                    user.getUsername(), setupStatus, now);
 
             return response.setComplete();
         }
 
-        // For web requests, redirect to change password page
-        logger.info("Redirecting web request from {} to password change at {}",
-                user.getUsername(), now);
+        // For web requests, redirect to setup page
+        logger.info("Redirecting web request from {} to setup ({}) at {}",
+                user.getUsername(), setupStatus, now);
 
-        return redirectToPasswordChange(exchange, now);
+        return redirectToSetup(exchange, now);
+    }
+
+    /**
+     * Get human-readable setup status
+     */
+    private String getSetupStatus(CustomUserDetails user) {
+        boolean needsPasswordChange = user.isForcePasswordChange();
+        boolean needsPhoneVerification = !user.getUser().isPhoneVerified();
+
+        if (needsPasswordChange && needsPhoneVerification) {
+            return "PASSWORD_AND_PHONE_REQUIRED";
+        } else if (needsPasswordChange) {
+            return "PASSWORD_CHANGE_REQUIRED";
+        } else {
+            return "PHONE_VERIFICATION_REQUIRED";
+        }
     }
 
     /**
@@ -145,12 +171,12 @@ public class ForcePasswordChangeFilter implements WebFilter {
     }
 
     /**
-     * Redirect to password change page
+     * Redirect to setup page
      */
-    private Mono<Void> redirectToPasswordChange(ServerWebExchange exchange, Instant now) {
+    private Mono<Void> redirectToSetup(ServerWebExchange exchange, Instant now) {
         ServerHttpResponse response = exchange.getResponse();
         response.setStatusCode(HttpStatus.TEMPORARY_REDIRECT);
-        response.getHeaders().setLocation(URI.create("/change-password"));
+        response.getHeaders().setLocation(URI.create("/first-time-setup"));
         response.getHeaders().add("X-Redirect-Timestamp", now.toString());
         return response.setComplete();
     }
@@ -163,8 +189,12 @@ public class ForcePasswordChangeFilter implements WebFilter {
      * Check if path is allowed
      */
     private boolean isAllowedPath(String path) {
-        return ALLOWED_PATHS.stream().anyMatch(allowed ->
-                path.equals(allowed) || path.startsWith(allowed + "/")
-        );
+        return ALLOWED_PATHS.stream().anyMatch(allowed -> {
+            if (allowed.endsWith("/**")) {
+                String prefix = allowed.substring(0, allowed.length() - 3);
+                return path.startsWith(prefix);
+            }
+            return path.equals(allowed) || path.startsWith(allowed + "/");
+        });
     }
 }

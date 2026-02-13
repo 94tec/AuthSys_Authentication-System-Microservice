@@ -31,7 +31,6 @@ import java.util.stream.Collectors;
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-@Builder
 @Document(collectionName = "users")
 public class User implements UserDetails {
 
@@ -68,22 +67,15 @@ public class User implements UserDetails {
     // ==========================================
 
     @PropertyName("roles")
-    @Builder.Default
     private List<String> roleNames = new ArrayList<>();
 
     @PropertyName("permissions")
-    @Builder.Default
     private List<String> additionalPermissions = new ArrayList<>();
-
-    @PropertyName("requested_role")
-    //private Roles requestedRole;
 
     private Set<Roles> requestedRoles;
 
-
     private String department;
 
-    @Builder.Default
     private Map<String, Object> attributes = new HashMap<>();
 
     // ==========================================
@@ -91,28 +83,24 @@ public class User implements UserDetails {
     // ==========================================
 
     @PropertyName("status")
-    @Builder.Default
     private UserStatus status = UserStatus.PENDING_APPROVAL;
 
     @PropertyName("enabled")
-    @Builder.Default
     private boolean enabled = false;
 
     @PropertyName("account_locked")
-    @Builder.Default
     private boolean accountLocked = false;
 
     @PropertyName("account_disabled")
-    @Builder.Default
     private boolean accountDisabled = false;
 
     @PropertyName("email_verified")
-    @Builder.Default
     private boolean emailVerified = false;
 
     @PropertyName("force_password_change")
-    @Builder.Default
     private boolean forcePasswordChange = false;
+
+    private boolean phoneVerified = false;
 
     // ==========================================
     // SECURITY & AUTHENTICATION
@@ -123,15 +111,12 @@ public class User implements UserDetails {
 
     @JsonIgnore
     @PropertyName("password_history")
-    @Builder.Default
     private List<UserPasswordHistory> passwordHistoryEntries = new ArrayList<>();
 
     @PropertyName("mfa_enabled")
-    @Builder.Default
     private boolean mfaEnabled = false;
 
     @PropertyName("mfa_required")
-    @Builder.Default
     private boolean mfaRequired = false;
 
     @JsonIgnore
@@ -139,11 +124,9 @@ public class User implements UserDetails {
     private String otpSecret;
 
     @PropertyName("login_attempts")
-    @Builder.Default
     private int loginAttempts = 0;
 
     @PropertyName("failed_login_attempts")
-    @Builder.Default
     private int failedLoginAttempts = 0;
 
     @PropertyName("last_login")
@@ -157,7 +140,6 @@ public class User implements UserDetails {
     private String lastLoginUserAgent;
 
     @PropertyName("known_device_fingerprints")
-    @Builder.Default
     private String knownDeviceFingerprints = "";
 
     // ==========================================
@@ -253,8 +235,439 @@ public class User implements UserDetails {
     private transient Collection<? extends GrantedAuthority> authorities;
 
     // ==========================================
+    // CONSTRUCTOR
+    // ==========================================
+
+    private User(Builder builder) {
+        this.id = builder.id;
+        this.email = builder.email;
+        this.firstName = builder.firstName;
+        this.lastName = builder.lastName;
+        this.username = builder.username;
+        this.identityNo = builder.identityNo;
+        this.phoneNumber = builder.phoneNumber;
+        this.password = builder.password;
+        this.roleNames = builder.roleNames != null ? builder.roleNames : new ArrayList<>();
+        this.additionalPermissions = builder.additionalPermissions != null ? builder.additionalPermissions : new ArrayList<>();
+        this.requestedRoles = builder.requestedRoles;
+        this.department = builder.department;
+        this.attributes = builder.attributes != null ? builder.attributes : new HashMap<>();
+        this.status = builder.status;
+        this.enabled = builder.enabled;
+        this.accountLocked = builder.accountLocked;
+        this.accountDisabled = builder.accountDisabled;
+        this.emailVerified = builder.emailVerified;
+        this.forcePasswordChange = builder.forcePasswordChange;
+        this.phoneVerified = builder.phoneVerified;
+        this.securityMetadata = builder.securityMetadata;
+        this.passwordHistoryEntries = builder.passwordHistoryEntries != null ? builder.passwordHistoryEntries : new ArrayList<>();
+        this.mfaEnabled = builder.mfaEnabled;
+        this.mfaRequired = builder.mfaRequired;
+        this.otpSecret = builder.otpSecret;
+        this.loginAttempts = builder.loginAttempts;
+        this.failedLoginAttempts = builder.failedLoginAttempts;
+        this.lastLogin = builder.lastLogin;
+        this.lastLoginIp = builder.lastLoginIp;
+        this.lastLoginUserAgent = builder.lastLoginUserAgent;
+        this.knownDeviceFingerprints = builder.knownDeviceFingerprints != null ? builder.knownDeviceFingerprints : "";
+        this.passwordLastChanged = builder.passwordLastChanged;
+        this.passwordExpiresAt = builder.passwordExpiresAt;
+        this.passwordResetTokenHash = builder.passwordResetTokenHash;
+        this.passwordResetTokenExpiresAt = builder.passwordResetTokenExpiresAt;
+        this.verificationTokenHash = builder.verificationTokenHash;
+        this.verificationTokenExpiresAt = builder.verificationTokenExpiresAt;
+        this.approvalLevel = builder.approvalLevel;
+        this.approvedAt = builder.approvedAt;
+        this.approvedBy = builder.approvedBy;
+        this.rejectedAt = builder.rejectedAt;
+        this.rejectedBy = builder.rejectedBy;
+        this.rejectionReason = builder.rejectionReason;
+        this.profilePictureUrl = builder.profilePictureUrl;
+        this.bio = builder.bio;
+        this.userProfileId = builder.userProfileId;
+        this.createdAt = builder.createdAt;
+        this.createdBy = builder.createdBy;
+        this.updatedAt = builder.updatedAt;
+        this.authorities = builder.authorities;
+    }
+
+    // ==========================================
+    // BUILDER CLASS
+    // ==========================================
+
+    public static class Builder {
+        private String id;
+        private String email;
+        private String firstName;
+        private String lastName;
+        private String username;
+        private String identityNo;
+        private String phoneNumber;
+        private String password;
+        private List<String> roleNames;
+        private List<String> additionalPermissions;
+        private Set<Roles> requestedRoles;
+        private String department;
+        private Map<String, Object> attributes;
+        private UserStatus status = UserStatus.PENDING_APPROVAL;
+        private boolean enabled = false;
+        private boolean accountLocked = false;
+        private boolean accountDisabled = false;
+        private boolean emailVerified = false;
+        private boolean forcePasswordChange = false;
+        private boolean phoneVerified = false;
+        private SecurityMetadata securityMetadata;
+        private List<UserPasswordHistory> passwordHistoryEntries;
+        private boolean mfaEnabled = false;
+        private boolean mfaRequired = false;
+        private String otpSecret;
+        private int loginAttempts = 0;
+        private int failedLoginAttempts = 0;
+        private Instant lastLogin;
+        private String lastLoginIp;
+        private String lastLoginUserAgent;
+        private String knownDeviceFingerprints = "";
+        private Instant passwordLastChanged;
+        private Instant passwordExpiresAt;
+        private String passwordResetTokenHash;
+        private Instant passwordResetTokenExpiresAt;
+        private String verificationTokenHash;
+        private Instant verificationTokenExpiresAt;
+        private ApprovalLevel approvalLevel;
+        private Instant approvedAt;
+        private String approvedBy;
+        private Instant rejectedAt;
+        private String rejectedBy;
+        private String rejectionReason;
+        private String profilePictureUrl;
+        private String bio;
+        private String userProfileId;
+        private Instant createdAt;
+        private String createdBy;
+        private Instant updatedAt;
+        private Collection<? extends GrantedAuthority> authorities;
+
+        public Builder id(String id) {
+            this.id = id;
+            return this;
+        }
+
+        public Builder email(String email) {
+            this.email = email;
+            return this;
+        }
+
+        public Builder firstName(String firstName) {
+            this.firstName = firstName;
+            return this;
+        }
+
+        public Builder lastName(String lastName) {
+            this.lastName = lastName;
+            return this;
+        }
+
+        public Builder username(String username) {
+            this.username = username;
+            return this;
+        }
+
+        public Builder identityNo(String identityNo) {
+            this.identityNo = identityNo;
+            return this;
+        }
+
+        public Builder phoneNumber(String phoneNumber) {
+            this.phoneNumber = phoneNumber;
+            return this;
+        }
+
+        public Builder password(String password) {
+            this.password = password;
+            return this;
+        }
+
+        public Builder roleNames(List<String> roleNames) {
+            this.roleNames = roleNames;
+            return this;
+        }
+
+        public Builder additionalPermissions(List<String> additionalPermissions) {
+            this.additionalPermissions = additionalPermissions;
+            return this;
+        }
+
+        public Builder requestedRoles(Set<Roles> requestedRoles) {
+            this.requestedRoles = requestedRoles;
+            return this;
+        }
+
+        public Builder department(String department) {
+            this.department = department;
+            return this;
+        }
+
+        public Builder attributes(Map<String, Object> attributes) {
+            this.attributes = attributes;
+            return this;
+        }
+
+        public Builder status(UserStatus status) {
+            this.status = status;
+            return this;
+        }
+
+        public Builder enabled(boolean enabled) {
+            this.enabled = enabled;
+            return this;
+        }
+
+        public Builder accountLocked(boolean accountLocked) {
+            this.accountLocked = accountLocked;
+            return this;
+        }
+
+        public Builder accountDisabled(boolean accountDisabled) {
+            this.accountDisabled = accountDisabled;
+            return this;
+        }
+
+        public Builder emailVerified(boolean emailVerified) {
+            this.emailVerified = emailVerified;
+            return this;
+        }
+
+        public Builder forcePasswordChange(boolean forcePasswordChange) {
+            this.forcePasswordChange = forcePasswordChange;
+            return this;
+        }
+
+        public Builder phoneVerified(boolean phoneVerified) {
+            this.phoneVerified = phoneVerified;
+            return this;
+        }
+
+        public Builder securityMetadata(SecurityMetadata securityMetadata) {
+            this.securityMetadata = securityMetadata;
+            return this;
+        }
+
+        public Builder passwordHistoryEntries(List<UserPasswordHistory> passwordHistoryEntries) {
+            this.passwordHistoryEntries = passwordHistoryEntries;
+            return this;
+        }
+
+        public Builder mfaEnabled(boolean mfaEnabled) {
+            this.mfaEnabled = mfaEnabled;
+            return this;
+        }
+
+        public Builder mfaRequired(boolean mfaRequired) {
+            this.mfaRequired = mfaRequired;
+            return this;
+        }
+
+        public Builder otpSecret(String otpSecret) {
+            this.otpSecret = otpSecret;
+            return this;
+        }
+
+        public Builder loginAttempts(int loginAttempts) {
+            this.loginAttempts = loginAttempts;
+            return this;
+        }
+
+        public Builder failedLoginAttempts(int failedLoginAttempts) {
+            this.failedLoginAttempts = failedLoginAttempts;
+            return this;
+        }
+
+        public Builder lastLogin(Instant lastLogin) {
+            this.lastLogin = lastLogin;
+            return this;
+        }
+
+        public Builder lastLoginIp(String lastLoginIp) {
+            this.lastLoginIp = lastLoginIp;
+            return this;
+        }
+
+        public Builder lastLoginUserAgent(String lastLoginUserAgent) {
+            this.lastLoginUserAgent = lastLoginUserAgent;
+            return this;
+        }
+
+        public Builder knownDeviceFingerprints(String knownDeviceFingerprints) {
+            this.knownDeviceFingerprints = knownDeviceFingerprints;
+            return this;
+        }
+
+        public Builder passwordLastChanged(Instant passwordLastChanged) {
+            this.passwordLastChanged = passwordLastChanged;
+            return this;
+        }
+
+        public Builder passwordExpiresAt(Instant passwordExpiresAt) {
+            this.passwordExpiresAt = passwordExpiresAt;
+            return this;
+        }
+
+        public Builder passwordResetTokenHash(String passwordResetTokenHash) {
+            this.passwordResetTokenHash = passwordResetTokenHash;
+            return this;
+        }
+
+        public Builder passwordResetTokenExpiresAt(Instant passwordResetTokenExpiresAt) {
+            this.passwordResetTokenExpiresAt = passwordResetTokenExpiresAt;
+            return this;
+        }
+
+        public Builder verificationTokenHash(String verificationTokenHash) {
+            this.verificationTokenHash = verificationTokenHash;
+            return this;
+        }
+
+        public Builder verificationTokenExpiresAt(Instant verificationTokenExpiresAt) {
+            this.verificationTokenExpiresAt = verificationTokenExpiresAt;
+            return this;
+        }
+
+        public Builder approvalLevel(ApprovalLevel approvalLevel) {
+            this.approvalLevel = approvalLevel;
+            return this;
+        }
+
+        public Builder approvedAt(Instant approvedAt) {
+            this.approvedAt = approvedAt;
+            return this;
+        }
+
+        public Builder approvedBy(String approvedBy) {
+            this.approvedBy = approvedBy;
+            return this;
+        }
+
+        public Builder rejectedAt(Instant rejectedAt) {
+            this.rejectedAt = rejectedAt;
+            return this;
+        }
+
+        public Builder rejectedBy(String rejectedBy) {
+            this.rejectedBy = rejectedBy;
+            return this;
+        }
+
+        public Builder rejectionReason(String rejectionReason) {
+            this.rejectionReason = rejectionReason;
+            return this;
+        }
+
+        public Builder profilePictureUrl(String profilePictureUrl) {
+            this.profilePictureUrl = profilePictureUrl;
+            return this;
+        }
+
+        public Builder bio(String bio) {
+            this.bio = bio;
+            return this;
+        }
+
+        public Builder userProfileId(String userProfileId) {
+            this.userProfileId = userProfileId;
+            return this;
+        }
+
+        public Builder createdAt(Instant createdAt) {
+            this.createdAt = createdAt;
+            return this;
+        }
+
+        public Builder createdBy(String createdBy) {
+            this.createdBy = createdBy;
+            return this;
+        }
+
+        public Builder updatedAt(Instant updatedAt) {
+            this.updatedAt = updatedAt;
+            return this;
+        }
+
+        public Builder authorities(Collection<? extends GrantedAuthority> authorities) {
+            this.authorities = authorities;
+            return this;
+        }
+
+        public User build() {
+            return new User(this);
+        }
+    }
+
+    public static Builder builder() {
+        return new Builder();
+    }
+
+    // ==========================================
+    // SPRING SECURITY UserDetails IMPLEMENTATION
+    // ==========================================
+
+    @Override
+    public Collection<? extends GrantedAuthority> getAuthorities() {
+        if (this.authorities != null) {
+            return this.authorities;
+        }
+
+        Set<GrantedAuthority> grantedAuthorities = new HashSet<>();
+
+        if (roleNames != null) {
+            roleNames.forEach(role ->
+                    grantedAuthorities.add(new SimpleGrantedAuthority("ROLE_" + role))
+            );
+        }
+
+        if (additionalPermissions != null) {
+            additionalPermissions.forEach(permission ->
+                    grantedAuthorities.add(new SimpleGrantedAuthority(permission))
+            );
+        }
+
+        return grantedAuthorities;
+    }
+
+    @Override
+    public String getPassword() {
+        return this.password;
+    }
+
+    @Override
+    public String getUsername() {
+        return this.email;
+    }
+
+    @Override
+    public boolean isAccountNonExpired() {
+        // Account is non-expired if status is not DEACTIVATED
+        return status != UserStatus.DEACTIVATED;
+    }
+
+    @Override
+    public boolean isAccountNonLocked() {
+        return !this.accountLocked;
+    }
+
+    @Override
+    public boolean isCredentialsNonExpired() {
+        return !isPasswordExpired();
+    }
+
+    @Override
+    public boolean isEnabled() {
+        return this.enabled && !this.accountDisabled;
+    }
+
+    // ==========================================
     // ROLE MANAGEMENT METHODS
     // ==========================================
+
     public Set<Roles> getRequestedRoles() {
         return requestedRoles == null || requestedRoles.isEmpty()
                 ? Set.of(Roles.USER)
@@ -328,17 +741,17 @@ public class User implements UserDetails {
         // 1️⃣ Map additionalPermissions (Strings) -> Permissions enum
         if (additionalPermissions != null) {
             additionalPermissions.stream()
-                    .map(Permissions::fromNameSafe)   // returns Optional<Permissions>
-                    .flatMap(Optional::stream)        // filter out invalid names
+                    .map(Permissions::fromNameSafe)
+                    .flatMap(Optional::stream)
                     .forEach(permissions::add);
         }
 
         // 2️⃣ Map roleNames (Strings) -> default role Permissions
         if (roleNames != null) {
             roleNames.stream()
-                    .map(Roles::fromName)             // returns Optional<Roles>
+                    .map(Roles::fromName)
                     .flatMap(Optional::stream)
-                    .flatMap(role -> Arrays.stream(getPermissionsForRole(role))) // Role -> Permissions[]
+                    .flatMap(role -> Arrays.stream(getPermissionsForRole(role)))
                     .forEach(permissions::add);
         }
 
@@ -356,8 +769,6 @@ public class User implements UserDetails {
             case USER        -> Permissions.getUserPermissions();
         };
     }
-
-
 
     // ==========================================
     // ACCOUNT STATE CHECKS
@@ -392,63 +803,8 @@ public class User implements UserDetails {
                 && knownDeviceFingerprints.contains(deviceFingerprint);
     }
 
-    public void addKnownDevice(String deviceFingerprint) { this.knownDeviceFingerprints = deviceFingerprint; }
-
-    // ==========================================
-    // SPRING SECURITY UserDetails
-    // ==========================================
-
-    @Override
-    public Collection<? extends GrantedAuthority> getAuthorities() {
-        if (this.authorities != null) {
-            return this.authorities;
-        }
-
-        Set<GrantedAuthority> grantedAuthorities = new HashSet<>();
-
-        if (roleNames != null) {
-            roleNames.forEach(role ->
-                    grantedAuthorities.add(new SimpleGrantedAuthority("ROLE_" + role))
-            );
-        }
-
-        if (additionalPermissions != null) {
-            additionalPermissions.forEach(permission ->
-                    grantedAuthorities.add(new SimpleGrantedAuthority(permission))
-            );
-        }
-
-        return grantedAuthorities;
-    }
-
-    @Override
-    public String getPassword() {
-        return this.password;
-    }
-
-    @Override
-    public String getUsername() {
-        return this.email;
-    }
-
-    @Override
-    public boolean isAccountNonExpired() {
-        return status != UserStatus.DEACTIVATED;
-    }
-
-    @Override
-    public boolean isAccountNonLocked() {
-        return !this.accountLocked;
-    }
-
-    @Override
-    public boolean isCredentialsNonExpired() {
-        return !isPasswordExpired();
-    }
-
-    @Override
-    public boolean isEnabled() {
-        return this.enabled && !this.accountDisabled;
+    public void addKnownDevice(String deviceFingerprint) {
+        this.knownDeviceFingerprints = deviceFingerprint;
     }
 
     // ==========================================
