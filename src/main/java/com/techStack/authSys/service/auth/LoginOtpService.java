@@ -18,6 +18,7 @@ import java.time.Instant;
 import java.util.Map;
 
 import static com.techStack.authSys.models.audit.ActionType.LOGIN_OTP;
+import static com.techStack.authSys.models.audit.ActionType.LOGIN_OTP_VERIFIED;
 
 /**
  * Login OTP Service
@@ -118,7 +119,7 @@ public class LoginOtpService {
         Instant now = clock.instant();
 
         return validateTemporaryLoginToken(tempToken)
-                .flatMap(userId -> firebaseServiceAuth.getUserById(userId))
+                .flatMap(firebaseServiceAuth::getUserById)
                 .flatMap(user -> {
                     log.info("🔄 Resending login OTP to user: {} at {}", user.getId(), now);
                     return otpService.generateAndSendLoginOtp(user.getId(), user.getPhoneNumber());
@@ -178,11 +179,10 @@ public class LoginOtpService {
         try {
             Map<String, Object> details = Map.of(
                     "userId", userId,
-                    "action", "LOGIN_OTP_VERIFIED",
+                    "action", LOGIN_OTP_VERIFIED,
                     "success", success,
                     "timestamp", clock.instant().toString()
             );
-
             auditLogService.logAuditEvent(
                     userId,
                     LOGIN_OTP,
