@@ -10,41 +10,38 @@ import java.util.Date;
 
 @Getter
 public class AuthException extends CustomException {
-
+    private final HttpStatus httpStatus;
     private final Instant timestamp;
     private final String errorCode;
 
-    // Basic constructor
-    public AuthException(String message, HttpStatus status) {
-        super(status, message);
+    // ✅ Simple constructor (most commonly used)
+    public AuthException(String message, HttpStatus httpStatus) {
+        super(httpStatus, message);
+        this.httpStatus = httpStatus;
         this.timestamp = Instant.now();
-        this.errorCode = generateErrorCode(status);
+        this.errorCode = generateErrorCode(httpStatus);
     }
 
-    // Constructor with cause
-    public AuthException(String message, Throwable cause, HttpStatus status) {
-        super(status, message, cause);
-        this.timestamp = Instant.now();
-        this.errorCode = generateErrorCode(status);
-    }
-
-    // Constructor with custom error code
-    public AuthException(String message, HttpStatus status, String errorCode) {
-        super(status, message);
+    // ✅ Constructor with custom error code
+    public AuthException(String message, HttpStatus httpStatus, String errorCode) {
+        super(httpStatus, message);
+        this.httpStatus = httpStatus;
         this.timestamp = Instant.now();
         this.errorCode = errorCode;
     }
 
-    // Full constructor
-    public AuthException(String message, Throwable cause, HttpStatus status, String errorCode) {
-        super(status, message, cause);
+    // ✅ Constructor with cause
+    public AuthException(String message, HttpStatus httpStatus, Throwable cause) {
+        super(httpStatus, message, cause);
+        this.httpStatus = httpStatus;
         this.timestamp = Instant.now();
-        this.errorCode = errorCode;
+        this.errorCode = generateErrorCode(httpStatus);
     }
 
-    // Constructor with field and code for detailed validation errors
-    public AuthException(String message, HttpStatus status, String field, String errorCode) {
-        super(status, message, field, errorCode);
+    // ✅ Constructor with field and code for detailed validation errors
+    public AuthException(String message, HttpStatus httpStatus, String field, String errorCode) {
+        super(httpStatus, message, field, errorCode);
+        this.httpStatus = httpStatus;
         this.timestamp = Instant.now();
         this.errorCode = errorCode;
     }
@@ -54,78 +51,69 @@ public class AuthException extends CustomException {
         return "AUTH_" + status.value();
     }
 
-    // Convenience methods for common auth scenarios
+    // ✅ Convenience methods for common auth scenarios
     public static AuthException invalidCredentials() {
         return new AuthException(
                 "Invalid email or password",
                 HttpStatus.UNAUTHORIZED,
-                "AUTH_001"
-        );
+                "AUTH_001");
     }
 
     public static AuthException accountNotFound() {
         return new AuthException(
                 "Account not found. Please check your email or register.",
                 HttpStatus.UNAUTHORIZED,
-                "AUTH_002"
-        );
+                "AUTH_002");
     }
 
     public static AuthException accountDisabled() {
         return new AuthException(
                 "Account has been disabled. Please contact support.",
                 HttpStatus.FORBIDDEN,
-                "AUTH_003"
-        );
+                "AUTH_003");
     }
 
     public static AuthException emailNotVerified() {
         return new AuthException(
                 "Email not verified. Please check your inbox for verification link.",
                 HttpStatus.FORBIDDEN,
-                "AUTH_004"
-        );
+                "AUTH_004");
     }
 
     public static AuthException rateLimitExceeded() {
         return new AuthException(
                 "Too many failed attempts. Please try again in 15 minutes.",
                 HttpStatus.TOO_MANY_REQUESTS,
-                "AUTH_005"
-        );
+                "AUTH_005");
     }
 
     public static AuthException sessionExpired() {
         return new AuthException(
                 "Session expired. Please log in again.",
                 HttpStatus.UNAUTHORIZED,
-                "AUTH_006"
-        );
+                "AUTH_006");
     }
 
     public static AuthException mfaRequired() {
         return new AuthException(
                 "Multi-factor authentication required.",
                 HttpStatus.UNAUTHORIZED,
-                "AUTH_007"
-        );
+                "AUTH_007");
     }
 
     public static AuthException invalidToken() {
         return new AuthException(
                 "Invalid or expired token.",
                 HttpStatus.UNAUTHORIZED,
-                "AUTH_008"
-        );
+                "AUTH_008");
     }
 
     public static AuthException invalidCredentialsWithField() {
         return new AuthException(
                 "Invalid email or password",
                 HttpStatus.UNAUTHORIZED,
-                "password", // field name
-                "AUTH_009"
-        );
+                "password",
+                "AUTH_009");
     }
 
     public static AuthException weakPassword() {
@@ -133,8 +121,7 @@ public class AuthException extends CustomException {
                 "Password does not meet security requirements",
                 HttpStatus.BAD_REQUEST,
                 "password",
-                "AUTH_010"
-        );
+                "AUTH_010");
     }
 
     // Convenience method to get timestamp as Date (for compatibility)

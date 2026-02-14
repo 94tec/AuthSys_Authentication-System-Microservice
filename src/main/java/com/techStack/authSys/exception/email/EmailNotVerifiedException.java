@@ -30,7 +30,6 @@ public class EmailNotVerifiedException extends CustomException {
         return new AuthException(
                 "Email not verified. Please check your inbox for verification link.",
                 HttpStatus.FORBIDDEN,
-                "AUTH_004"
-        );
+                "AUTH_004");
     }
 }

@@ -2,12 +2,12 @@ package com.techStack.authSys.handler;
 
 import com.auth0.jwt.exceptions.TokenExpiredException;
 import com.google.firebase.auth.FirebaseAuthException;
+import com.techStack.authSys.dto.response.ApiResponse;
 import com.techStack.authSys.dto.response.ErrorResponse;
+import com.techStack.authSys.dto.response.LoginResponse;
 import com.techStack.authSys.exception.account.AccountDisabledException;
 import com.techStack.authSys.exception.account.AccountLockedException;
-import com.techStack.authSys.exception.auth.AuthException;
-import com.techStack.authSys.exception.auth.InvalidTokenException;
-import com.techStack.authSys.exception.auth.TransientAuthenticationException;
+import com.techStack.authSys.exception.auth.*;
 import com.techStack.authSys.exception.authorization.PermissionDeniedException;
 import com.techStack.authSys.exception.bootstrap.BootstrapInitializationException;
 import com.techStack.authSys.exception.data.CacheException;
@@ -119,6 +119,45 @@ public class GlobalExceptionHandler {
     /* =========================
        Authentication Exceptions
        ========================= */
+    /**
+     * Handle first-time setup required
+     */
+    @ExceptionHandler(FirstTimeSetupRequiredException.class)
+    public ResponseEntity<ApiResponse<LoginResponse>> handleFirstTimeSetupRequired(
+            FirstTimeSetupRequiredException ex) {
+
+        log.warn("First-time setup required for user: {}", ex.getUserId());
+
+        LoginResponse response = LoginResponse.firstTimeLogin(
+                ex.getTemporaryToken(),
+                ex.getUserId(),
+                ex.getMessage()
+        );
+
+        return ResponseEntity
+                .status(ex.getHttpStatus())
+                .body(ApiResponse.success(ex.getMessage(), response));
+    }
+
+    /**
+     * Handle OTP verification required
+     */
+    @ExceptionHandler(OtpVerificationRequiredException.class)
+    public ResponseEntity<ApiResponse<LoginResponse>> handleOtpVerificationRequired(
+            OtpVerificationRequiredException ex) {
+
+        log.info("OTP verification required for user: {}", ex.getUserId());
+
+        LoginResponse response = LoginResponse.loginOtpRequired(
+                ex.getTemporaryToken(),
+                ex.getUserId(),
+                ex.getMessage()
+        );
+
+        return ResponseEntity
+                .status(ex.getHttpStatus())
+                .body(ApiResponse.success(ex.getMessage(), response));
+    }
 
     /**
      * Handle all authentication-related exceptions

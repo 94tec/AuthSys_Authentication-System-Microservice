@@ -48,17 +48,38 @@ public class FirebaseAuthFilter implements WebFilter {
        ========================= */
 
     private static final Set<String> PUBLIC_PATHS = Set.of(
-            "/api/super-admin/register",
-            "/api/super-admin/login",
-            "/swagger-ui",
-            "/v3/api-docs",
-            "/api/auth/register",
+            // Swagger UI
+            "/swagger-ui.html",
+            "/swagger-ui/",
+            "/v3/api-docs/",
+            "/webjars/",
+
+            // Health checks
+            "/actuator/",
+            "/health/",
+            "/favicon.ico",
+
+            // Static resources
+            "/static/",
+            "/css/",
+            "/js/",
+            "/images/",
+
+            // Authentication endpoints
             "/api/auth/login",
+            "/api/auth/register",
             "/api/auth/verify-email",
-            "/api/register",
-            "/api/otp",
-            "/api/v1/password-reset/**",
-            "/api/auth/first-time-setup/**"
+            "/api/auth/resend-verification",
+            "/api/auth/check-email",
+            "/api/auth/logout",
+            "/api/auth/first-time-setup/",
+            "/api/auth/login-otp/",
+            "/api/otp/",
+            "/api/v1/password-reset/",
+
+            // Super Admin bootstrap
+            "/api/super-admin/register",
+            "/api/super-admin/login"
     );
 
     private static final Set<String> SENSITIVE_PATHS = Set.of(
@@ -128,36 +149,45 @@ public class FirebaseAuthFilter implements WebFilter {
         String clientIp = getClientIp(request);
         Instant now = clock.instant();
 
+        // ✅ Check if path is public - skip authentication
         if (isPublicPath(path)) {
+            log.debug("Public path accessed: {} from IP: {} at {}", path, clientIp, now);
             return chain.filter(exchange);
         }
 
-        // Check global rate limit
+        log.debug("Protected path accessed: {} from IP: {} at {}", path, clientIp, now);
+
+        // ✅ Check global rate limit
         if (!globalRateLimiter.tryConsume(1)) {
             meterRegistry.counter("auth.rate_limit.global_hits").increment();
-            log.warn("Global rate limit exceeded for IP: {} at {}", clientIp, now);
+            log.warn("⚠️ Global rate limit exceeded for IP: {} at {}", clientIp, now);
             return respondWithTooManyRequests(exchange);
         }
 
-        // Get or create IP-specific rate limiter
+        // ✅ Get or create IP-specific rate limiter
         Bucket ipBucket = getOrCreateIpBucket(clientIp, path, now);
 
-        // Check IP-specific rate limit
+        // ✅ Check IP-specific rate limit
         if (!ipBucket.tryConsume(1)) {
             meterRegistry.counter("auth.rate_limit.ip_hits", "ip", clientIp).increment();
-            log.warn("Rate limit exceeded for IP: {} on path: {} at {}", clientIp, path, now);
+            log.warn("⚠️ Rate limit exceeded for IP: {} on path: {} at {}", clientIp, path, now);
             return respondWithTooManyRequests(exchange);
         }
 
+        // ✅ Extract and validate JWT token
         return extractTokenFromRequest(request)
                 .map(token -> new UsernamePasswordAuthenticationToken(token, token))
                 .flatMap(firebaseAuthenticationManager::authenticate)
-                .flatMap(auth -> securityContextRepository.save(exchange, new SecurityContextImpl(auth))
-                        .then(chain.filter(exchange)))
+                .flatMap(auth -> {
+                    log.debug("✅ Authentication successful for IP: {} at {}", clientIp, now);
+                    meterRegistry.counter("auth.successes").increment();
+                    return securityContextRepository.save(exchange, new SecurityContextImpl(auth))
+                            .then(chain.filter(exchange));
+                })
                 .switchIfEmpty(chain.filter(exchange))
                 .onErrorResume(e -> {
                     meterRegistry.counter("auth.failures", "type", "processing").increment();
-                    log.error("Authentication failed for IP: {} at {}", clientIp, now, e);
+                    log.error("❌ Authentication failed for IP: {} at {}: {}", clientIp, now, e.getMessage());
                     return respondWithUnauthorized(exchange);
                 });
     }
@@ -167,7 +197,7 @@ public class FirebaseAuthFilter implements WebFilter {
        ========================= */
 
     /**
-     * Create IP-specific rate limiter
+     * Create IP-specific rate limiter based on path sensitivity
      */
     private Bucket createIpRateLimiter(String path) {
         int limit = isSensitivePath(path) ?
@@ -194,7 +224,7 @@ public class FirebaseAuthFilter implements WebFilter {
     }
 
     /**
-     * Cleanup old rate limiters (scheduled)
+     * Cleanup old rate limiters (scheduled hourly)
      */
     private void cleanupOldRateLimiters() {
         Instant now = clock.instant();
@@ -204,11 +234,12 @@ public class FirebaseAuthFilter implements WebFilter {
             boolean shouldRemove = entry.getValue().isBefore(threshold);
             if (shouldRemove) {
                 ipRateLimiters.remove(entry.getKey());
+                log.debug("Removed stale rate limiter for IP: {}", entry.getKey());
             }
             return shouldRemove;
         });
 
-        log.info("Rate limiter cleanup completed at {}. Current entries: {}",
+        log.info("🧹 Rate limiter cleanup completed at {}. Active IPs: {}",
                 now, ipRateLimiters.size());
     }
 
@@ -222,6 +253,10 @@ public class FirebaseAuthFilter implements WebFilter {
     private Mono<Void> respondWithTooManyRequests(ServerWebExchange exchange) {
         exchange.getResponse().setStatusCode(HttpStatus.TOO_MANY_REQUESTS);
         exchange.getResponse().getHeaders().set("X-RateLimit-Exceeded", clock.instant().toString());
+        exchange.getResponse().getHeaders().set(
+                "Retry-After",
+                String.valueOf(rateLimitProperties.getWindowMinutes() * 60)
+        );
         return exchange.getResponse().setComplete();
     }
 
@@ -231,6 +266,7 @@ public class FirebaseAuthFilter implements WebFilter {
     private Mono<Void> respondWithUnauthorized(ServerWebExchange exchange) {
         exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
         exchange.getResponse().getHeaders().set("X-Auth-Failed", clock.instant().toString());
+        exchange.getResponse().getHeaders().set("WWW-Authenticate", "Bearer");
         return exchange.getResponse().setComplete();
     }
 
@@ -239,45 +275,62 @@ public class FirebaseAuthFilter implements WebFilter {
        ========================= */
 
     /**
-     * Extract client IP address
+     * Extract client IP address (supports X-Forwarded-For)
      */
     private String getClientIp(ServerHttpRequest request) {
         String xff = request.getHeaders().getFirst("X-Forwarded-For");
-        return (xff != null && !xff.isEmpty()) ?
-                xff.split(",")[0].trim() :
-                request.getRemoteAddress() != null ?
-                        request.getRemoteAddress().getAddress().getHostAddress() :
-                        "unknown";
+        if (xff != null && !xff.isEmpty()) {
+            return xff.split(",")[0].trim();
+        }
+
+        if (request.getRemoteAddress() != null) {
+            return request.getRemoteAddress().getAddress().getHostAddress();
+        }
+
+        return "unknown";
     }
 
     /**
-     * Extract token from request
+     * Extract JWT token from Authorization header
      */
     private Mono<String> extractTokenFromRequest(ServerHttpRequest request) {
         return Mono.justOrEmpty(request.getHeaders().getFirst(HttpHeaders.AUTHORIZATION))
                 .filter(authHeader -> authHeader.startsWith("Bearer "))
-                .map(authHeader -> authHeader.substring(7).trim());
+                .map(authHeader -> authHeader.substring(7).trim())
+                .filter(token -> !token.isEmpty());
     }
 
     /**
-     * Check if path is public
+     * Check if path is public (supports exact and prefix matching)
      */
     private boolean isPublicPath(String path) {
-        return PUBLIC_PATHS.stream().anyMatch(publicPath ->
-                path.equals(publicPath) ||
-                        (publicPath.endsWith("/**") &&
-                                path.startsWith(publicPath.substring(0, publicPath.length() - 3)))
-        );
+        return PUBLIC_PATHS.stream().anyMatch(publicPath -> {
+            // Exact match
+            if (path.equals(publicPath)) {
+                return true;
+            }
+            // Prefix match (for paths ending with /)
+            if (publicPath.endsWith("/") && path.startsWith(publicPath)) {
+                return true;
+            }
+            return false;
+        });
     }
 
     /**
-     * Check if path is sensitive
+     * Check if path is sensitive (requires stricter rate limiting)
      */
     private boolean isSensitivePath(String path) {
-        return SENSITIVE_PATHS.stream().anyMatch(sensitivePath ->
-                path.equals(sensitivePath) ||
-                        (sensitivePath.endsWith("/**") &&
-                                path.startsWith(sensitivePath.substring(0, sensitivePath.length() - 3)))
-        );
+        return SENSITIVE_PATHS.stream().anyMatch(sensitivePath -> {
+            // Exact match
+            if (path.equals(sensitivePath)) {
+                return true;
+            }
+            // Prefix match (for paths ending with /)
+            if (sensitivePath.endsWith("/") && path.startsWith(sensitivePath)) {
+                return true;
+            }
+            return false;
+        });
     }
 }

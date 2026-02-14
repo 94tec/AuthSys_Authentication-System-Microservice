@@ -34,18 +34,32 @@ public class ForcePasswordChangeFilter implements WebFilter {
     private static final Logger logger = LoggerFactory.getLogger(ForcePasswordChangeFilter.class);
 
     private static final List<String> ALLOWED_PATHS = List.of(
-            "/change-password",
+            // Password change endpoints
             "/api/auth/change-password",
-            "/api/auth/first-time-setup/**",
+            "/api/auth/first-time-setup/",
+
+            // Swagger UI
+            "/swagger-ui.html",
+            "/swagger-ui/",
+            "/v3/api-docs",
+            "/webjars/",
+
+            // Authentication
+            "/api/auth/login",
             "/api/auth/logout",
-            "/login",
-            "/logout",
+            "/api/auth/verify-email",
+            "/api/auth/resend-verification",
+
+            // Static resources
             "/favicon.ico",
-            "/actuator/health",
-            "/static/**",
-            "/css/**",
-            "/js/**",
-            "/images/**"
+            "/static/",
+            "/css/",
+            "/js/",
+            "/images/",
+
+            // Health checks
+            "/actuator/",
+            "/health/"
     );
 
     private final Clock clock;

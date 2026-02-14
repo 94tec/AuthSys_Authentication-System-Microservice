@@ -41,21 +41,58 @@ public class SecurityConfig {
                 .httpBasic(ServerHttpSecurity.HttpBasicSpec::disable)
                 .formLogin(ServerHttpSecurity.FormLoginSpec::disable)
                 .authorizeExchange(exchange -> exchange
+                        // ✅ Swagger UI (order matters - most specific first)
                         .pathMatchers(
+                                "/swagger-ui.html",
                                 "/swagger-ui/**",
                                 "/v3/api-docs/**",
-                                "/api/super-admin/register",
-                                "/api/super-admin/login",
-                                "/api/auth/**",
-                                "/api/register",
+                                "/webjars/**"
+                        ).permitAll()
+
+                        // ✅ Health and actuator
+                        .pathMatchers("/actuator/**", "/health/**").permitAll()
+
+                        // ✅ Static resources
+                        .pathMatchers(
+                                "/favicon.ico",
+                                "/static/**",
+                                "/css/**",
+                                "/js/**",
+                                "/images/**"
+                        ).permitAll()
+
+                        // ✅ Public authentication endpoints
+                        .pathMatchers(
+                                "/api/auth/login",
+                                "/api/auth/register",
+                                "/api/auth/verify-email",
+                                "/api/auth/resend-verification",
+                                "/api/auth/check-email",
+                                "/api/auth/logout",
+                                "/api/auth/first-time-setup/**",
+                                "/api/auth/login-otp/**",
                                 "/api/otp/**",
                                 "/api/v1/password-reset/**"
                         ).permitAll()
+
+                        // ✅ Super Admin bootstrap (public)
+                        .pathMatchers(
+                                "/api/super-admin/register",
+                                "/api/super-admin/login"
+                        ).permitAll()
+
+                        // ✅ Role-based access (order matters - most restrictive first)
                         .pathMatchers("/api/super-admin/**").hasRole("SUPER_ADMIN")
-                        .pathMatchers("/api/tokens/**", "/api/logs/**").hasAnyRole("SUPER_ADMIN", "ADMIN")
-                        .pathMatchers("/api/manager/**").hasAnyRole("SUPER_ADMIN", "ADMIN", "MANAGER")
-                        .pathMatchers("/api/users/**").hasAnyRole("SUPER_ADMIN", "ADMIN", "USER")
-                        .pathMatchers("/api/admin/**").hasAnyRole("SUPER_ADMIN", "ADMIN")
+                        .pathMatchers("/api/tokens/**", "/api/logs/**")
+                        .hasAnyRole("SUPER_ADMIN", "ADMIN")
+                        .pathMatchers("/api/admin/**")
+                        .hasAnyRole("SUPER_ADMIN", "ADMIN")
+                        .pathMatchers("/api/manager/**")
+                        .hasAnyRole("SUPER_ADMIN", "ADMIN", "MANAGER")
+                        .pathMatchers("/api/users/**")
+                        .hasAnyRole("SUPER_ADMIN", "ADMIN", "USER")
+
+                        // ✅ All other endpoints require authentication
                         .anyExchange().authenticated()
                 )
                 .exceptionHandling(handling -> handling

@@ -1,6 +1,5 @@
 package com.techStack.authSys.controller.auth;
 
-import com.techStack.authSys.dto.internal.AuthResult;
 import com.techStack.authSys.dto.request.LoginRequest;
 import com.techStack.authSys.dto.request.UserRegistrationDTO;
 import com.techStack.authSys.dto.response.ApiResponse;
@@ -8,6 +7,14 @@ import com.techStack.authSys.dto.response.AuthResponse;
 import com.techStack.authSys.models.user.User;
 import com.techStack.authSys.service.auth.*;
 import com.techStack.authSys.util.validation.HelperUtils;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -28,13 +35,37 @@ import java.util.stream.Collectors;
 /**
  * Authentication Controller
  *
- * Handles user registration and authentication endpoints.
- * Uses Clock for timestamp tracking.
+ * Handles user registration, authentication, and session management.
+ * Supports first-time setup and OTP verification flows.
  */
 @Slf4j
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/auth")
+@Tag(
+        name = "Authentication",
+        description = """
+                User authentication and account management.
+                
+                **Features:**
+                - User registration with email verification
+                - Login with multiple flows (first-time, OTP, normal)
+                - Email verification and resend
+                - Session management and logout
+                - Account availability checks
+                
+                **Login Flows:**
+                1. **First-Time Login**: Password change + OTP verification required
+                2. **2FA Login**: OTP verification required for users with verified phone
+                3. **Normal Login**: Direct access for users without OTP
+                
+                **Security:**
+                - Email verification required before login
+                - Rate limiting on sensitive endpoints
+                - Device fingerprinting
+                - Session tracking
+                """
+)
 public class AuthController {
 
     /* =========================
@@ -46,18 +77,85 @@ public class AuthController {
     private final FirebaseServiceAuth firebaseServiceAuth;
     private final DeviceVerificationService deviceVerificationService;
     private final LogoutService logoutService;
-    private final LoginResponseBuilder loginResponseBuilder;
     private final Clock clock;
 
     /* =========================
        User Registration
        ========================= */
 
-    /**
-     * Register a new user
-     */
+    @Operation(
+            summary = "Register New User",
+            description = """
+                    Create a new user account.
+                    
+                    **Registration Process:**
+                    1. Submit registration form
+                    2. System creates account (status: PENDING_APPROVAL)
+                    3. Verification email sent
+                    4. User verifies email
+                    5. Account activated
+                    
+                    **Required Fields:**
+                    - Email (unique, valid format)
+                    - Password (min 8 chars, complexity rules)
+                    - First name
+                    - Last name
+                    - Phone number (E.164 format)
+                    
+                    **Password Requirements:**
+                    - Minimum 8 characters
+                    - At least one uppercase letter
+                    - At least one lowercase letter
+                    - At least one number
+                    - At least one special character
+                    
+                    **After Registration:**
+                    - Check email for verification link
+                    - Click link to verify email
+                    - Login at POST /api/auth/login
+                    """,
+            security = {}  // No authentication required
+    )
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "201",
+                    description = "User registered successfully",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = @ExampleObject(
+                                    value = """
+                                            {
+                                              "success": true,
+                                              "message": "Registration successful! Please check your email to verify your account.",
+                                              "data": {
+                                                "id": "user-123",
+                                                "email": "user@example.com",
+                                                "firstName": "John",
+                                                "lastName": "Doe",
+                                                "status": "PENDING_APPROVAL",
+                                                "emailVerified": false
+                                              }
+                                            }
+                                            """
+                            )
+                    )
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "400",
+                    description = "Invalid input or email already exists"
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "500",
+                    description = "Failed to send verification email"
+            )
+    })
     @PostMapping("/register")
     public Mono<ResponseEntity<ApiResponse<User>>> registerUser(
+            @Parameter(
+                    description = "User registration details",
+                    required = true,
+                    schema = @Schema(implementation = UserRegistrationDTO.class)
+            )
             @Valid @RequestBody UserRegistrationDTO userDto,
             ServerWebExchange exchange) {
 
@@ -83,19 +181,65 @@ public class AuthController {
                             .status(HttpStatus.CREATED)
                             .body(response);
                 });
-
-        // Error handling delegated to GlobalExceptionHandler
     }
 
     /* =========================
        Email Verification
        ========================= */
 
-    /**
-     * Resend verification email
-     */
+    @Operation(
+            summary = "Resend Verification Email",
+            description = """
+                    Resend email verification link.
+                    
+                    **Use Cases:**
+                    - Original email not received
+                    - Verification link expired (24 hours)
+                    - Email accidentally deleted
+                    
+                    **Rate Limiting:**
+                    - Maximum 3 requests per hour per email
+                    
+                    **After Receiving Email:**
+                    - Click verification link
+                    - Email automatically verified
+                    - Can now login
+                    """,
+            security = {}  // No authentication required
+    )
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "200",
+                    description = "Verification email sent",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = @ExampleObject(
+                                    value = """
+                                            {
+                                              "success": true,
+                                              "message": "Verification email sent successfully. Please check your inbox.",
+                                              "data": null
+                                            }
+                                            """
+                            )
+                    )
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "404",
+                    description = "Email not found"
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "429",
+                    description = "Too many requests"
+            )
+    })
     @PostMapping("/resend-verification")
     public Mono<ResponseEntity<ApiResponse<Void>>> resendVerificationEmail(
+            @Parameter(
+                    description = "Email address to resend verification to",
+                    required = true,
+                    example = "user@example.com"
+            )
             @RequestParam String email,
             ServerWebExchange exchange) {
 
@@ -118,15 +262,64 @@ public class AuthController {
                             null
                     ));
                 }));
-
-        // Error handling delegated to GlobalExceptionHandler
     }
 
-    /**
-     * Verify email address using token
-     */
+    @Operation(
+            summary = "Verify Email Address",
+            description = """
+                    Verify user email using verification token.
+                    
+                    **Process:**
+                    1. User clicks link in verification email
+                    2. Browser redirects to this endpoint with token
+                    3. Token validated and email marked as verified
+                    4. User redirected to login page
+                    
+                    **Token Properties:**
+                    - Single use only
+                    - Expires in 24 hours
+                    - Cannot be reused after verification
+                    
+                    **After Verification:**
+                    - Email verified successfully
+                    - Can login at POST /api/auth/login
+                    - Account fully activated
+                    """,
+            security = {}  // No authentication required
+    )
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "200",
+                    description = "Email verified successfully",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = @ExampleObject(
+                                    value = """
+                                            {
+                                              "success": true,
+                                              "message": "Email verified successfully. You can now log in.",
+                                              "data": null
+                                            }
+                                            """
+                            )
+                    )
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "400",
+                    description = "Invalid or expired token"
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "404",
+                    description = "User not found"
+            )
+    })
     @GetMapping("/verify-email")
     public Mono<ResponseEntity<ApiResponse<Object>>> verifyEmail(
+            @Parameter(
+                    description = "Email verification token",
+                    required = true,
+                    example = "eyJhbGciOiJIUzUxMiJ9..."
+            )
             @RequestParam("token") String token,
             ServerWebExchange exchange) {
 
@@ -147,33 +340,164 @@ public class AuthController {
                             null
                     ));
                 }));
-
-        // Error handling delegated to GlobalExceptionHandler
     }
 
     /* =========================
        User Login
        ========================= */
 
-    /**
-     * Authenticate user and return tokens
-     */
+    @Operation(
+            summary = "User Login",
+            description = """
+                    Authenticate user with email and password.
+                    
+                    **Login Flows:**
+                    
+                    **1. First-Time Login (New User):**
+                    - User has `forcePasswordChange = true`
+                    - Returns: `firstTimeLogin: true` + temporary token
+                    - Next: POST /api/auth/first-time-setup/change-password
+                    - Then: POST /api/auth/first-time-setup/verify-otp
+                    
+                    **2. Login with OTP (Returning User with 2FA):**
+                    - User has `phoneVerified = true`
+                    - Returns: `requiresOtp: true` + temporary token
+                    - OTP sent to registered phone
+                    - Next: POST /api/auth/login-otp/verify
+                    
+                    **3. Normal Login (No OTP):**
+                    - Phone not verified OR OTP disabled
+                    - Returns: Full access tokens immediately
+                    - Can access all authenticated endpoints
+                    
+                    **Response Handling:**
+```javascript
+                    if (response.firstTimeLogin) {
+                      // Redirect to first-time setup
+                      navigate('/first-time-setup');
+                    } else if (response.requiresOtp) {
+                      // Redirect to OTP verification
+                      navigate('/verify-otp');
+                    } else {
+                      // Login complete - save tokens
+                      saveTokens(response.accessToken, response.refreshToken);
+                      navigate('/dashboard');
+                    }
+```
+                    
+                    **Security:**
+                    - Rate limited: 10 attempts per 15 minutes
+                    - Account locks after 5 failed attempts
+                    - Device fingerprinting enabled
+                    - Session tracking active
+                    """,
+            security = {}  // No authentication required for login
+    )
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "200",
+                    description = "Login successful (normal flow)",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = AuthResponse.class),
+                            examples = @ExampleObject(
+                                    value = """
+                                            {
+                                              "success": true,
+                                              "message": "Login successful",
+                                              "accessToken": "eyJhbGciOiJIUzUxMiJ9...",
+                                              "refreshToken": "eyJhbGciOiJIUzUxMiJ9...",
+                                              "accessTokenExpiry": "2024-03-15T12:30:00Z",
+                                              "refreshTokenExpiry": "2024-03-22T12:00:00Z",
+                                              "userInfo": {
+                                                "userId": "user-123",
+                                                "email": "user@example.com",
+                                                "firstName": "John",
+                                                "lastName": "Doe",
+                                                "roles": ["USER"]
+                                              }
+                                            }
+                                            """
+                            )
+                    )
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "403",
+                    description = "First-time setup or OTP required",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = {
+                                    @ExampleObject(
+                                            name = "First-Time Setup Required",
+                                            value = """
+                                                    {
+                                                      "success": true,
+                                                      "message": "First-time login detected. Please change your password.",
+                                                      "data": {
+                                                        "firstTimeLogin": true,
+                                                        "requiresOtp": false,
+                                                        "temporaryToken": "eyJhbGc...",
+                                                        "userId": "user-123"
+                                                      }
+                                                    }
+                                                    """
+                                    ),
+                                    @ExampleObject(
+                                            name = "OTP Verification Required",
+                                            value = """
+                                                    {
+                                                      "success": true,
+                                                      "message": "OTP sent to your phone.",
+                                                      "data": {
+                                                        "firstTimeLogin": false,
+                                                        "requiresOtp": true,
+                                                        "temporaryToken": "eyJhbGc...",
+                                                        "userId": "user-123"
+                                                      }
+                                                    }
+                                                    """
+                                    )
+                            }
+                    )
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "401",
+                    description = "Invalid credentials"
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "403",
+                    description = "Email not verified or account disabled"
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "429",
+                    description = "Too many login attempts"
+            )
+    })
     @PostMapping("/login")
-    public Mono<ResponseEntity<AuthResponse>> login(
-            @Valid @RequestBody LoginRequest loginRequest,
-            @RequestHeader(value = "User-Agent", required = false) String userAgent,
-            ServerWebExchange exchange) {
+    public Mono<ResponseEntity<ApiResponse<Object>>> login(  // ✅ Fixed: use Object
+                                                             @Parameter(
+                                                                     description = "Login credentials",
+                                                                     required = true,
+                                                                     schema = @Schema(implementation = LoginRequest.class)
+                                                             )
+                                                             @Valid @RequestBody LoginRequest loginRequest,
+
+                                                             @Parameter(
+                                                                     description = "User agent string for device tracking",
+                                                                     example = "Mozilla/5.0..."
+                                                             )
+                                                             @RequestHeader(value = "User-Agent", required = false) String userAgent,
+
+                                                             ServerWebExchange exchange) {
 
         Instant loginTime = clock.instant();
-        // Step 1: Extract client IP
         String ipAddress = deviceVerificationService.extractClientIp(exchange);
-        // Step 2: Generate device fingerprint (single string)
         String deviceFingerprint = deviceVerificationService.generateDeviceFingerprint(
                 ipAddress, userAgent);
 
         log.info("Login attempt at {} for: {} from IP: {}",
                 loginTime, HelperUtils.maskEmail(loginRequest.getEmail()), ipAddress);
-        // Step 3: Authenticate user
+
         return authenticationOrchestrator.authenticate(
                         loginRequest.getEmail(),
                         loginRequest.getPassword(),
@@ -185,13 +509,11 @@ public class AuthController {
                         this,
                         Set.of()
                 )
-                // Step 4: Map AuthResult to AuthResponse
                 .map(authResult -> {
-                    // Convert Roles enum -> Set<String> for response
                     Set<String> roleNames = authResult.getUser().getRoles().stream()
                             .map(Enum::name)
                             .collect(Collectors.toSet());
-                    // Map AuthResult to AuthResponse
+
                     AuthResponse.UserInfo userInfo = AuthResponse.UserInfo.builder()
                             .userId(authResult.getUser().getId())
                             .email(authResult.getUser().getEmail())
@@ -202,36 +524,84 @@ public class AuthController {
                             .profilePictureUrl(authResult.getUser().getProfilePictureUrl())
                             .build();
 
-                    return AuthResponse.success(
+                    AuthResponse authResponse = AuthResponse.success(
                             authResult.getAccessToken(),
                             authResult.getRefreshToken(),
                             authResult.getAccessTokenExpiry(),
                             authResult.getRefreshTokenExpiry(),
                             userInfo,
-                            authResult.getPermissions()   // server-resolved Permissions list
+                            authResult.getPermissions()
+                    );
+
+                    // ✅ Fixed: cast to Object
+                    return ResponseEntity.ok(
+                            new ApiResponse<Object>(true, "Login successful", authResponse)
                     );
                 })
-                .map(ResponseEntity::ok)
                 .doOnSuccess(res -> {
                     Instant completionTime = clock.instant();
                     Duration duration = Duration.between(loginTime, completionTime);
-
                     log.info("✅ Login successful at {} in {} for: {}",
                             completionTime, duration, HelperUtils.maskEmail(loginRequest.getEmail()));
                 });
-
-        // Error handling delegated to GlobalExceptionHandler
     }
 
     /* =========================
        User Logout
        ========================= */
 
-    /**
-     * Logout user and invalidate session
-     */
+    @Operation(
+            summary = "Logout User",
+            description = """
+                    Invalidate current user session and tokens.
+                    
+                    **Process:**
+                    1. Extract JWT from Authorization header
+                    2. Add token to blacklist
+                    3. Clear device fingerprint
+                    4. Invalidate session
+                    
+                    **After Logout:**
+                    - Access token invalidated
+                    - Refresh token invalidated
+                    - Must login again to access system
+                    
+                    **Client Actions:**
+                    - Clear stored tokens
+                    - Redirect to login page
+                    - Clear any cached user data
+                    """,
+            security = @SecurityRequirement(name = "Bearer Authentication")
+    )
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "200",
+                    description = "Logout successful",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = @ExampleObject(
+                                    value = """
+                                            {
+                                              "success": true,
+                                              "message": "Logged out successfully",
+                                              "data": null
+                                            }
+                                            """
+                            )
+                    )
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "401",
+                    description = "Invalid or expired token"
+            )
+    })
     @PostMapping("/logout")
     public Mono<ResponseEntity<ApiResponse<Void>>> logout(
+            @Parameter(
+                    description = "JWT access token",
+                    required = true,
+                    example = "Bearer eyJhbGciOiJIUzUxMiJ9..."
+            )
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authHeader,
             WebRequest request) {
 
@@ -253,19 +623,72 @@ public class AuthController {
                             null
                     ));
                 }));
-
-        // Error handling delegated to GlobalExceptionHandler
     }
 
     /* =========================
        Email Availability
        ========================= */
 
-    /**
-     * Check if email is available for registration
-     */
+    @Operation(
+            summary = "Check Email Availability",
+            description = """
+                    Check if email address is available for registration.
+                    
+                    **Use Cases:**
+                    - Real-time validation during registration
+                    - Pre-registration checks
+                    - Form validation feedback
+                    
+                    **Returns:**
+                    - `true`: Email available for registration
+                    - `false`: Email already in use
+                    
+                    **No Authentication Required**
+                    """,
+            security = {}
+    )
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "200",
+                    description = "Email availability checked",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = {
+                                    @ExampleObject(
+                                            name = "Available",
+                                            value = """
+                                                    {
+                                                      "success": true,
+                                                      "message": "Email is available",
+                                                      "data": true
+                                                    }
+                                                    """
+                                    ),
+                                    @ExampleObject(
+                                            name = "Not Available",
+                                            value = """
+                                                    {
+                                                      "success": true,
+                                                      "message": "Email is already registered",
+                                                      "data": false
+                                                    }
+                                                    """
+                                    )
+                            }
+                    )
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "400",
+                    description = "Invalid email format"
+            )
+    })
     @GetMapping("/check-email")
     public Mono<ResponseEntity<ApiResponse<Boolean>>> checkEmailAvailability(
+            @Parameter(
+                    description = "Email address to check",
+                    required = true,
+                    example = "user@example.com"
+            )
             @RequestParam String email) {
 
         Instant checkTime = clock.instant();
@@ -279,64 +702,11 @@ public class AuthController {
                         available ? "Email is available" : "Email is already registered",
                         available
                 )));
-
-        // Error handling delegated to GlobalExceptionHandler
     }
 
     /* =========================
        Private Helper Methods
        ========================= */
-
-    /**
-     * Handle successful login by checking email verification status
-     */
-    private Mono<ResponseEntity<AuthResponse>> handleLoginResult(
-            AuthResult authResult,
-            String email,
-            String ipAddress,
-            String deviceFingerprint) {
-
-        // Check if email is verified
-        if (!authResult.getUser().isEmailVerified()) {
-            return handleUnverifiedEmail(authResult.getUser(), ipAddress);
-        }
-
-        // Build success response
-        return Mono.just(loginResponseBuilder.buildSuccessResponse(authResult));
-    }
-
-    /**
-     * Handle login attempt with unverified email
-     */
-    private Mono<ResponseEntity<AuthResponse>> handleUnverifiedEmail(User user, String ipAddress) {
-        Instant now = clock.instant();
-
-        log.warn("Login attempt at {} with unverified email: {}",
-                now, HelperUtils.maskEmail(user.getEmail()));
-
-        return authService.resendVerificationEmail(user.getEmail(), ipAddress)
-                .then(Mono.just(ResponseEntity
-                        .status(HttpStatus.FORBIDDEN)
-                        .body(AuthResponse.builder()
-                                .success(false)
-                                .message("Email not verified")
-                                .warning("Please verify your email address before logging in. " +
-                                        "A new verification link has been sent to your email.")
-                                .build())
-                ))
-                .onErrorResume(e -> {
-                    log.error("Failed to resend verification at {}: {}", now, e.getMessage());
-                    return Mono.just(ResponseEntity
-                            .status(HttpStatus.FORBIDDEN)
-                            .body(AuthResponse.builder()
-                                    .success(false)
-                                    .message("Email not verified")
-                                    .warning("Please verify your email address before logging in. " +
-                                            "Check your inbox for the verification link.")
-                                    .build())
-                    );
-                });
-    }
 
     /**
      * Extract client IP from WebRequest
