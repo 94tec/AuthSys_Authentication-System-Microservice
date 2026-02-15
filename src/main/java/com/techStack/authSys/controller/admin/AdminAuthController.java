@@ -344,7 +344,7 @@ public class AdminAuthController {
             )
     })
     @PostMapping("/login")
-    public Mono<ResponseEntity<ApiResponse<Object>>> login(  // ✅ Fixed: use Object instead of ?
+    public Mono<ResponseEntity<ApiResponse<AuthResponse>>> login(  // ✅ Fixed: use Object instead of ?
                                                              @Parameter(
                                                                      description = "Login credentials",
                                                                      required = true,
@@ -407,10 +407,8 @@ public class AdminAuthController {
                             userInfo,
                             permissions
                     );
-
-                    // ✅ Fixed: cast to Object instead of wildcard
                     return ResponseEntity.ok(
-                            new ApiResponse<Object>(true, "Login successful", authResponse)
+                            new ApiResponse<>(true, "Login successful", authResponse)
                     );
                 })
                 .doOnSuccess(res -> {

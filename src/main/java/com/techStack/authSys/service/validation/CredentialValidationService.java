@@ -132,7 +132,7 @@ public class CredentialValidationService {
         log.debug("Validating credentials at {} for: {}",
                 credentialCheckStart, HelperUtils.maskEmail(email));
 
-        return firebaseAuthValidator.validateCredentials(email, password)
+        return firebaseServiceAuth.validateCredentials(email, password)
                 .doOnSuccess(v -> {
                     Instant credentialCheckEnd = clock.instant();
                     Duration duration = Duration.between(credentialCheckStart, credentialCheckEnd);

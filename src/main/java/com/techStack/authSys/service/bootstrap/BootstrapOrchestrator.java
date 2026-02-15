@@ -31,7 +31,7 @@ public class BootstrapOrchestrator implements CommandLineRunner {
     private final BootstrapStateService stateService;
     private final TransactionalBootstrapService transactionalService;
     private final MetricsService metricsService;
-    private final AppConfigProperties appConfig;
+    private final AppConfigProperties appConfigProperties;
     private final Clock clock;
 
     private static final Duration BOOTSTRAP_TIMEOUT = Duration.ofMinutes(10);
@@ -48,7 +48,7 @@ public class BootstrapOrchestrator implements CommandLineRunner {
         log.info("🚀 Initiating Super Admin bootstrap check at {}", startTime);
 
         // Validate configuration FIRST — fail immediately on bad config
-        if (!validationService.validateBootstrapConfig(appConfig)) {
+        if (!validationService.validateBootstrapConfig(appConfigProperties)) {
             String msg = "Bootstrap configuration validation failed — check email and phone settings";
             log.error("❌ {}", msg);
             metricsService.incrementCounter("bootstrap.config.invalid");
@@ -155,8 +155,8 @@ public class BootstrapOrchestrator implements CommandLineRunner {
 
                     log.info("🔐 Creating Super Admin at {}", now);
                     return transactionalService.createSuperAdminTransactionally(
-                            appConfig.getSuperAdminEmail(),
-                            appConfig.getSuperAdminPhone());
+                            appConfigProperties.getSuperAdminEmail(),
+                            appConfigProperties.getSuperAdminPhone());
                 })
                 .onErrorResume(e -> Mono.error(new BootstrapInitializationException(
                         "Bootstrap process failed: " + e.getMessage(),

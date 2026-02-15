@@ -1,124 +1,204 @@
 package com.techStack.authSys.service.auth;
 
+import com.techStack.authSys.config.core.LoginOtpProperties;
+import com.techStack.authSys.dto.internal.AuthResult;
 import com.techStack.authSys.dto.response.LoginResponse;
+import com.techStack.authSys.exception.auth.AuthException;
+import com.techStack.authSys.exception.auth.FirstTimeSetupRequiredException;
+import com.techStack.authSys.exception.auth.OtpVerificationRequiredException;
+import com.techStack.authSys.exception.data.NetworkException;
+import com.techStack.authSys.exception.auth.TransientAuthenticationException;
+import com.techStack.authSys.models.authorization.Permissions;
 import com.techStack.authSys.models.user.User;
+import com.techStack.authSys.repository.security.RateLimiterService;
 import com.techStack.authSys.service.token.JwtService;
+import com.techStack.authSys.service.token.TokenGenerationService;
+import com.techStack.authSys.service.validation.CredentialValidationService;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
+import reactor.util.retry.Retry;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.Set;
+
+import static com.techStack.authSys.constants.SecurityConstants.*;
 
 /**
- * Complete Authentication Service
+ * Unified Authentication Service
  *
- * Unified authentication flow handling ALL cases:
- * 1. First-time login (forcePasswordChange = true)
- * 2. Login with 2FA/OTP (phoneVerified = true, loginOtpEnabled = true)
- * 3. Normal login (backward compatibility)
+ * Complete authentication flow handling ALL cases with rate limiting,
+ * monitoring, and proper error handling.
  *
  * Priority Order:
  * 1. FIRST-TIME SETUP (highest priority)
  *    - User has forcePasswordChange = true
  *    - Returns temporary token for password change
- *    - Must complete setup before anything else
  *
  * 2. LOGIN OTP (2FA)
  *    - User has phoneVerified = true
  *    - Login OTP enabled in configuration
  *    - Returns temporary token + sends OTP
- *    - Must verify OTP to get full access
  *
  * 3. NORMAL LOGIN (backward compatibility)
  *    - Phone not verified OR OTP disabled
  *    - Returns full access tokens immediately
- *    - Legacy flow for existing users
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class AuthenticationService {
 
-    private final FirebaseServiceAuth firebaseServiceAuth;
+    private final RateLimiterService rateLimiterService;
+    private final CredentialValidationService credentialValidationService;
+    private final TokenGenerationService tokenGenerationService;
+    private final AuthenticationEventService authEventService;
     private final JwtService jwtService;
     private final LoginOtpService loginOtpService;
+    private final MeterRegistry meterRegistry;
     private final Clock clock;
 
-    /**
-     * -- GETTER --
-     *  Check if login OTP is enabled.
-     */
-    @Getter
-    @Value("${auth.login-otp.enabled:true}")
-    private boolean loginOtpEnabled;
+    private final LoginOtpProperties loginOtpProperties;
 
     /* =========================
-       Main Login Method
+       Main Login Methods
        ========================= */
 
     /**
-     * Complete login flow with all variants.
-     *
-     * @param email User email
-     * @param password User password
-     * @return LoginResponse (various states)
+     * Complete login flow returning AuthResult (internal use).
      */
-    public Mono<LoginResponse> login(String email, String password) {
-        Instant now = clock.instant();
+    public Mono<AuthResult> authenticate(
+            String email,
+            String password,
+            String ipAddress,
+            Instant timestamp,
+            String deviceFingerprint,
+            String userAgent,
+            String reason,
+            Object source,
+            Set<Permissions> permissions) {
 
-        log.info("🔐 Login attempt for: {} at {}", email, now);
+        Timer.Sample timer = Timer.start(meterRegistry);
 
-        return firebaseServiceAuth.validateCredentials(email, password)
-                .then(firebaseServiceAuth.findByEmail(email))
-                .flatMap(user -> {
-                    // PRIORITY 1: First-time user → password change required
-                    if (user.isForcePasswordChange()) {
-                        log.warn("⚠️ First-time login detected for: {} at {}", email, now);
-                        return handleFirstTimeLogin(user);
-                    }
-
-                    // PRIORITY 2: Phone verified + OTP enabled → send login OTP
-                    if (user.isPhoneVerified() && loginOtpEnabled) {
-                        log.info("📱 Sending login OTP for: {} at {}", email, now);
-                        return handleLoginOtp(user);
-                    }
-
-                    // PRIORITY 3: Phone not verified OR OTP disabled → full access
-                    log.info("✅ Direct login (no OTP) for: {} at {}", email, now);
-                    return generateFullAccessTokens(user);
+        return Mono.defer(() ->
+                        performAuthentication(email, password, ipAddress, deviceFingerprint, userAgent, permissions)
+                )
+                .doOnSuccess(authResult -> {
+                    timer.stop(meterRegistry.timer("auth.success"));
+                    authEventService.handleSuccessfulAuthentication(
+                            authResult, ipAddress, timestamp, deviceFingerprint, userAgent);
                 })
+                .doOnError(e -> {
+                    timer.stop(meterRegistry.timer("auth.failure"));
+                    authEventService.handleFailedAuthentication(
+                            email, source, timestamp, ipAddress, deviceFingerprint, reason, e);
+                })
+                .onErrorResume(this::normalizeAuthException);
+    }
+
+    /**
+     * Simplified login for REST API returning LoginResponse.
+     */
+    public Mono<LoginResponse> login(
+            String email,
+            String password,
+            String ipAddress,
+            String deviceFingerprint,
+            String userAgent) {
+
+        Instant now = clock.instant();
+        log.info("🔐 Login attempt for: {} at {} from IP: {}",
+                maskEmail(email), now, ipAddress);
+
+        return rateLimiterService.checkAuthRateLimit(ipAddress, email)
+                .then(credentialValidationService.validateAndFetchUser(email, password))
+                .flatMap(user -> determineLoginFlow(user))
+                .timeout(AUTH_TIMEOUT)
+                .retryWhen(buildRetryPolicy())
                 .doOnSuccess(response ->
-                        log.info("✅ Login processed for {} at {}: firstTime={}, requiresOtp={}",
-                                email, clock.instant(),
-                                response.firstTimeLogin(),
-                                response.requiresOtp()))
+                        log.info("✅ Login processed for {}: firstTime={}, requiresOtp={}",
+                                maskEmail(email), response.firstTimeLogin(), response.requiresOtp()))
                 .doOnError(e ->
-                        log.error("❌ Login failed for {} at {}: {}",
-                                email, clock.instant(), e.getMessage()));
+                        log.error("❌ Login failed for {}: {}", maskEmail(email), e.getMessage()));
     }
 
     /* =========================
-       Handler Methods
+       Core Authentication Flow
        ========================= */
 
     /**
-     * Handle first-time login.
-     * Returns temporary token for password change + OTP verification.
+     * Perform authentication with rate limiting and validation.
      */
-    private Mono<LoginResponse> handleFirstTimeLogin(User user) {
-        Instant now = clock.instant();
+    private Mono<AuthResult> performAuthentication(
+            String email,
+            String password,
+            String ipAddress,
+            String deviceFingerprint,
+            String userAgent,
+            Set<Permissions> permissions) {
 
-        log.info("🔑 Initiating first-time login flow for: {} at {}",
-                user.getEmail(), now);
+        return rateLimiterService.checkAuthRateLimit(ipAddress, email)
+                .then(credentialValidationService.validateAndFetchUser(email, password))
+                .flatMap(user -> {
+                    // PRIORITY 1: First-time user → password change required
+                    if (user.isForcePasswordChange()) {
+                        log.warn("⚠️ First-time login detected for: {}", email);
+                        return handleFirstTimeSetupRequired(user);
+                    }
 
-        // Generate temporary token (FIRST_TIME_SETUP scope, 30 min expiry)
+                    // PRIORITY 2: Phone verified + OTP enabled → send login OTP
+                    if (user.isPhoneVerified() && loginOtpProperties.isEnabled()) {
+                        log.info("📱 Login OTP required for: {}", email);
+                        return handleLoginOtpRequired(user);
+                    }
+
+                    // PRIORITY 3: Normal login
+                    log.info("✅ Normal login for: {}", email);
+                    return tokenGenerationService.generateAndPersistTokens(
+                            user, ipAddress, deviceFingerprint, userAgent, permissions);
+                });
+    }
+
+    /**
+     * Determine login flow for REST API (no permissions needed).
+     */
+    private Mono<LoginResponse> determineLoginFlow(User user) {
+        // PRIORITY 1: First-time user
+        if (user.isForcePasswordChange()) {
+            return handleFirstTimeLoginResponse(user);
+        }
+
+        // PRIORITY 2: Login OTP required
+        if (user.isPhoneVerified() && loginOtpProperties.isEnabled()) {
+            return handleLoginOtpResponse(user);
+        }
+
+        // PRIORITY 3: Normal login
+        return generateFullAccessTokens(user);
+    }
+
+    /* =========================
+       First-Time Setup Handlers
+       ========================= */
+
+    private Mono<AuthResult> handleFirstTimeSetupRequired(User user) {
         String tempToken = jwtService.generateTemporaryToken(user.getId());
+        return Mono.error(new FirstTimeSetupRequiredException(
+                user.getId(),
+                tempToken,
+                "First-time login detected. Please change your password to continue."
+        ));
+    }
 
-        // Note: OTP is NOT sent at login — only after password change
+    private Mono<LoginResponse> handleFirstTimeLoginResponse(User user) {
+        String tempToken = jwtService.generateTemporaryToken(user.getId());
         return Mono.just(LoginResponse.firstTimeLogin(
                 tempToken,
                 user.getId(),
@@ -126,22 +206,33 @@ public class AuthenticationService {
         ));
     }
 
-    /**
-     * Handle login OTP (2FA).
-     * Sends OTP and returns temporary token for verification.
-     */
-    private Mono<LoginResponse> handleLoginOtp(User user) {
-        Instant now = clock.instant();
+    /* =========================
+       Login OTP Handlers
+       ========================= */
 
-        log.info("📱 Initiating login OTP flow for: {} at {}",
-                user.getEmail(), now);
+    private Mono<AuthResult> handleLoginOtpRequired(User user) {
+        return loginOtpService.generateAndSendLoginOtp(user)
+                .flatMap(otpResponse -> {
+                    if (otpResponse.rateLimited()) {
+                        return Mono.error(new AuthException(
+                                otpResponse.message(),
+                                HttpStatus.TOO_MANY_REQUESTS
+                        ));
+                    }
+                    return Mono.error(new OtpVerificationRequiredException(
+                            user.getId(),
+                            otpResponse.temporaryToken(),
+                            otpResponse.message()
+                    ));
+                });
+    }
 
+    private Mono<LoginResponse> handleLoginOtpResponse(User user) {
         return loginOtpService.generateAndSendLoginOtp(user)
                 .map(otpResponse -> {
                     if (otpResponse.rateLimited()) {
                         return LoginResponse.rateLimited(otpResponse.message());
                     }
-
                     return LoginResponse.loginOtpRequired(
                             otpResponse.temporaryToken(),
                             user.getId(),
@@ -150,10 +241,10 @@ public class AuthenticationService {
                 });
     }
 
-    /**
-     * Generate full access tokens.
-     * Normal login complete — no additional steps required.
-     */
+    /* =========================
+       Normal Login Handlers
+       ========================= */
+
     private Mono<LoginResponse> generateFullAccessTokens(User user) {
         String accessToken = jwtService.generateAccessToken(user);
         String refreshToken = jwtService.generateRefreshToken(user.getId());
@@ -167,22 +258,50 @@ public class AuthenticationService {
     }
 
     /* =========================
+       Utility Methods
+       ========================= */
+
+    private Retry buildRetryPolicy() {
+        return Retry.backoff(MAX_RETRY_ATTEMPTS, RETRY_BACKOFF)
+                .filter(this::isRetryableException)
+                .onRetryExhaustedThrow((spec, signal) ->
+                        new AuthException(
+                                "Authentication service unavailable",
+                                HttpStatus.SERVICE_UNAVAILABLE
+                        ));
+    }
+
+    private boolean isRetryableException(Throwable throwable) {
+        return throwable instanceof TransientAuthenticationException ||
+                throwable instanceof NetworkException;
+    }
+
+    private <T> Mono<T> normalizeAuthException(Throwable e) {
+        if (e instanceof AuthException) {
+            return Mono.error(e);
+        }
+        log.error("Unexpected authentication error: {}", e.getMessage(), e);
+        return Mono.error(new AuthException(
+                "Authentication failed. Please try again.",
+                HttpStatus.UNAUTHORIZED
+        ));
+    }
+
+    private String maskEmail(String email) {
+        if (email == null || !email.contains("@")) return email;
+        String[] parts = email.split("@");
+        if (parts[0].length() <= 2) return "***@" + parts[1];
+        return parts[0].substring(0, 2) + "***@" + parts[1];
+    }
+
+    /* =========================
        Logout
        ========================= */
 
-    /**
-     * Logout user (invalidate tokens).
-     * TODO: Implement token blacklisting if needed.
-     */
     public Mono<Void> logout(String userId) {
         Instant now = clock.instant();
         log.info("🚪 User logged out: {} at {}", userId, now);
         // TODO: Add token to blacklist if implementing token revocation
         return Mono.empty();
     }
-
-    /* =========================
-       Configuration Checks
-       ========================= */
-
 }

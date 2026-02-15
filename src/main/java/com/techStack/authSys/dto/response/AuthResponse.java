@@ -31,7 +31,7 @@ public class AuthResponse {
 
     private Instant accessTokenExpiry;
     private Instant refreshTokenExpiry;
-    private UserInfo user;
+    private UserInfo userInfo;
     private List<Permissions> permissions;
 
     @Builder.Default
@@ -69,17 +69,17 @@ public class AuthResponse {
             String refreshToken,
             Instant accessTokenExpiry,
             Instant refreshTokenExpiry,
-            UserInfo user,
+            UserInfo userInfo,
             List<Permissions> permissions) {
 
         return AuthResponse.builder()
-                .success(true)  // ✅ FIXED: Added this line
+                .success(true)
                 .accessToken(accessToken)
                 .refreshToken(refreshToken)
-                .tokenType("Bearer")  // ✅ Explicit setting
+                .tokenType("Bearer")
                 .accessTokenExpiry(accessTokenExpiry)
                 .refreshTokenExpiry(refreshTokenExpiry)
-                .user(user)
+                .userInfo(userInfo)
                 .permissions(permissions)
                 .message("Authentication successful")
                 .timestamp(new Date())

@@ -73,6 +73,7 @@ public class AuthController {
        ========================= */
 
     private final AuthService authService;
+    //private final AuthenticationService authenticationOrchestrator;
     private final AuthenticationOrchestrator authenticationOrchestrator;
     private final FirebaseServiceAuth firebaseServiceAuth;
     private final DeviceVerificationService deviceVerificationService;
@@ -474,7 +475,7 @@ public class AuthController {
             )
     })
     @PostMapping("/login")
-    public Mono<ResponseEntity<ApiResponse<Object>>> login(  // ✅ Fixed: use Object
+    public Mono<ResponseEntity<ApiResponse<AuthResponse>>> login(
                                                              @Parameter(
                                                                      description = "Login credentials",
                                                                      required = true,
@@ -533,9 +534,8 @@ public class AuthController {
                             authResult.getPermissions()
                     );
 
-                    // ✅ Fixed: cast to Object
                     return ResponseEntity.ok(
-                            new ApiResponse<Object>(true, "Login successful", authResponse)
+                            new ApiResponse<>(true, "Login successful", authResponse)
                     );
                 })
                 .doOnSuccess(res -> {
