@@ -10,11 +10,20 @@ import com.techStack.authSys.models.user.UserStatus;
 import com.techStack.authSys.security.context.SecurityContextService;
 import com.techStack.authSys.service.auth.FirebaseServiceAuth;
 import com.techStack.authSys.service.authorization.RoleAssignmentService;
-import com.techStack.authSys.service.user.AdminManagementService;
 import com.techStack.authSys.service.user.UserApprovalService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
@@ -32,12 +41,23 @@ import java.util.stream.Collectors;
  * User Approval Controller
  *
  * Handles user approval workflows with hierarchical authority validation.
- * Uses Clock for timestamp tracking.
+ * Supports role-based access control for SUPER_ADMIN, ADMIN, and MANAGER roles.
+ * Uses Clock for deterministic timestamp tracking.
+ *
+ * @version 1.0
+ * @since 2026-02-14
  */
 @Slf4j
 @RestController
 @RequestMapping("/api/admin/users")
 @RequiredArgsConstructor
+@Tag(
+        name = "User Approval Management",
+        description = "APIs for managing user approval workflows with hierarchical authority validation. " +
+                "Supports pending user review, approval/rejection operations, and approval statistics. " +
+                "Requires SUPER_ADMIN, ADMIN, or MANAGER role."
+)
+@SecurityRequirement(name = "Bearer Authentication")
 public class UserApprovalController {
 
     /* =========================
@@ -57,9 +77,84 @@ public class UserApprovalController {
     /**
      * Get pending users with comprehensive approval context
      */
-    @GetMapping("/pending")
+    @GetMapping(value = "/pending", produces = MediaType.APPLICATION_JSON_VALUE)
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
-    public Flux<PendingUserResponse> getPendingUsersWithApprovalContext(Authentication authentication) {
+    @Operation(
+            summary = "Get pending users",
+            description = "Retrieves all users pending approval with comprehensive context including " +
+                    "approval authority validation. Returns whether the current user can approve " +
+                    "each pending user based on role hierarchy.",
+            tags = {"User Approval Management"}
+    )
+    @ApiResponses(value = {
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Successfully retrieved pending users",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = PendingUserResponse.class),
+                            examples = @ExampleObject(
+                                    name = "Pending users response",
+                                    value = """
+                        [
+                          {
+                            "id": "user-123",
+                            "email": "john.doe@example.com",
+                            "firstName": "John",
+                            "lastName": "Doe",
+                            "roles": ["USER", "MANAGER"],
+                            "status": "PENDING_APPROVAL",
+                            "approvalLevel": "PENDING_L1",
+                            "createdAt": "2026-02-14T10:00:00Z",
+                            "department": "Engineering",
+                            "canApprove": true,
+                            "requesterContext": {
+                              "requesterEmail": "admin@example.com",
+                              "requesterRole": "ADMIN",
+                              "timestamp": "2026-02-14T10:15:00Z"
+                            }
+                          }
+                        ]
+                        """
+                            )
+                    )
+            ),
+            @ApiResponse(
+                    responseCode = "401",
+                    description = "Unauthorized - Invalid or missing authentication token",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = @ExampleObject(
+                                    value = """
+                        {
+                          "success": false,
+                          "message": "Unauthorized access",
+                          "errorCode": "UNAUTHORIZED"
+                        }
+                        """
+                            )
+                    )
+            ),
+            @ApiResponse(
+                    responseCode = "403",
+                    description = "Forbidden - User lacks required role (SUPER_ADMIN, ADMIN, or MANAGER)",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = @ExampleObject(
+                                    value = """
+                        {
+                          "success": false,
+                          "message": "Access denied",
+                          "errorCode": "FORBIDDEN"
+                        }
+                        """
+                            )
+                    )
+            )
+    })
+    public Flux<PendingUserResponse> getPendingUsersWithApprovalContext(
+            @Parameter(hidden = true) Authentication authentication) {
+
         Instant requestTime = clock.instant();
 
         return securityContextService.getCurrentSecurityContext(authentication)
@@ -116,11 +211,100 @@ public class UserApprovalController {
     /**
      * Approve a pending user with hierarchical authority validation
      */
-    @PostMapping("/{userId}/approve")
+    @PostMapping(value = "/{userId}/approve", produces = MediaType.APPLICATION_JSON_VALUE)
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @Operation(
+            summary = "Approve pending user",
+            description = "Approves a user account with hierarchical authority validation. " +
+                    "The approver must have sufficient authority based on role hierarchy:\n" +
+                    "- SUPER_ADMIN can approve any user\n" +
+                    "- ADMIN can approve MANAGER and USER roles\n" +
+                    "- MANAGER can approve USER roles only\n\n" +
+                    "Upon successful approval, the user account is activated and granted access.",
+            tags = {"User Approval Management"}
+    )
+    @ApiResponses(value = {
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "User approved successfully",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = @ExampleObject(
+                                    name = "Approval success",
+                                    value = """
+                        {
+                          "success": true,
+                          "message": "User approved successfully",
+                          "data": {
+                            "userId": "user-123",
+                            "email": "john.doe@example.com",
+                            "status": "ACTIVE",
+                            "enabled": true,
+                            "roles": ["USER", "MANAGER"],
+                            "permissions": ["READ", "WRITE"],
+                            "approvedBy": "admin@example.com",
+                            "approvedAt": "2026-02-14T10:30:00Z"
+                          }
+                        }
+                        """
+                            )
+                    )
+            ),
+            @ApiResponse(
+                    responseCode = "400",
+                    description = "Bad Request - User cannot be approved (already approved, rejected, or invalid state)",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = @ExampleObject(
+                                    value = """
+                        {
+                          "success": false,
+                          "message": "User is already approved"
+                        }
+                        """
+                            )
+                    )
+            ),
+            @ApiResponse(
+                    responseCode = "403",
+                    description = "Forbidden - Insufficient authority to approve this user",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = @ExampleObject(
+                                    value = """
+                        {
+                          "success": false,
+                          "message": "Insufficient authority to approve this user",
+                          "details": "MANAGER cannot approve ADMIN role"
+                        }
+                        """
+                            )
+                    )
+            ),
+            @ApiResponse(
+                    responseCode = "404",
+                    description = "User not found",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = @ExampleObject(
+                                    value = """
+                        {
+                          "success": false,
+                          "message": "User not found"
+                        }
+                        """
+                            )
+                    )
+            )
+    })
     public Mono<ResponseEntity<Map<String, Object>>> approveUser(
+            @Parameter(
+                    description = "ID of the user to approve",
+                    required = true,
+                    example = "user-123"
+            )
             @PathVariable String userId,
-            Authentication authentication) {
+            @Parameter(hidden = true) Authentication authentication) {
 
         Instant approvalTime = clock.instant();
         String approverEmail = authentication.getName();
@@ -190,12 +374,98 @@ public class UserApprovalController {
     /**
      * Reject a pending user with reason tracking
      */
-    @PostMapping("/{userId}/reject")
+    @PostMapping(value = "/{userId}/reject",
+            consumes = MediaType.APPLICATION_JSON_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE)
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @Operation(
+            summary = "Reject pending user",
+            description = "Rejects a pending user account and removes them from the system. " +
+                    "Requires hierarchical authority similar to approval. " +
+                    "A rejection reason must be provided for audit purposes. " +
+                    "The user will be permanently removed from the database.",
+            tags = {"User Approval Management"}
+    )
+    @ApiResponses(value = {
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "User rejected successfully",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = @ExampleObject(
+                                    name = "Rejection success",
+                                    value = """
+                        {
+                          "success": true,
+                          "message": "User rejected and removed from system",
+                          "data": {
+                            "userId": "user-123",
+                            "rejectedBy": "admin@example.com",
+                            "rejectedAt": "2026-02-14T10:45:00Z",
+                            "reason": "Incomplete documentation"
+                          }
+                        }
+                        """
+                            )
+                    )
+            ),
+            @ApiResponse(
+                    responseCode = "400",
+                    description = "Bad Request - User cannot be rejected (invalid state)",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = @ExampleObject(
+                                    value = """
+                        {
+                          "success": false,
+                          "message": "User is already active and cannot be rejected"
+                        }
+                        """
+                            )
+                    )
+            ),
+            @ApiResponse(
+                    responseCode = "403",
+                    description = "Forbidden - Insufficient authority to reject this user",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = @ExampleObject(
+                                    value = """
+                        {
+                          "success": false,
+                          "message": "Insufficient authority to reject this user",
+                          "details": "MANAGER cannot reject ADMIN role"
+                        }
+                        """
+                            )
+                    )
+            )
+    })
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(
+            description = "Rejection details",
+            required = true,
+            content = @Content(
+                    mediaType = "application/json",
+                    schema = @Schema(implementation = Map.class),
+                    examples = @ExampleObject(
+                            name = "Rejection request",
+                            value = """
+                    {
+                      "reason": "Incomplete documentation provided"
+                    }
+                    """
+                    )
+            )
+    )
     public Mono<ResponseEntity<Map<String, Object>>> rejectUser(
+            @Parameter(
+                    description = "ID of the user to reject",
+                    required = true,
+                    example = "user-123"
+            )
             @PathVariable String userId,
             @RequestBody Map<String, String> request,
-            Authentication authentication) {
+            @Parameter(hidden = true) Authentication authentication) {
 
         Instant rejectionTime = clock.instant();
         String rejectorEmail = authentication.getName();
@@ -259,11 +529,61 @@ public class UserApprovalController {
     /**
      * Get user details by ID
      */
-    @GetMapping("/{userId}")
+    @GetMapping(value = "/{userId}", produces = MediaType.APPLICATION_JSON_VALUE)
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @Operation(
+            summary = "Get user details",
+            description = "Retrieves detailed information about a specific user by ID. " +
+                    "Includes approval status, roles, permissions, and whether the current user " +
+                    "has authority to approve this user.",
+            tags = {"User Approval Management"}
+    )
+    @ApiResponses(value = {
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "User details retrieved successfully",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = @ExampleObject(
+                                    name = "User details response",
+                                    value = """
+                        {
+                          "success": true,
+                          "data": {
+                            "id": "user-123",
+                            "email": "john.doe@example.com",
+                            "firstName": "John",
+                            "lastName": "Doe",
+                            "roles": ["USER", "MANAGER"],
+                            "status": "ACTIVE",
+                            "enabled": true,
+                            "approvalLevel": "Approved",
+                            "createdAt": "2026-02-14T10:00:00Z",
+                            "approvedAt": "2026-02-14T10:30:00Z",
+                            "approvedBy": "admin@example.com",
+                            "department": "Engineering",
+                            "canApprove": false
+                          },
+                          "timestamp": "2026-02-14T11:00:00Z"
+                        }
+                        """
+                            )
+                    )
+            ),
+            @ApiResponse(
+                    responseCode = "404",
+                    description = "User not found",
+                    content = @Content(mediaType = "application/json")
+            )
+    })
     public Mono<ResponseEntity<Map<String, Object>>> getUserById(
+            @Parameter(
+                    description = "ID of the user to retrieve",
+                    required = true,
+                    example = "user-123"
+            )
             @PathVariable String userId,
-            Authentication authentication) {
+            @Parameter(hidden = true) Authentication authentication) {
 
         Instant requestTime = clock.instant();
 
@@ -314,11 +634,59 @@ public class UserApprovalController {
     /**
      * Get all users with optional status filter
      */
-    @GetMapping
+    @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @Operation(
+            summary = "Get all users",
+            description = "Retrieves all users with optional status filtering. " +
+                    "Returns basic user information including ID, email, name, roles, and status. " +
+                    "Use the status query parameter to filter by user status.",
+            tags = {"User Approval Management"}
+    )
+    @ApiResponses(value = {
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Users retrieved successfully",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = @ExampleObject(
+                                    name = "All users response",
+                                    value = """
+                        [
+                          {
+                            "id": "user-123",
+                            "email": "john.doe@example.com",
+                            "firstName": "John",
+                            "lastName": "Doe",
+                            "roles": ["USER"],
+                            "status": "ACTIVE",
+                            "enabled": true,
+                            "createdAt": "2026-02-14T10:00:00Z"
+                          },
+                          {
+                            "id": "user-456",
+                            "email": "jane.smith@example.com",
+                            "firstName": "Jane",
+                            "lastName": "Smith",
+                            "roles": ["USER", "MANAGER"],
+                            "status": "PENDING_APPROVAL",
+                            "enabled": false,
+                            "createdAt": "2026-02-14T11:00:00Z"
+                          }
+                        ]
+                        """
+                            )
+                    )
+            )
+    })
     public Flux<Map<String, Object>> getAllUsers(
+            @Parameter(
+                    description = "Filter users by status (PENDING_APPROVAL, ACTIVE, LOCKED, REJECTED, DEACTIVATED)",
+                    required = false,
+                    example = "ACTIVE"
+            )
             @RequestParam(required = false) String status,
-            Authentication authentication) {
+            @Parameter(hidden = true) Authentication authentication) {
 
         Instant requestTime = clock.instant();
         Roles approverRole = roleAssignmentService.extractHighestRole(authentication);
@@ -359,8 +727,54 @@ public class UserApprovalController {
     /**
      * Get approval statistics
      */
-    @GetMapping("/stats")
+    @GetMapping(value = "/stats", produces = MediaType.APPLICATION_JSON_VALUE)
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'MANAGER')")
+    @Operation(
+            summary = "Get approval statistics",
+            description = "Retrieves statistics about user approvals including pending and active user counts. " +
+                    "Provides a summary of pending users with their email, roles, and creation date. " +
+                    "Useful for monitoring approval queue and system activity.",
+            tags = {"User Approval Management"}
+    )
+    @ApiResponses(value = {
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Statistics retrieved successfully",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = @ExampleObject(
+                                    name = "Approval statistics",
+                                    value = """
+                        {
+                          "success": true,
+                          "data": {
+                            "pendingCount": 3,
+                            "activeCount": 45,
+                            "timestamp": "2026-02-14T11:30:00Z",
+                            "pendingUsers": [
+                              {
+                                "email": "new.user1@example.com",
+                                "roles": ["USER"],
+                                "createdAt": "2026-02-14T10:00:00Z"
+                              },
+                              {
+                                "email": "new.user2@example.com",
+                                "roles": ["USER", "MANAGER"],
+                                "createdAt": "2026-02-14T10:15:00Z"
+                              },
+                              {
+                                "email": "new.user3@example.com",
+                                "roles": ["USER"],
+                                "createdAt": "2026-02-14T11:00:00Z"
+                              }
+                            ]
+                          }
+                        }
+                        """
+                            )
+                    )
+            )
+    })
     public Mono<ResponseEntity<Map<String, Object>>> getApprovalStats() {
         Instant requestTime = clock.instant();
 

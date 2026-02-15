@@ -52,7 +52,7 @@ public class LoginResponseBuilder {
                 .refreshToken(authResult.getRefreshToken())
                 .accessTokenExpiry(authResult.getAccessTokenExpiry())
                 .refreshTokenExpiry(authResult.getRefreshTokenExpiry())
-                .user(userInfo)
+                .userInfo(userInfo)
                 .permissions(permissions)
                 .timestamp(Date.from(now))
                 .build();

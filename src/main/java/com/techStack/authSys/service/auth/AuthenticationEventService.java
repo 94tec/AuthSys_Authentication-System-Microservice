@@ -74,7 +74,7 @@ public class AuthenticationEventService {
      * Handles failed authentication events.
      * Records failure, checks for account lockout, and logs.
      */
-    public void handleFailedAuthentication(
+    public Mono<Void> handleFailedAuthentication(
             String email,
             Object source,
             Instant timestamp,
@@ -83,16 +83,16 @@ public class AuthenticationEventService {
             String reason,
             Throwable error) {
 
-        // Audit log the failure
         auditLogService.logAuthFailure(email, ipAddress, deviceFingerprint, error.getMessage());
 
-        // Track failed attempts and lock account if threshold exceeded
-        recordFailedAttemptAndCheckLockout(email, source, timestamp, reason, ipAddress);
-
-        // Log failure
-        logFailedAuth(email, ipAddress, deviceFingerprint, error);
+        return rateLimiterService.recordFailedAttempt(email, ipAddress)
+                .filter(Boolean::booleanValue)
+                .flatMap(shouldLock ->
+                        lockAccount(email, source, timestamp, reason, ipAddress)
+                )
+                .doOnError(e -> log.error("Failed to lock account: {}", email, e))
+                .then();
     }
-
 
     /**
      * Event listener for account locked events.
