@@ -725,37 +725,113 @@ public class AuditLogService {
         }
     }
 
-    /* =========================
+   /* =========================
        Security Event Audit Logs
        ========================= */
 
     /**
-     * Log security event
+     * Log security event reactively using FirestoreUtils
      */
-    public void logSecurityEvent(String eventType, String key, String description) {
+    public Mono<Void> logSecurityEvent(String eventType, String key, String description) {
         Instant now = clock.instant();
 
-        try {
-            log.warn("Security Event at {} - Type: {}, Key: {}, Description: {}",
-                    now, eventType, key, description);
+        // Log the event (non-blocking)
+        log.warn("Security Event at {} - Type: {}, Key: {}, Description: {}",
+                now, eventType, key, description);
 
-            Map<String, Object> logEntry = new HashMap<>();
-            logEntry.put("eventType", eventType);
-            logEntry.put("key", key);
-            logEntry.put("description", description);
-            logEntry.put("timestamp", now.toString());
-            logEntry.put("timestampMillis", now.toEpochMilli());
-            logEntry.put("firestoreTimestamp", FieldValue.serverTimestamp());
+        // Create log entry
+        Map<String, Object> logEntry = new HashMap<>();
+        logEntry.put("eventType", eventType);
+        logEntry.put("key", key);
+        logEntry.put("description", description);
+        logEntry.put("timestamp", now.toString());
+        logEntry.put("timestampMillis", now.toEpochMilli());
+        logEntry.put("firestoreTimestamp", FieldValue.serverTimestamp());
 
-            ApiFuture<DocumentReference> future =
-                    firestore.collection(SECURITY_LOGS_COLLECTION).add(logEntry);
-            DocumentReference ref = future.get();
+        // Save to Firestore reactively using FirestoreUtils
+        return FirestoreUtils.apiFutureToMono(
+                        firestore.collection(SECURITY_LOGS_COLLECTION).add(logEntry)
+                )
+                .doOnNext(ref -> log.debug("Security event logged at {} with ID: {}", now, ref.getId()))
+                .onErrorResume(e -> {
+                    log.error("Error logging security event at {}: {}", now, e.getMessage(), e);
+                    return Mono.empty(); // Don't fail the flow if audit logging fails
+                })
+                .then(); // Convert to Mono<Void>
+    }
 
-            log.debug("Security event logged at {} with ID: {}", now, ref.getId());
-        } catch (Exception e) {
-            log.error("Unexpected error while logging security event at {}: {}",
-                    now, e.getMessage(), e);
-        }
+    /**
+     * Log security event with additional metadata
+     */
+    public Mono<Void> logSecurityEvent(String eventType, String key, String description,
+                                       Map<String, Object> additionalMetadata) {
+        Instant now = clock.instant();
+
+        // Log the event
+        log.warn("Security Event at {} - Type: {}, Key: {}, Description: {}",
+                now, eventType, key, description);
+
+        // Create log entry with metadata
+        Map<String, Object> logEntry = new HashMap<>(additionalMetadata);
+        logEntry.put("eventType", eventType);
+        logEntry.put("key", key);
+        logEntry.put("description", description);
+        logEntry.put("timestamp", now.toString());
+        logEntry.put("timestampMillis", now.toEpochMilli());
+        logEntry.put("firestoreTimestamp", FieldValue.serverTimestamp());
+
+        // Save to Firestore reactively using FirestoreUtils
+        return FirestoreUtils.apiFutureToMono(
+                        firestore.collection(SECURITY_LOGS_COLLECTION).add(logEntry)
+                )
+                .doOnNext(ref -> log.debug("Security event logged at {} with ID: {}", now, ref.getId()))
+                .onErrorResume(e -> {
+                    log.error("Error logging security event at {}: {}", now, e.getMessage(), e);
+                    return Mono.empty(); // Don't fail the flow if audit logging fails
+                })
+                .then(); // Convert to Mono<Void>
+    }
+
+    /**
+     * Log security event and wait for completion (if needed)
+     */
+    public Mono<DocumentReference> logSecurityEventAndGetRef(String eventType, String key, String description) {
+        Instant now = clock.instant();
+
+        // Log the event
+        log.warn("Security Event at {} - Type: {}, Key: {}, Description: {}",
+                now, eventType, key, description);
+
+        // Create log entry
+        Map<String, Object> logEntry = new HashMap<>();
+        logEntry.put("eventType", eventType);
+        logEntry.put("key", key);
+        logEntry.put("description", description);
+        logEntry.put("timestamp", now.toString());
+        logEntry.put("timestampMillis", now.toEpochMilli());
+        logEntry.put("firestoreTimestamp", FieldValue.serverTimestamp());
+
+        // Save to Firestore reactively and return the reference
+        return FirestoreUtils.apiFutureToMono(
+                        firestore.collection(SECURITY_LOGS_COLLECTION).add(logEntry)
+                )
+                .doOnNext(ref -> log.debug("Security event logged at {} with ID: {}", now, ref.getId()))
+                .onErrorResume(e -> {
+                    log.error("Error logging security event at {}: {}", now, e.getMessage(), e);
+                    return Mono.empty();
+                });
+    }
+
+    /**
+     * Log security event asynchronously (fire-and-forget)
+     */
+    public void logSecurityEventAsync(String eventType, String key, String description) {
+        logSecurityEvent(eventType, key, description)
+                .subscribeOn(Schedulers.boundedElastic())
+                .subscribe(
+                        null,
+                        error -> log.error("Async security event logging failed: {}", error.getMessage())
+                );
     }
 
     /* =========================

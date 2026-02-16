@@ -213,6 +213,28 @@ public class OtpService {
                 .subscribeOn(Schedulers.boundedElastic());
     }
 
+    public Mono<Void> invalidateSetupOtp(String userId) {
+        String key = SETUP_OTP_KEY + userId;
+        return Mono.fromRunnable(() -> {
+                    redisTemplate.delete(key);
+                    redisTemplate.delete(SETUP_ATTEMPTS_KEY + userId);
+                    log.info("✅ Setup OTP invalidated for user: {}", userId);
+                })
+                .subscribeOn(Schedulers.boundedElastic())
+                .then();
+    }
+
+    public Mono<Void> invalidateLoginOtp(String userId) {
+        String key = LOGIN_OTP_KEY + userId;
+        return Mono.fromRunnable(() -> {
+                    redisTemplate.delete(key);
+                    redisTemplate.delete(LOGIN_ATTEMPTS_KEY + userId);
+                    log.info("✅ Login OTP invalidated for user: {}", userId);
+                })
+                .subscribeOn(Schedulers.boundedElastic())
+                .then();
+    }
+
     private void deleteOtp(String key) {
         redisTemplate.delete(key);
         log.debug("🗑️ OTP deleted: {}", key);

@@ -8,4 +8,5 @@ public interface RateLimiterService {
 
     Mono<Object> checkThreatApiRateLimit(String ipAddress);
 
+    Mono<Void> checkOtpRateLimit(String userId, String otpType);
 }

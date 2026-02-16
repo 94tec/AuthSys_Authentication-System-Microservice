@@ -1188,7 +1188,7 @@ public class JwtService {
             String tokenIp = claims.get("ipAddress", String.class);
             String tokenUserAgent = claims.get("userAgent", String.class);
 
-            if (!shouldEnforceIpValidation() || StringUtils.equals(tokenIp, ipAddress)) {
+            if (shouldEnforceIpValidation() || StringUtils.equals(tokenIp, ipAddress)) {
                 // IP validation is disabled or matches
             } else {
                 log.warn("IP address changed from {} to {}", tokenIp, ipAddress);
@@ -1208,7 +1208,7 @@ public class JwtService {
      * Validate token context
      */
     private void validateTokenContext(Claims claims, String currentIp) {
-        if (!shouldEnforceIpValidation()) {
+        if (shouldEnforceIpValidation()) {
             return;
         }
 
@@ -1355,7 +1355,7 @@ public class JwtService {
         );
     }
 
-    /**
+    /*
      * Log refresh success
      */
     /**

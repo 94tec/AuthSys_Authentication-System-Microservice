@@ -1,6 +1,7 @@
 package com.techStack.authSys.models.user;
 
 import com.google.cloud.firestore.annotation.DocumentId;
+import com.google.cloud.firestore.annotation.PropertyName;
 import lombok.*;
 import org.jetbrains.annotations.NotNull;
 
@@ -22,47 +23,35 @@ import java.util.Optional;
 public class UserPasswordHistory {
     @DocumentId
     private String id;
+
+    @PropertyName("userId")
     private String userId;
-    /**
-     * Hashed password (BCrypt / Argon2 / etc.)
-     */
+
+    @PropertyName("passwordHash")
     private String passwordHash;
 
-    /**
-     * Hashing algorithm used (e.g. BCRYPT, ARGON2)
-     */
+    @PropertyName("hashAlgorithm")
     private PasswordHashAlgorithm hashAlgorithm;
 
-    // timestamps for auditing
+    @PropertyName("createdAt")
     private Instant createdAt;
-    /**
-     * When this password was set
-     */
+
+    @PropertyName("changedAt")
     private Instant changedAt;
 
-    /**
-     * IP address where password was changed
-     * Stored as string to support IPv4/IPv6
-     */
+    @PropertyName("changedFromIp")
     private String changedFromIp;
 
+    @PropertyName("changedByUserAgent")
     private String changedByUserAgent;
 
-    /**
-     * Sequential version of the password
-     * Higher = newer
-     */
+    @PropertyName("version")
     private long version;
 
-    /**
-     * Why the password was changed
-     */
+    @PropertyName("reason")
     private PasswordChangeReason reason;
 
-    /**
-     * Whether this password is the current active one
-     * (useful for migrations & cleanup)
-     */
+    @PropertyName("current")
     private boolean current;
 
     /* =========================

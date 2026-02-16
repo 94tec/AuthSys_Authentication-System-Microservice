@@ -254,6 +254,24 @@ public class EmailServiceInstance implements EmailService {
 
         return sendEmailInternal(email, subject, body);
     }
+    @Override
+    public Mono<Void> sendOtpNotification(String email, String fullName, String purpose, Instant sentAt) {
+        String subject = "OTP for " + purpose;
+        String message = String.format(
+                "Hi %s,\n\n" +
+                        "An OTP has been sent to your phone for: %s\n\n" +
+                        "The OTP is valid for 10 minutes.\n\n" +
+                        "If you didn't request this, please contact support immediately.",
+                fullName, purpose
+        );
+
+        return sendEmail(email, subject, message);
+    }
+
+    @Override
+    public Mono<Void> sendPasswordChangedNotification(String email, String fullName, Instant changedAt) {
+        return sendPasswordChangedNotification(email, "N/A", changedAt, false);
+    }
 
     /* =========================
        Password Management Emails

@@ -154,6 +154,14 @@ public class User implements UserDetails {
     @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss.SSSX", timezone = "UTC")
     private Instant passwordExpiresAt;
 
+    // First-time setup fields (ADD THESE)
+    private boolean firstTimeSetupCompleted;
+    private Instant firstTimeSetupCompletedAt;
+
+    // Temporary password lock fields (ADD THESE if not present)
+    private boolean temporaryPasswordLocked;
+    private Instant temporaryPasswordLockedAt;
+
     @JsonIgnore
     @PropertyName("password_reset_token_hash")
     private String passwordResetTokenHash;
