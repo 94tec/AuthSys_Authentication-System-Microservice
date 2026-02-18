@@ -54,7 +54,7 @@ public class AuthService {
         log.info("Registration request at {} for: {}",
                 start, HelperUtils.maskEmail(registrationDTO.getEmail()));
 
-        return emailValidationService.validateEmailForRegistration(registrationDTO) // ✅ ADDED
+        return emailValidationService.validateEmailForRegistration(registrationDTO)
                 .then(registrationOrchestrator.registerUser(registrationDTO, exchange))
                 .doOnSuccess(user -> {
                     Instant end = clock.instant();

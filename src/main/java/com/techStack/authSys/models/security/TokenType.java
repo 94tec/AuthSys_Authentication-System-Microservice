@@ -8,5 +8,6 @@ public enum TokenType {
     ACCESS,
     REFRESH,
     TEMPORARY,
+    TEMPORARY_LOGIN,
     PASSWORD_RESET
 }

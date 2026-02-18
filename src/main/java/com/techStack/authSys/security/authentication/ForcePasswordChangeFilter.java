@@ -34,6 +34,10 @@ public class ForcePasswordChangeFilter implements WebFilter {
     private static final Logger logger = LoggerFactory.getLogger(ForcePasswordChangeFilter.class);
 
     private static final List<String> ALLOWED_PATHS = List.of(
+
+            // Super Admin bootstrap
+            "/api/super-admin/register",
+            "/api/super-admin/login",
             // Password change endpoints
             "/api/auth/change-password",
             "/api/auth/first-time-setup/",

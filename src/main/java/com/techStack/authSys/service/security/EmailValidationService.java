@@ -279,14 +279,7 @@ public class EmailValidationService {
     }
 
     /**
-     * ✅ FIXED: Uses DnsJavaResolver for both checks.
-     *
-     * OLD (broken): InetAddress.getByName(domain)
-     *   — uses system DNS, ignores your configured server & timeout.
-     *   — can return a cached/stale result.
-     *   — resolves gmgail.com to an IP even though it has no mail server.
-     *
-     * NEW (fixed): dnsResolver.hasARecord(domain)
+     * ✅ Uses DnsJavaResolver for both checks. dnsResolver.hasARecord(domain)
      *   — uses your configured DNS server (8.8.8.8).
      *   — respects your configured timeout.
      *   — consistent with MX lookup behaviour.

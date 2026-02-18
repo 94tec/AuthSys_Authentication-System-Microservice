@@ -8,6 +8,7 @@ import com.techStack.authSys.models.user.User;
 import com.techStack.authSys.service.observability.AuditLogService;
 import com.techStack.authSys.service.security.OtpService;
 import com.techStack.authSys.service.token.JwtService;
+import com.techStack.authSys.util.auth.TokenValidator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -35,6 +36,7 @@ public class LoginOtpService {
     private final JwtService jwtService;
     private final AuditLogService auditLogService;
     private final Clock clock;
+    private final TokenValidator tokenValidator;
 
     /* =========================
        Generate Login OTP
@@ -47,7 +49,6 @@ public class LoginOtpService {
 
         return otpService.generateAndSendLoginOtp(user.getId(), user.getPhoneNumber())
                 .flatMap(result -> {
-                    // ✅ FIXED: Use isRateLimited() getter instead of rateLimited()
                     if (result.isRateLimited()) {
                         log.warn("⚠️ Login OTP rate limited for user: {}", user.getId());
                         return Mono.just(LoginOtpResponse.rateLimited(result.getMessage()));
@@ -81,11 +82,10 @@ public class LoginOtpService {
 
         Instant now = clock.instant();
 
-        return validateTemporaryLoginToken(tempToken)
+        return tokenValidator.validateTemporaryLoginToken(tempToken)
                 .flatMap(userId ->
                         otpService.verifyLoginOtp(userId, request.otp())
                                 .flatMap(result -> {
-                                    // ✅ FIXED: Use isValid() getter
                                     if (!result.isValid()) {
                                         log.warn("⚠️ Login OTP verification failed for user {}: {}",
                                                 userId, result.getMessage());
@@ -118,7 +118,7 @@ public class LoginOtpService {
     public Mono<OtpResult> resendLoginOtp(String tempToken) {
         Instant now = clock.instant();
 
-        return validateTemporaryLoginToken(tempToken)
+        return tokenValidator.validateTemporaryLoginToken(tempToken)  // Using TokenValidator
                 .flatMap(firebaseServiceAuth::getUserById)
                 .flatMap(user -> {
                     log.info("🔄 Resending login OTP to user: {} at {}", user.getId(), now);
@@ -128,27 +128,6 @@ public class LoginOtpService {
                         log.info("✅ Login OTP resent at {}", now))
                 .doOnError(e ->
                         log.error("❌ Login OTP resend failed at {}: {}", now, e.getMessage()));
-    }
-
-    /* =========================
-       Token Validation
-       ========================= */
-
-    private Mono<String> validateTemporaryLoginToken(String token) {
-        return Mono.fromCallable(() -> {
-            if (token == null || !token.startsWith("Bearer ")) {
-                throw new IllegalArgumentException("Invalid token format");
-            }
-
-            String jwt = token.substring(7);
-            String userId = jwtService.extractUserIdFromTemporaryLoginToken(jwt);
-
-            if (userId == null) {
-                throw new IllegalArgumentException("Invalid or expired temporary token");
-            }
-
-            return userId;
-        });
     }
 
     /* =========================

@@ -1,4 +1,4 @@
-package com.techStack.authSys.service.security;
+package com.techStack.authSys.repository.authorization;
 
 import java.util.List;
 

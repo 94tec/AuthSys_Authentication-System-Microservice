@@ -15,6 +15,7 @@ import com.techStack.authSys.service.observability.AuditLogService;
 import com.techStack.authSys.service.security.OtpService;
 import com.techStack.authSys.service.token.JwtService;
 import com.techStack.authSys.service.user.PasswordPolicyService;
+import com.techStack.authSys.util.auth.TokenValidator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.ReactiveRedisTemplate;
@@ -89,6 +90,8 @@ public class FirstTimeLoginSetupService {
     private final ReactiveRedisTemplate<String, String> redisTemplate;
     private final PasswordEncoder passwordEncoder;
     private final Clock clock;
+    private final PasswordPolicyService passwordPolicyService;
+    private final TokenValidator tokenValidator;
 
     // Redis key prefixes
     private static final String TEMP_PASSWORD_LOCK_PREFIX = "ftl:lock:";
@@ -99,7 +102,6 @@ public class FirstTimeLoginSetupService {
     private static final Duration STAGED_PASSWORD_EXPIRY = Duration.ofMinutes(15);
     private static final Duration VERIFICATION_TOKEN_EXPIRY = Duration.ofMinutes(5);
     private static final Duration TEMP_LOCK_EXPIRY = Duration.ofMinutes(15);
-    private final PasswordPolicyService passwordPolicyService;
 
     /* =========================
        STEP 1: Change Password + Send OTP
@@ -149,17 +151,15 @@ public class FirstTimeLoginSetupService {
 
         log.info("🚀 [STEP 1/3] Password change + OTP at {}", startTime);
 
-        return validateTemporaryToken(tempToken)
-                .flatMap(userId -> firebaseServiceAuth.getUserById(userId))
+        return tokenValidator.validateTemporaryToken(tempToken)  // Using TokenValidator
+                .flatMap(firebaseServiceAuth::getUserById)
                 .flatMap(user -> {
-                    // ✅ Verify first-time setup required
                     if (!user.isForcePasswordChange()) {
                         log.warn("⚠️ User {} NOT in first-time setup state", user.getId());
                         return Mono.error(new IllegalStateException(
                                 "User is not in first-time setup state"));
                     }
 
-                    // ✅ Check if already in progress
                     return isSetupInProgress(user.getId())
                             .flatMap(inProgress -> {
                                 if (inProgress) {
@@ -170,25 +170,21 @@ public class FirstTimeLoginSetupService {
                             });
                 })
                 .flatMap(user -> {
-                    // ✅ Validate password using UserRegistrationDTO
                     log.info("🔍 [STEP 1/3] Validating password for user {}", user.getId());
 
-                    // Create UserRegistrationDTO for password validation
                     UserRegistrationDTO validationDto = UserRegistrationDTO.builder()
                             .password(request.newPassword())
-                            .uid(user.getId())  // For password history check
+                            .uid(user.getId())
                             .build();
 
                     return passwordPolicyService.validatePassword(validationDto)
                             .then(Mono.just(user));
                 })
                 .flatMap(user -> {
-                    // ✅ Check rate limits
                     return rateLimiterService.checkOtpRateLimit(user.getId(), "SETUP")
                             .then(Mono.just(user));
                 })
                 .flatMap(user -> {
-                    // ⭐ Hash and STAGE password in Redis
                     String hashedPassword = passwordEncoder.encode(request.newPassword());
 
                     log.info("💾 [STEP 1/3] STAGING password for user {} (NOT in DB yet)",
@@ -198,25 +194,20 @@ public class FirstTimeLoginSetupService {
                             .then(Mono.just(user));
                 })
                 .flatMap(user -> {
-                    // ⭐ Lock temp password
                     log.warn("🔒 [STEP 1/3] LOCKING temp password for user {}", user.getId());
 
                     return lockTempPasswordInRedis(user.getId())
                             .then(Mono.just(user));
                 })
                 .flatMap(user -> {
-                    // ✅ Send OTP
                     log.info("📱 [STEP 1/3] Sending OTP to user {}", user.getId());
 
                     return otpService.generateAndSendSetupOtp(user.getId(), user.getPhoneNumber())
                             .flatMap(otpResult -> {
-                                // Track OTP delivery status
                                 boolean otpSent = otpResult.isSent() && !otpResult.isRateLimited();
 
-                                // Send email notification (optional)
                                 return sendOtpEmailNotification(user, otpResult)
                                         .map(emailSent -> {
-                                            // Audit the staging event
                                             auditPasswordStaged(user.getId(), otpSent, emailSent);
                                             return otpResult;
                                         });
@@ -230,13 +221,6 @@ public class FirstTimeLoginSetupService {
                 .doOnError(e -> {
                     Duration duration = Duration.between(startTime, clock.instant());
                     log.error("❌ [STEP 1/3] Failed after {}: {}", duration, e.getMessage());
-
-                    // If error occurs after staging, clean up Redis
-                    // This would need the userId - you might need to capture it earlier
-                })
-                .onErrorResume(e -> {
-                    // Log and rethrow
-                    return Mono.error(e);
                 });
     }
 
@@ -325,10 +309,9 @@ public class FirstTimeLoginSetupService {
 
         log.info("🔍 [STEP 2/3] Verifying OTP at {}", startTime);
 
-        return validateTemporaryToken(tempToken)
-                .flatMap(userId -> firebaseServiceAuth.getUserById(userId))
+        return tokenValidator.validateTemporaryToken(tempToken)  // Using TokenValidator
+                .flatMap(firebaseServiceAuth::getUserById)
                 .flatMap(user -> {
-                    // ✅ Verify setup in progress
                     return isSetupInProgress(user.getId())
                             .flatMap(inProgress -> {
                                 if (!inProgress) {
@@ -339,10 +322,8 @@ public class FirstTimeLoginSetupService {
                             });
                 })
                 .flatMap(user -> {
-                    // ⭐ Verify OTP
                     return otpService.verifySetupOtp(user.getId(), request.otp())
                             .flatMap(otpResult -> {
-                                // ✅ FIXED: Use isValid() like LoginOtpService
                                 if (!otpResult.isValid()) {
                                     log.warn("⚠️ [STEP 2/3] OTP invalid for user {}: {}",
                                             user.getId(), otpResult.getMessage());
@@ -356,7 +337,6 @@ public class FirstTimeLoginSetupService {
                                             .build());
                                 }
 
-                                // ✅ OTP valid - generate verification token
                                 log.info("✅ [STEP 2/3] OTP verified for user {}", user.getId());
 
                                 return generateVerificationToken(user.getId())
@@ -374,7 +354,6 @@ public class FirstTimeLoginSetupService {
                 })
                 .doOnSuccess(result -> {
                     Duration duration = Duration.between(startTime, clock.instant());
-                    // ✅ FIXED: Use isValid() instead of valid()
                     if (result.isValid()) {
                         log.info("✅ [STEP 2/3] OTP verified in {} - Proceeding to Step 3", duration);
                     }
@@ -446,7 +425,6 @@ public class FirstTimeLoginSetupService {
                                 "No staged password found. Please restart from Step 1."));
                     }
 
-                    // ⭐ COMMIT password to database (FIRST TIME!)
                     log.info("💾 [STEP 3/3] COMMITTING password to database for user {}",
                             user.getId());
 
@@ -461,7 +439,6 @@ public class FirstTimeLoginSetupService {
                             .thenReturn(user);
                 })
                 .flatMap(user -> {
-                    // ⭐ Invalidate all sessions
                     log.warn("🔒 [STEP 3/3] Invalidating all sessions for user {}", user.getId());
 
                     return sessionManagementService.invalidateAllSessionsForUser(user.getId())
@@ -472,17 +449,14 @@ public class FirstTimeLoginSetupService {
                             });
                 })
                 .flatMap(user -> {
-                    // ✅ Clean up Redis
                     return cleanupRedisKeys(user.getId())
                             .thenReturn(user);
                 })
                 .flatMap(user -> {
-                    // ✅ Send confirmation email
                     return sendSetupCompletedEmail(user)
                             .thenReturn(user);
                 })
                 .map(user -> {
-                    // ✅ Generate new tokens using JwtService simple methods
                     String accessToken = jwtService.generateAccessToken(user);
                     String refreshToken = jwtService.generateRefreshToken(user.getId());
 
@@ -569,7 +543,7 @@ public class FirstTimeLoginSetupService {
 
         log.info("🔄 Resending OTP at {}", now);
 
-        return validateTemporaryToken(tempToken)
+        return tokenValidator.validateTemporaryToken(tempToken)
                 .flatMap(userId -> firebaseServiceAuth.getUserById(userId))
                 .flatMap(user -> {
                     return isSetupInProgress(user.getId())
@@ -600,34 +574,6 @@ public class FirstTimeLoginSetupService {
     /* =========================
        Token Validation
        ========================= */
-
-    /**
-     * Validate temporary token
-     *
-     * ✅ FIXED: Using JwtService.extractUserIdFromTemporaryToken() pattern
-     */
-    private Mono<String> validateTemporaryToken(String token) {
-        return Mono.fromCallable(() -> {
-            if (token == null || token.isBlank()) {
-                throw new AuthException("Token required", HttpStatus.BAD_REQUEST);
-            }
-
-            // Remove "Bearer " prefix if present
-            String jwt = token.startsWith("Bearer ") ? token.substring(7) : token;
-
-            // ✅ Use JwtService method like in LoginOtpService
-            String userId = jwtService.extractUserIdFromTemporaryToken(jwt);
-
-            if (userId == null) {
-                throw new AuthException(
-                        "Invalid or expired temporary token",
-                        HttpStatus.UNAUTHORIZED
-                );
-            }
-
-            return userId;
-        });
-    }
 
     /* =========================
        Audit Logging

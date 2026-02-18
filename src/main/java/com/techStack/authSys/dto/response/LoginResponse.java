@@ -2,7 +2,6 @@ package com.techStack.authSys.dto.response;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.techStack.authSys.models.user.User;
-import lombok.Builder;
 
 /**
  * Login Response DTO
@@ -12,8 +11,9 @@ import lombok.Builder;
  * - First-time login (password change required)
  * - Login with OTP (2FA)
  * - Rate limited
+ *
+ * ✅ FIXED: Removed @Builder (incompatible with records), added userId field
  */
-@Builder
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record LoginResponse(
         boolean success,
@@ -21,6 +21,7 @@ public record LoginResponse(
         boolean requiresOtp,
         boolean rateLimited,
         String temporaryToken,
+        String userId,           // ✅ ADDED - was missing but used in factory methods
         String accessToken,
         String refreshToken,
         User user,
@@ -34,16 +35,18 @@ public record LoginResponse(
             String refreshToken,
             User user,
             String message) {
-        return LoginResponse.builder()
-                .success(true)
-                .firstTimeLogin(false)
-                .requiresOtp(false)
-                .rateLimited(false)
-                .accessToken(accessToken)
-                .refreshToken(refreshToken)
-                .user(user)
-                .message(message)
-                .build();
+        return new LoginResponse(
+                true,    // success
+                false,   // firstTimeLogin
+                false,   // requiresOtp
+                false,   // rateLimited
+                null,    // temporaryToken
+                null,    // userId (full user object already provided)
+                accessToken,
+                refreshToken,
+                user,
+                message
+        );
     }
 
     /**
@@ -53,14 +56,18 @@ public record LoginResponse(
             String tempToken,
             String userId,
             String message) {
-        return LoginResponse.builder()
-                .success(true)
-                .firstTimeLogin(true)
-                .requiresOtp(false)
-                .rateLimited(false)
-                .temporaryToken(tempToken)
-                .message(message)
-                .build();
+        return new LoginResponse(
+                true,    // success
+                true,    // firstTimeLogin
+                false,   // requiresOtp
+                false,   // rateLimited
+                tempToken,
+                userId,  // ✅ NOW ACTUALLY USED
+                null,    // accessToken
+                null,    // refreshToken
+                null,    // user
+                message
+        );
     }
 
     /**
@@ -70,26 +77,35 @@ public record LoginResponse(
             String tempToken,
             String userId,
             String message) {
-        return LoginResponse.builder()
-                .success(true)
-                .firstTimeLogin(false)
-                .requiresOtp(true)
-                .rateLimited(false)
-                .temporaryToken(tempToken)
-                .message(message)
-                .build();
+        return new LoginResponse(
+                true,    // success
+                false,   // firstTimeLogin
+                true,    // requiresOtp
+                false,   // rateLimited
+                tempToken,
+                userId,  // ✅ NOW ACTUALLY USED
+                null,    // accessToken
+                null,    // refreshToken
+                null,    // user
+                message
+        );
     }
 
     /**
      * Rate limited
      */
     public static LoginResponse rateLimited(String message) {
-        return LoginResponse.builder()
-                .success(false)
-                .firstTimeLogin(false)
-                .requiresOtp(false)
-                .rateLimited(true)
-                .message(message)
-                .build();
+        return new LoginResponse(
+                false,   // success
+                false,   // firstTimeLogin
+                false,   // requiresOtp
+                true,    // rateLimited
+                null,    // temporaryToken
+                null,    // userId
+                null,    // accessToken
+                null,    // refreshToken
+                null,    // user
+                message
+        );
     }
 }

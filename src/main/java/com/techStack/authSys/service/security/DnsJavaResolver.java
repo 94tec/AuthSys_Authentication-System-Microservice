@@ -1,6 +1,7 @@
 package com.techStack.authSys.service.security;
 
 import com.techStack.authSys.config.core.EmailValidationConfig;
+import com.techStack.authSys.repository.authorization.DnsResolver;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.xbill.DNS.*;

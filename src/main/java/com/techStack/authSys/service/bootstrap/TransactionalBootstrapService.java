@@ -3,6 +3,7 @@ package com.techStack.authSys.service.bootstrap;
 import com.google.cloud.firestore.*;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseAuthException;
+import com.techStack.authSys.dto.request.UserRegistrationDTO;
 import com.techStack.authSys.dto.response.BootstrapResult;
 import com.techStack.authSys.exception.bootstrap.BootstrapInitializationException;
 import com.techStack.authSys.models.user.User;
@@ -11,6 +12,7 @@ import com.techStack.authSys.repository.user.FirestoreUserRepository;
 import com.techStack.authSys.service.auth.FirebaseServiceAuth;
 import com.techStack.authSys.service.cache.RedisUserCacheService;
 import com.techStack.authSys.service.observability.AuditLogService;
+import com.techStack.authSys.service.security.EmailValidationService;
 import com.techStack.authSys.util.firebase.FirestoreUtils;
 import com.techStack.authSys.util.validation.HelperUtils;
 import com.techStack.authSys.util.password.PasswordUtils;
@@ -46,6 +48,7 @@ public class TransactionalBootstrapService {
     private final MetricsService metricsService;
     private final Firestore firestore;
     private final FirestoreUserRepository firestoreUserRepository;
+    private final EmailValidationService emailValidationService;
     private final Clock clock;
 
     private static final int MAX_RETRIES = 3;
@@ -74,7 +77,15 @@ public class TransactionalBootstrapService {
 
         log.info("🚀 Bootstrap transaction initiated for: {}", HelperUtils.maskEmail(finalEmail));
 
-        return checkExistingAdmin(finalEmail)
+        // Validate email before any database operations
+        UserRegistrationDTO validationDto = UserRegistrationDTO.builder()
+                .email(finalEmail)
+                .build();
+
+        return emailValidationService.validateEmailForRegistration(validationDto)
+                .doOnSuccess(v -> log.info("✅ Email validation passed for: {}",
+                        HelperUtils.maskEmail(finalEmail)))
+                .then(checkExistingAdmin(finalEmail))
                 .flatMap(exists -> exists
                         ? handleExistingAdmin(finalEmail, ctx)
                         : executeTransactionalCreation(finalEmail, finalPhone, ctx))

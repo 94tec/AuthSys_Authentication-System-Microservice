@@ -6,12 +6,15 @@ import com.techStack.authSys.dto.response.ApiResponse;
 import com.techStack.authSys.dto.response.AuthResponse;
 import com.techStack.authSys.dto.response.BootstrapResult;
 import com.techStack.authSys.dto.response.LoginResponse;
+import com.techStack.authSys.exception.auth.AuthException;
 import com.techStack.authSys.models.authorization.Permissions;
 import com.techStack.authSys.models.user.User;
 import com.techStack.authSys.service.auth.AuthenticationOrchestrator;
 import com.techStack.authSys.service.auth.DeviceVerificationService;
 import com.techStack.authSys.service.bootstrap.AdminUserManagementService;
 import com.techStack.authSys.service.bootstrap.TransactionalBootstrapService;
+import com.techStack.authSys.exception.auth.FirstTimeSetupRequiredException;
+import com.techStack.authSys.exception.auth.OtpVerificationRequiredException;
 import com.techStack.authSys.util.validation.HelperUtils;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -344,21 +347,21 @@ public class AdminAuthController {
             )
     })
     @PostMapping("/login")
-    public Mono<ResponseEntity<ApiResponse<AuthResponse>>> login(  // ✅ Fixed: use Object instead of ?
-                                                             @Parameter(
-                                                                     description = "Login credentials",
-                                                                     required = true,
-                                                                     schema = @Schema(implementation = LoginRequest.class)
-                                                             )
-                                                             @Valid @RequestBody LoginRequest loginRequest,
+    public Mono<ResponseEntity<ApiResponse<?>>> login(  // ✅ Wildcard for polymorphic responses
+                                                        @Parameter(
+                                                                description = "Login credentials",
+                                                                required = true,
+                                                                schema = @Schema(implementation = LoginRequest.class)
+                                                        )
+                                                        @Valid @RequestBody LoginRequest loginRequest,
 
-                                                             @Parameter(
-                                                                     description = "User agent string",
-                                                                     example = "Mozilla/5.0..."
-                                                             )
-                                                             @RequestHeader(value = "User-Agent", required = false) String userAgent,
+                                                        @Parameter(
+                                                                description = "User agent string",
+                                                                example = "Mozilla/5.0..."
+                                                        )
+                                                        @RequestHeader(value = "User-Agent", required = false) String userAgent,
 
-                                                             ServerWebExchange exchange) {
+                                                        ServerWebExchange exchange) {
 
         Instant loginTime = clock.instant();
         String ipAddress = deviceVerificationService.extractClientIp(exchange);
@@ -381,6 +384,7 @@ public class AdminAuthController {
                         Set.of()
                 )
                 .map(authResult -> {
+                    // ✅ Normal login success — full tokens
                     User user = authResult.getUser();
 
                     Set<String> roleNames = user.getRoles().stream()
@@ -407,14 +411,57 @@ public class AdminAuthController {
                             userInfo,
                             permissions
                     );
-                    return ResponseEntity.ok(
+
+                    return (ResponseEntity<ApiResponse<?>>) (ResponseEntity<?>) ResponseEntity.ok(
                             new ApiResponse<>(true, "Login successful", authResponse)
+                    );
+                })
+                // ✅ FIX 1: Handle FirstTimeSetupRequiredException
+                .onErrorResume(com.techStack.authSys.exception.auth.FirstTimeSetupRequiredException.class, e -> {
+                    log.warn("⚠️ First-time setup required for: {}",
+                            HelperUtils.maskEmail(loginRequest.getEmail()));
+
+                    // ✅ Use firstTimeLogin() — your record uses this name, not firstTimeSetup()
+                    LoginResponse response = LoginResponse.firstTimeLogin(
+                            e.getTemporaryToken(),
+                            e.getUserId(),
+                            e.getMessage()
+                    );
+
+                    return Mono.just(
+                            ResponseEntity.status(HttpStatus.FORBIDDEN)
+                                    .body(new ApiResponse<>(true, e.getMessage(), response))
+                    );
+                })
+                // ✅ FIX 2: Handle OtpVerificationRequiredException
+                .onErrorResume(com.techStack.authSys.exception.auth.OtpVerificationRequiredException.class, e -> {
+                    log.info("📱 OTP verification required for: {}",
+                            HelperUtils.maskEmail(loginRequest.getEmail()));
+
+                    // ✅ Use loginOtpRequired() — your record uses this name, not otpRequired()
+                    LoginResponse response = LoginResponse.loginOtpRequired(
+                            e.getTemporaryToken(),
+                            e.getUserId(),
+                            e.getMessage()
+                    );
+
+                    return Mono.just(
+                            ResponseEntity.status(HttpStatus.FORBIDDEN)
+                                    .body(new ApiResponse<>(true, e.getMessage(), response))
+                    );
+                })
+                // ✅ FIX 3: Handle AuthException with proper status codes
+                .onErrorResume(com.techStack.authSys.exception.auth.AuthException.class, e -> {
+                    log.error("❌ Auth error: {}", e.getMessage());
+                    return Mono.just(
+                            ResponseEntity.status(e.getHttpStatus())
+                                    .body(new ApiResponse<>(false, e.getMessage(), null))
                     );
                 })
                 .doOnSuccess(res -> {
                     Instant completionTime = clock.instant();
                     Duration duration = Duration.between(loginTime, completionTime);
-                    log.info("✅ Admin login successful at {} in {} for {}",
+                    log.info("✅ Admin login processed at {} in {} for {}",
                             completionTime, duration, HelperUtils.maskEmail(loginRequest.getEmail()));
                 })
                 .doOnError(e -> {
