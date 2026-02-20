@@ -1,20 +1,15 @@
 package com.techStack.authSys.controller.admin;
 
 import com.techStack.authSys.dto.request.LoginRequest;
-import com.techStack.authSys.dto.request.UserRegistrationDTO;
 import com.techStack.authSys.dto.response.ApiResponse;
 import com.techStack.authSys.dto.response.AuthResponse;
 import com.techStack.authSys.dto.response.BootstrapResult;
 import com.techStack.authSys.dto.response.LoginResponse;
-import com.techStack.authSys.exception.auth.AuthException;
 import com.techStack.authSys.models.authorization.Permissions;
 import com.techStack.authSys.models.user.User;
 import com.techStack.authSys.service.auth.AuthenticationOrchestrator;
 import com.techStack.authSys.service.auth.DeviceVerificationService;
-import com.techStack.authSys.service.bootstrap.AdminUserManagementService;
 import com.techStack.authSys.service.bootstrap.TransactionalBootstrapService;
-import com.techStack.authSys.exception.auth.FirstTimeSetupRequiredException;
-import com.techStack.authSys.exception.auth.OtpVerificationRequiredException;
 import com.techStack.authSys.util.validation.HelperUtils;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -22,14 +17,12 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
-import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
@@ -84,7 +77,6 @@ public class AdminAuthController {
 
     private final AuthenticationOrchestrator authenticationOrchestrator;
     private final TransactionalBootstrapService transactionalBootstrapService;
-    private final AdminUserManagementService adminUserManagementService;
     private final DeviceVerificationService deviceVerificationService;
     private final Clock clock;
 
@@ -469,106 +461,6 @@ public class AdminAuthController {
                     Duration duration = Duration.between(loginTime, errorTime);
                     log.error("❌ Admin login failed at {} after {} for {}: {}",
                             errorTime, duration, HelperUtils.maskEmail(loginRequest.getEmail()), e.getMessage());
-                });
-    }
-
-    /* =========================
-       Admin User Registration
-       ========================= */
-
-    @Operation(
-            summary = "Register New Admin",
-            description = """
-                    Create a new Admin user account (SUPER_ADMIN only).
-                    
-                    **Requirements:**
-                    - Caller must have SUPER_ADMIN role
-                    - Valid email and phone number
-                    - Unique email address
-                    
-                    **Automatic Actions:**
-                    - Generates temporary password
-                    - Sends credentials via email
-                    - Sets `forcePasswordChange = true`
-                    - Sets initial role to ADMIN
-                    
-                    **New Admin Flow:**
-                    1. Receives email with temporary password
-                    2. Login at POST /api/super-admin/login
-                    3. Complete first-time setup
-                    4. Verify phone with OTP
-                    5. Get full access
-                    
-                    **Permissions:**
-                    - Can manage regular users
-                    - Cannot create other Super Admins
-                    - Cannot modify Super Admin accounts
-                    """,
-            security = @SecurityRequirement(name = "Bearer Authentication")
-    )
-    @ApiResponses(value = {
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(
-                    responseCode = "201",
-                    description = "Admin created successfully",
-                    content = @Content(
-                            mediaType = "application/json",
-                            examples = @ExampleObject(
-                                    value = """
-                                            {
-                                              "success": true,
-                                              "message": "Admin user created successfully. Credentials sent to email.",
-                                              "data": "admin-user-id-456"
-                                            }
-                                            """
-                            )
-                    )
-            ),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(
-                    responseCode = "400",
-                    description = "Invalid input or email already exists"
-            ),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(
-                    responseCode = "401",
-                    description = "Authentication required"
-            ),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(
-                    responseCode = "403",
-                    description = "SUPER_ADMIN role required"
-            )
-    })
-    @PostMapping("/register-admin")
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
-    public Mono<ResponseEntity<ApiResponse<String>>> registerAdmin(
-            @Parameter(
-                    description = "Admin user details",
-                    required = true,
-                    schema = @Schema(implementation = UserRegistrationDTO.class)
-            )
-            @Valid @RequestBody UserRegistrationDTO userDto,
-
-            ServerWebExchange exchange) {
-
-        Instant startTime = clock.instant();
-        String ipAddress = deviceVerificationService.extractClientIp(exchange);
-        String deviceFingerprint = deviceVerificationService.generateDeviceFingerprint(
-                ipAddress, userDto.getUserAgent());
-
-        log.info("Admin registration by Super Admin at {} for: {}",
-                startTime, HelperUtils.maskEmail(userDto.getEmail()));
-
-        return adminUserManagementService.createAdminUser(userDto, exchange, ipAddress, deviceFingerprint)
-                .map(user -> {
-                    Instant endTime = clock.instant();
-
-                    log.info("✅ Admin user created at {} - ID: {}", endTime, user.getId());
-
-                    return ResponseEntity
-                            .status(HttpStatus.CREATED)
-                            .body(new ApiResponse<>(
-                                    true,
-                                    "Admin user created successfully. Credentials sent to email.",
-                                    user.getId()
-                            ));
                 });
     }
 }

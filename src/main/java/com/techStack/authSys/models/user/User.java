@@ -65,6 +65,54 @@ public class User implements UserDetails {
     // ==========================================
     // ROLES & PERMISSIONS
     // ==========================================
+    /**
+     * Custom permissions assigned directly to this user
+     * (in addition to role-based permissions)
+     */
+    //@Builder.Default
+    private Set<String> customPermissions = new HashSet<>();
+
+    /**
+     * Get all custom permissions
+     */
+    public Set<String> getCustomPermissions() {
+        return customPermissions != null ? new HashSet<>(customPermissions) : new HashSet<>();
+    }
+
+    /**
+     * Add a custom permission
+     */
+    public void addCustomPermission(String permission) {
+        if (this.customPermissions == null) {
+            this.customPermissions = new HashSet<>();
+        }
+        this.customPermissions.add(permission);
+    }
+
+    /**
+     * Remove a custom permission
+     */
+    public void removeCustomPermission(String permission) {
+        if (this.customPermissions != null) {
+            this.customPermissions.remove(permission);
+        }
+    }
+
+    /**
+     * Check if user has a custom permission
+     */
+    public boolean hasCustomPermission(String permission) {
+        return this.customPermissions != null && this.customPermissions.contains(permission);
+    }
+
+    /**
+     * Clear all custom permissions
+     */
+    public void clearCustomPermissions() {
+        if (this.customPermissions != null) {
+            this.customPermissions.clear();
+        }
+    }
 
     @PropertyName("roles")
     private List<String> roleNames = new ArrayList<>();
@@ -680,6 +728,26 @@ public class User implements UserDetails {
         return requestedRoles == null || requestedRoles.isEmpty()
                 ? Set.of(Roles.USER)
                 : requestedRoles;
+    }
+    // In User.java
+    public Roles getPrimaryRole() {
+        if (this.roleNames == null || this.roleNames.isEmpty()) {
+            return Roles.USER; // default role
+        }
+
+        // Define priority order
+        List<Roles> priorityOrder = Arrays.asList(
+                Roles.SUPER_ADMIN,
+                Roles.ADMIN,
+                Roles.MANAGER,
+                //Roles.SUPERVISOR,
+                Roles.USER
+        );
+
+        return priorityOrder.stream()
+                .filter(this.roleNames::contains)
+                .findFirst()
+                .orElse(Roles.USER);
     }
 
     public Set<Roles> getRoles() {

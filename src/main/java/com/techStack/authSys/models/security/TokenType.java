@@ -9,5 +9,6 @@ public enum TokenType {
     REFRESH,
     TEMPORARY,
     TEMPORARY_LOGIN,
-    PASSWORD_RESET
+    PASSWORD_RESET,
+    PERMISSIONS_GRANTED
 }

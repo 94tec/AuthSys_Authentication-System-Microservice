@@ -141,22 +141,25 @@ public class ApiResponse<T> implements Serializable {
 
     /**
      * Success with message but no data
+     * ✅ FIXED: now generic
      */
-    public static ApiResponse<Void> success(String message) {
+    public static <T> ApiResponse<T> success(String message) {
         return new ApiResponse<>(true, message, null);
     }
 
     /**
      * Success with message and explicit timestamp
+     * ✅ FIXED: now generic
      */
-    public static ApiResponse<Void> success(String message, Instant timestamp) {
+    public static <T> ApiResponse<T> success(String message, Instant timestamp) {
         return new ApiResponse<>(true, message, null, timestamp);
     }
 
     /**
      * Default success with no data or message
+     * ✅ FIXED: now generic
      */
-    public static ApiResponse<Void> success() {
+    public static <T> ApiResponse<T> success() {
         return new ApiResponse<>(true, "Operation successful", null);
     }
 
@@ -166,22 +169,25 @@ public class ApiResponse<T> implements Serializable {
 
     /**
      * Error response with message only
+     * ✅ FIXED: now generic
      */
-    public static ApiResponse<Void> error(String message) {
+    public static <T> ApiResponse<T> error(String message) {
         return new ApiResponse<>(false, message, null);
     }
 
     /**
      * Error response with message and error code
+     * ✅ FIXED: now generic
      */
-    public static ApiResponse<Void> error(String message, String errorCode) {
+    public static <T> ApiResponse<T> error(String message, String errorCode) {
         return new ApiResponse<>(false, message, null, errorCode);
     }
 
     /**
      * Error response with explicit timestamp
+     * ✅ FIXED: now generic
      */
-    public static ApiResponse<Void> error(String message, Instant timestamp) {
+    public static <T> ApiResponse<T> error(String message, Instant timestamp) {
         return new ApiResponse<>(false, message, null, timestamp);
     }
 
@@ -212,9 +218,10 @@ public class ApiResponse<T> implements Serializable {
 
     /**
      * Validation error response
+     * ✅ FIXED: now generic so it can match ApiResponse<String>, ApiResponse<User>, etc.
      */
-    public static ApiResponse<Void> validationError(String message, Map<String, String> errors) {
-        ApiResponse<Void> response = new ApiResponse<>(false, message, null, "VALIDATION_ERROR");
+    public static <T> ApiResponse<T> validationError(String message, Map<String, String> errors) {
+        ApiResponse<T> response = new ApiResponse<>(false, message, null, "VALIDATION_ERROR");
         response.setValidationErrors(errors);
         return response;
     }
@@ -288,45 +295,27 @@ public class ApiResponse<T> implements Serializable {
        Utility Methods
        ========================= */
 
-    /**
-     * Check if response is successful
-     */
     public boolean isSuccess() {
         return success;
     }
 
-    /**
-     * Check if response is error
-     */
     public boolean isError() {
         return !success;
     }
 
-    /**
-     * Check if response has validation errors
-     */
     public boolean hasValidationErrors() {
         return validationErrors != null && !validationErrors.isEmpty();
     }
 
-    /**
-     * Check if response has metadata
-     */
     public boolean hasMetadata() {
         return metadata != null && !metadata.isEmpty();
     }
 
-    /**
-     * Get timestamp as epoch millis
-     */
     public long getTimestampMillis() {
         return timestampMillis != null ? timestampMillis :
                 (timestamp != null ? timestamp.toEpochMilli() : 0L);
     }
 
-    /**
-     * Get timestamp as ISO-8601 string
-     */
     public String getTimestampISO() {
         return timestamp != null ? timestamp.toString() : null;
     }
@@ -357,7 +346,7 @@ public class ApiResponse<T> implements Serializable {
         ApiResponse<?> that = (ApiResponse<?>) o;
 
         if (success != that.success) return false;
-        if (!message.equals(that.message)) return false;
+        if (message != null ? !message.equals(that.message) : that.message != null) return false;
         if (data != null ? !data.equals(that.data) : that.data != null) return false;
         if (errorCode != null ? !errorCode.equals(that.errorCode) : that.errorCode != null)
             return false;

@@ -607,11 +607,11 @@ public class PasswordResetController {
                     required = true,
                     schema = @Schema(implementation = PasswordResetCompleteRequest.class),
                     example = """
-                            {
-                              "token": "eyJhbGciOiJIUzUxMiJ9...",
-                              "newPassword": "NewSecurePass123!@"
-                            }
-                            """
+                        {
+                          "token": "eyJhbGciOiJIUzUxMiJ9...",
+                          "newPassword": "NewSecurePass123!@"
+                        }
+                        """
             )
             @Valid @RequestBody PasswordResetCompleteRequest request) {
 
@@ -631,7 +631,7 @@ public class PasswordResetController {
                             completionTime, duration);
 
                     return ResponseEntity.ok(
-                            ApiResponse.success(
+                            ApiResponse.<Void>success(
                                     "Password reset successful. You can now login with your new password.",
                                     completionTime
                             )
@@ -645,9 +645,9 @@ public class PasswordResetController {
 
                     return Mono.just(ResponseEntity
                             .badRequest()
-                            .body(ApiResponse.error(e.getMessage(), errorTime)));
+                            .body(ApiResponse.<Void>error(e.getMessage(), errorTime)));
                 })
-                .onErrorResume(e -> {
+                .onErrorResume(Exception.class, e -> {
                     Instant errorTime = clock.instant();
 
                     log.error("❌ Password reset failed at {}: {}",
@@ -655,7 +655,7 @@ public class PasswordResetController {
 
                     return Mono.just(ResponseEntity
                             .internalServerError()
-                            .body(ApiResponse.error(
+                            .body(ApiResponse.<Void>error(
                                     "Failed to reset password. Please try again.",
                                     errorTime
                             )));

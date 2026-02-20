@@ -73,7 +73,6 @@ public class AuthController {
        ========================= */
 
     private final AuthService authService;
-    //private final AuthenticationService authenticationOrchestrator;
     private final AuthenticationOrchestrator authenticationOrchestrator;
     private final FirebaseServiceAuth firebaseServiceAuth;
     private final DeviceVerificationService deviceVerificationService;

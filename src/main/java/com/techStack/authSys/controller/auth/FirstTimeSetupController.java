@@ -173,10 +173,6 @@ public class FirstTimeSetupController {
             )
     )
     public Mono<ResponseEntity<ApiResponse<Void>>> changePassword(
-            @Parameter(
-                    description = "Temporary token from login",
-                    required = true
-            )
             @RequestHeader("Authorization") String tempToken,
             @Valid @RequestBody ChangePasswordRequest request) {
 
@@ -184,43 +180,44 @@ public class FirstTimeSetupController {
         log.info("🔑 [STEP 1/3] Password change + staging at {}", startTime);
 
         return setupService.changePasswordFirstTime(tempToken, request)
-                .map(result -> {
-                    // Check if rate limited
+                .<ResponseEntity<ApiResponse<Void>>>map(result -> {
                     if (result.isRateLimited()) {
                         log.warn("⚠️ Rate limited at {}", clock.instant());
                         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
-                                .body(ApiResponse.error(
+                                .body(ApiResponse.<Void>error(
                                         result.getMessage(),
                                         "RATE_LIMIT_EXCEEDED"
                                 ));
                     }
 
-                    // Check if OTP sent
                     if (!result.isSent()) {
                         log.warn("⚠️ OTP send failed at {}", clock.instant());
                         return ResponseEntity.status(HttpStatus.MULTI_STATUS)
-                                .body(ApiResponse.error(
+                                .body(ApiResponse.<Void>error(
                                         result.getMessage(),
                                         "OTP_SEND_FAILED"
                                 ));
                     }
 
-                    log.info("✅ [STEP 1/3] Password STAGED + OTP sent at {}",
-                            clock.instant());
+                    log.info("✅ [STEP 1/3] Password STAGED + OTP sent at {}", clock.instant());
 
-                    return ResponseEntity.ok(ApiResponse.success(
-                            "Password staged successfully. OTP sent to your phone."
+                    return ResponseEntity.ok(ApiResponse.<Void>success(
+                            "Password staged successfully. OTP sent to your phone.",
+                            clock.instant()
                     ));
                 })
                 .onErrorResume(IllegalStateException.class, e -> {
                     log.warn("❌ Invalid state: {}", e.getMessage());
-                    return Mono.just(ResponseEntity.badRequest()
-                            .body(ApiResponse.error(e.getMessage(), "INVALID_STATE")));
+                    return Mono.just(ResponseEntity.<ApiResponse<Void>>badRequest()
+                            .body(ApiResponse.<Void>error(
+                                    e.getMessage(),
+                                    "INVALID_STATE"
+                            )));
                 })
-                .onErrorResume(e -> {
+                .onErrorResume(Exception.class, e -> {
                     log.error("❌ [STEP 1/3] Failed: {}", e.getMessage());
-                    return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                            .body(ApiResponse.error(
+                    return Mono.just(ResponseEntity.<ApiResponse<Void>>status(HttpStatus.INTERNAL_SERVER_ERROR)
+                            .body(ApiResponse.<Void>error(
                                     "Failed to process request. Please try again.",
                                     "SERVER_ERROR"
                             )));
@@ -308,7 +305,7 @@ public class FirstTimeSetupController {
         Instant startTime = clock.instant();
         log.info("🔍 [STEP 2/3] OTP verification at {}", startTime);
 
-        return setupService.verifyOtpAndCompleteSetup(tempToken, request)  // ✅ Use verifyOtp, not verifyOtpAndCompleteSetup
+        return setupService.verifyOtpAndCompleteSetup(tempToken, request)
                 .map(result -> {
                     Duration duration = Duration.between(startTime, clock.instant());
 
@@ -317,7 +314,7 @@ public class FirstTimeSetupController {
 
                         return ResponseEntity
                                 .badRequest()
-                                .body(ApiResponse.error(
+                                .body(ApiResponse.<OtpVerificationResult>error(
                                         result.getMessage(),
                                         result,
                                         clock.instant()
@@ -327,7 +324,7 @@ public class FirstTimeSetupController {
                     log.info("✅ [STEP 2/3] OTP verified at {} in {}", clock.instant(), duration);
 
                     return ResponseEntity.ok(
-                            ApiResponse.success(
+                            ApiResponse.<OtpVerificationResult>success(
                                     result.getMessage(),
                                     result,
                                     clock.instant()
@@ -336,49 +333,188 @@ public class FirstTimeSetupController {
                 })
                 .onErrorResume(IllegalStateException.class, e -> {
                     log.warn("❌ Invalid state: {}", e.getMessage());
+                    OtpVerificationResult errorResult = OtpVerificationResult.builder()
+                            .valid(false)
+                            .message(e.getMessage())
+                            .build();
                     return Mono.just(ResponseEntity
                             .badRequest()
-                            .body(ApiResponse.error(
+                            .body(ApiResponse.<OtpVerificationResult>error(
                                     e.getMessage(),
-                                    OtpVerificationResult.builder()
-                                            .valid(false)
-                                            .message(e.getMessage())
-                                            .build(),
+                                    errorResult,
                                     clock.instant()
                             )));
                 })
                 .onErrorResume(AuthException.class, e -> {
                     log.error("❌ Auth error: {}", e.getMessage());
+                    OtpVerificationResult errorResult = OtpVerificationResult.builder()
+                            .valid(false)
+                            .message(e.getMessage())
+                            .build();
                     return Mono.just(ResponseEntity
                             .status(e.getHttpStatus())
-                            .body(ApiResponse.error(
+                            .body(ApiResponse.<OtpVerificationResult>error(
                                     e.getMessage(),
-                                    OtpVerificationResult.builder()
-                                            .valid(false)
-                                            .message(e.getMessage())
-                                            .build(),
+                                    errorResult,
                                     clock.instant()
                             )));
                 })
-                .onErrorResume(e -> {
+                .onErrorResume(Exception.class, e -> {
                     log.error("❌ [STEP 2/3] Failed: {}", e.getMessage());
+                    OtpVerificationResult errorResult = OtpVerificationResult.builder()
+                            .valid(false)
+                            .message("Internal server error")
+                            .build();
                     return Mono.just(ResponseEntity
                             .status(HttpStatus.INTERNAL_SERVER_ERROR)
-                            .body(ApiResponse.error(
+                            .body(ApiResponse.<OtpVerificationResult>error(
                                     "Failed to verify OTP. Please try again.",
-                                    OtpVerificationResult.builder()
-                                            .valid(false)
-                                            .message("Internal server error")
-                                            .build(),
+                                    errorResult,
                                     clock.instant()
                             )));
                 });
     }
 
-   /* =========================
-   STEP 3: Complete Setup (COMMIT to DB)
-   ========================= */
+    /* =========================
+       STEP 3: Complete Setup (COMMIT to DB)
+       ========================= */
 
+    @PostMapping(value = "/complete",
+            consumes = MediaType.APPLICATION_JSON_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(
+            summary = "Step 3/3: Complete setup",
+            description = """
+            **COMMIT password to database and activate account.**
+            
+            ⭐ **THIS IS WHERE PASSWORD IS SAVED TO DATABASE!**
+            
+            **What Happens:**
+            1. Validates verification token (consumes it - single-use)
+            2. Retrieves staged password from Redis
+            3. **COMMITS** password to database (FIRST TIME!)
+            4. Activates account (forcePasswordChange=false, phoneVerified=true)
+            5. Invalidates all sessions
+            6. Cleans up Redis keys
+            7. Sends confirmation email
+            8. Returns full access tokens
+            
+            **After Success:**
+            - Password is NOW in database ✅
+            - Account is activated ✅
+            - Temp password is dead ✅
+            - Full access granted ✅
+            
+            **Security:**
+            - Verification token is single-use
+            - All sessions invalidated
+            - Staged password cleaned from Redis
+            """,
+            security = {}
+    )
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "200",
+                    description = "Setup complete, account activated",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = @ExampleObject(
+                                    value = """
+                    {
+                      "success": true,
+                      "message": "Setup complete! Your account is now activated.",
+                      "data": {
+                        "accessToken": "eyJhbGciOiJIUzUxMiJ9...",
+                        "refreshToken": "eyJhbGciOiJIUzUxMiJ9..."
+                      }
+                    }
+                    """
+                            )
+                    )
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "401",
+                    description = "Invalid or expired verification token"
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "400",
+                    description = "No staged password found (restart from Step 1)"
+            )
+    })
+    public Mono<ResponseEntity<ApiResponse<Map<String, String>>>> completeSetup(
+            @Valid @RequestBody CompleteSetupRequest request) {
+
+        Instant startTime = clock.instant();
+        log.info("🎯 [STEP 3/3] Completing setup - COMMITTING to DB at {}", startTime);
+
+        return setupService.completeSetup(request.verificationToken())
+                .map(tokenPair -> {
+                    log.info("✅ [STEP 3/3] Setup COMPLETED at {} - Password in DB!",
+                            clock.instant());
+
+                    Map<String, String> tokens = Map.of(
+                            "accessToken", tokenPair.getAccessToken(),
+                            "refreshToken", tokenPair.getRefreshToken()
+                    );
+
+                    return ResponseEntity.ok(
+                            ApiResponse.<Map<String, String>>success(
+                                    "Setup complete! Your account is now activated.",
+                                    tokens,
+                                    clock.instant()
+                            )
+                    );
+                })
+                .onErrorResume(IllegalStateException.class, e -> {
+                    log.warn("❌ Invalid state: {}", e.getMessage());
+
+                    Map<String, String> errorData = Map.of(
+                            "error", "INVALID_STATE",
+                            "message", e.getMessage()
+                    );
+
+                    return Mono.just(ResponseEntity.badRequest()
+                            .body(ApiResponse.<Map<String, String>>error(
+                                    e.getMessage(),
+                                    errorData,
+                                    clock.instant()
+                            )));
+                })
+                .onErrorResume(AuthException.class, e -> {
+                    log.error("❌ Auth error: {}", e.getMessage());
+
+                    Map<String, String> errorData = Map.of(
+                            "error", "INVALID_TOKEN",
+                            "message", "The verification token is invalid or expired"
+                    );
+
+                    return Mono.just(ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                            .body(ApiResponse.<Map<String, String>>error(
+                                    "Invalid or expired verification token",
+                                    errorData,
+                                    clock.instant()
+                            )));
+                })
+                .onErrorResume(Exception.class, e -> {
+                    log.error("❌ [STEP 3/3] Failed: {}", e.getMessage());
+
+                    Map<String, String> errorData = Map.of(
+                            "error", "SERVER_ERROR",
+                            "message", "An unexpected error occurred"
+                    );
+
+                    return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                            .body(ApiResponse.<Map<String, String>>error(
+                                    "Failed to complete setup. Please try again.",
+                                    errorData,
+                                    clock.instant()
+                            )));
+                });
+    }
+
+    /* =========================
+       Resend OTP
+       ========================= */
 
     @PostMapping(value = "/resend-otp", produces = MediaType.APPLICATION_JSON_VALUE)
     @Operation(
@@ -414,20 +550,16 @@ public class FirstTimeSetupController {
             )
     })
     public Mono<ResponseEntity<ApiResponse<Void>>> resendOtp(
-            @Parameter(
-                    description = "Temporary token from login",
-                    required = true
-            )
             @RequestHeader("Authorization") String tempToken) {
 
         Instant startTime = clock.instant();
         log.info("🔄 OTP resend at {}", startTime);
 
         return setupService.resendOtp(tempToken)
-                .map(result -> {
+                .<ResponseEntity<ApiResponse<Void>>>map(result -> {
                     if (result.isRateLimited()) {
                         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
-                                .body(ApiResponse.error(
+                                .body(ApiResponse.<Void>error(
                                         result.getMessage(),
                                         "RATE_LIMIT_EXCEEDED"
                                 ));
@@ -435,7 +567,7 @@ public class FirstTimeSetupController {
 
                     if (!result.isSent()) {
                         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                                .body(ApiResponse.error(
+                                .body(ApiResponse.<Void>error(
                                         result.getMessage(),
                                         "OTP_SEND_FAILED"
                                 ));
@@ -443,12 +575,23 @@ public class FirstTimeSetupController {
 
                     log.info("✅ OTP resent at {}", clock.instant());
 
-                    return ResponseEntity.ok(ApiResponse.success(result.getMessage()));
+                    return ResponseEntity.ok(ApiResponse.<Void>success(
+                            result.getMessage(),
+                            clock.instant()
+                    ));
                 })
-                .onErrorResume(e -> {
+                .onErrorResume(IllegalStateException.class, e -> {
+                    log.warn("❌ Invalid state: {}", e.getMessage());
+                    return Mono.just(ResponseEntity.<ApiResponse<Void>>badRequest()
+                            .body(ApiResponse.<Void>error(
+                                    e.getMessage(),
+                                    "INVALID_STATE"
+                            )));
+                })
+                .onErrorResume(Exception.class, e -> {
                     log.error("❌ OTP resend failed: {}", e.getMessage());
-                    return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                            .body(ApiResponse.error(
+                    return Mono.just(ResponseEntity.<ApiResponse<Void>>status(HttpStatus.INTERNAL_SERVER_ERROR)
+                            .body(ApiResponse.<Void>error(
                                     "Failed to resend OTP. Please try again.",
                                     "SERVER_ERROR"
                             )));

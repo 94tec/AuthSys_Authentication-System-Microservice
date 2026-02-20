@@ -238,7 +238,7 @@ public class PasswordManagementController {
 
             return Mono.just(ResponseEntity
                     .badRequest()
-                    .body(ApiResponse.error(
+                    .body(ApiResponse.<Void>error(
                             "New password and confirmation do not match",
                             errorTime
                     )));
@@ -252,7 +252,7 @@ public class PasswordManagementController {
 
             return Mono.just(ResponseEntity
                     .badRequest()
-                    .body(ApiResponse.error(
+                    .body(ApiResponse.<Void>error(
                             "New password must be different from current password",
                             errorTime
                     )));
@@ -271,7 +271,7 @@ public class PasswordManagementController {
                             completionTime, duration, HelperUtils.maskEmail(email));
 
                     return ResponseEntity.ok(
-                            ApiResponse.success(
+                            ApiResponse.<Void>success(
                                     "Password changed successfully",
                                     completionTime
                             )
@@ -283,15 +283,15 @@ public class PasswordManagementController {
 
                     return Mono.just(ResponseEntity
                             .badRequest()
-                            .body(ApiResponse.error(e.getMessage(), errorTime)));
+                            .body(ApiResponse.<Void>error(e.getMessage(), errorTime)));
                 })
-                .onErrorResume(e -> {
+                .onErrorResume(Exception.class, e -> {
                     Instant errorTime = clock.instant();
                     log.error("❌ Password change failed at {}: {}", errorTime, e.getMessage(), e);
 
                     return Mono.just(ResponseEntity
                             .internalServerError()
-                            .body(ApiResponse.error(
+                            .body(ApiResponse.<Void>error(
                                     "Failed to change password. Please try again.",
                                     errorTime
                             )));
@@ -453,7 +453,7 @@ public class PasswordManagementController {
                             HelperUtils.maskEmail(adminEmail));
 
                     return ResponseEntity.ok(
-                            ApiResponse.success(
+                            ApiResponse.<Void>success(
                                     "Password changed successfully. User will be notified.",
                                     completionTime
                             )
@@ -557,7 +557,7 @@ public class PasswordManagementController {
                             completionTime, duration);
 
                     return ResponseEntity.ok(
-                            ApiResponse.success(
+                            ApiResponse.<Void>success(
                                     "If an account exists with this email, you will receive a password reset link.",
                                     completionTime
                             )
@@ -716,7 +716,7 @@ public class PasswordManagementController {
                             completionTime, duration, HelperUtils.maskEmail(user.getEmail()));
 
                     return ResponseEntity.ok(
-                            ApiResponse.success(
+                            ApiResponse.<Void>success(
                                     "Password reset successful. You can now login with your new password.",
                                     completionTime
                             )

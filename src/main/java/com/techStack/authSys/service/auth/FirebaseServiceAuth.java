@@ -6,11 +6,14 @@ import com.google.firebase.auth.UserRecord;
 import com.techStack.authSys.dto.internal.RequesterContext;
 import com.techStack.authSys.dto.internal.SecurityContext;
 import com.techStack.authSys.dto.response.PendingUserResponse;
+import com.techStack.authSys.exception.account.UserNotFoundException;
+import com.techStack.authSys.models.user.PermissionData;
+import com.techStack.authSys.models.user.Roles;
 import com.techStack.authSys.models.user.User;
 import com.techStack.authSys.models.user.UserStatus;
 import com.techStack.authSys.repository.user.FirestoreUserRepository;
 import com.techStack.authSys.service.authorization.RoleAssignmentService;
-import com.techStack.authSys.service.user.UserApprovalService;
+import com.techStack.authSys.service.user.AdminService;
 import com.techStack.authSys.service.validation.FirebaseAuthValidator;
 import com.techStack.authSys.util.validation.HelperUtils;
 import lombok.RequiredArgsConstructor;
@@ -22,8 +25,8 @@ import reactor.core.scheduler.Schedulers;
 
 import java.time.Clock;
 import java.time.Instant;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * Firebase Authentication Service
@@ -39,7 +42,7 @@ public class FirebaseServiceAuth {
 
     private final FirebaseAuth firebaseAuth;
     private final FirestoreUserRepository userRepository;
-    private final UserApprovalService userPermissionWorkflowService;
+    private final AdminService adminService;
     private final FirebaseAuthValidator authValidator;
     private final DeviceVerificationService deviceVerificationService;
     private final RoleAssignmentService roleAssignmentService;
@@ -95,25 +98,82 @@ public class FirebaseServiceAuth {
                         now, e.getMessage()));
     }
 
-    /* =========================
-       Atomic Save (private)
-       ========================= */
-
+    /**
+     * Save user atomically with permissions
+     *
+     * @param user User to save
+     * @param ipAddress IP address for audit
+     * @param deviceFingerprint Device fingerprint
+     * @return Saved user
+     */
     private Mono<User> saveUserAtomic(
-            User user, String ipAddress, String deviceFingerprint) {
-        Instant now = clock.instant();
+            User user,
+            String ipAddress,
+            String deviceFingerprint) {
 
-        return userPermissionWorkflowService.preparePermissionData(user)
-                .flatMap(permData ->
-                        userRepository.saveUserAtomic(user, ipAddress, deviceFingerprint, permData))
-                .flatMap(savedUser ->
-                        deviceVerificationService.saveUserFingerprint(
-                                        savedUser.getId(), deviceFingerprint)
-                                .thenReturn(savedUser))
+        Instant now = clock.instant();
+        String approverId = getCurrentUserId(); // Implement this to get from security context
+
+        log.info("💾 Saving user {} atomically at {}", user.getId(), now);
+
+        return adminService.getActivePermissions(user)
+                .switchIfEmpty(Mono.just(Collections.emptySet()))
+                .flatMap(permissions -> {
+                    log.debug("📦 Got {} permissions for user, preparing permission data...",
+                            permissions.size());
+
+                    try {
+                        PermissionData permissionData = adminService.preparePermissionData(
+                                user,
+                                permissions,
+                                approverId,
+                                now
+                        );
+
+                        log.debug("📦 Permission data prepared, saving to Firestore...");
+
+                        return userRepository.saveUserAtomic(
+                                user,
+                                ipAddress,
+                                deviceFingerprint,
+                                permissionData
+                        );
+                    } catch (Exception e) {
+                        log.error("❌ Failed to prepare permission data: {}", e.getMessage());
+                        return Mono.error(e);
+                    }
+                })
+                .flatMap(savedUser -> {
+                    log.debug("🔐 Saving device fingerprint for user: {}", savedUser.getId());
+
+                    return deviceVerificationService.saveUserFingerprint(
+                                    savedUser.getId(),
+                                    deviceFingerprint
+                            )
+                            .thenReturn(savedUser)
+                            .onErrorResume(e -> {
+                                log.error("⚠️ Failed to save device fingerprint, but user was created: {}",
+                                        e.getMessage());
+                                return Mono.just(savedUser); // Don't fail the whole operation
+                            });
+                })
                 .doOnSuccess(saved ->
-                        log.info("✅ User saved to Firestore UID: {} at {}", saved.getId(), now))
+                        log.info("✅ User saved to Firestore UID: {} at {}",
+                                saved.getId(), now))
                 .doOnError(e ->
-                        log.error("❌ Failed to save user to Firestore at {}: {}", now, e.getMessage()));
+                        log.error("❌ Failed to save user to Firestore at {}: {}",
+                                now, e.getMessage(), e));
+    }
+
+    /**
+     * Get current user ID from security context
+     */
+    private String getCurrentUserId() {
+        // Implement this based on your security context
+        // Example with Spring Security:
+        // Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        // return auth != null ? auth.getName() : "SYSTEM";
+        return "SYSTEM"; // Default fallback
     }
 
     /* =========================
@@ -182,18 +242,72 @@ public class FirebaseServiceAuth {
     }
 
     /* =========================
-       Permission Management
-       ========================= */
+   Permission Management
+   ========================= */
 
     public Mono<Void> approveUserAndGrantPermissions(String userId, String approvedBy) {
+        Instant now = clock.instant();
+
         return getUserById(userId)
-                .flatMap(user -> userPermissionWorkflowService
-                        .approveAndGrantPermissions(user, approvedBy))
-                .doOnSuccess(v -> log.info("✅ User approved: {}", userId));
+                .flatMap(user -> {
+                    // Get the approver's role (you need to fetch this)
+                    return getUserById(approvedBy)
+                            .map(approver -> {
+                                Roles approverRole = approver.getPrimaryRole(); // or getHighestRole()
+                                return adminService.approveAndGrantPermissions(
+                                        user,
+                                        approvedBy,
+                                        approverRole,
+                                        now
+                                );
+                            });
+                })
+                .doOnSuccess(v -> log.info("✅ User approved: {}", userId)).then();
     }
 
     public Mono<Map<String, Object>> getUserPermissions(String userId) {
-        return userPermissionWorkflowService.getActivePermissions(userId);
+        log.debug("🔍 Getting permissions for user: {}", userId);
+
+        return getUserById(userId)
+                .switchIfEmpty(Mono.error(new UserNotFoundException("User not found: " + userId)))
+                .flatMap(adminService::getActivePermissions)
+                .map(permissionsSet -> {
+                    Map<String, Object> result = new LinkedHashMap<>();  // Preserve order
+                    result.put("success", true);
+                    result.put("userId", userId);
+                    result.put("permissions", permissionsSet);
+                    result.put("count", permissionsSet.size());
+                    result.put("timestamp", clock.instant().toString());
+
+                    // Add permission categories for better organization
+                    Map<String, List<String>> categorized = permissionsSet.stream()
+                            .collect(Collectors.groupingBy(
+                                    perm -> perm.split("_")[0],  // Categorize by prefix (e.g., USER_, ADMIN_)
+                                    Collectors.toList()
+                            ));
+                    result.put("categorized", categorized);
+
+                    return result;
+                })
+                .doOnSuccess(result ->
+                        log.info("✅ Retrieved {} permissions for user {}",
+                                result.get("count"), userId))
+                .doOnError(e -> {
+                    if (e instanceof UserNotFoundException) {
+                        log.warn("⚠️ User not found: {}", userId);
+                    } else {
+                        log.error("❌ Failed to get permissions for user {}: {}",
+                                userId, e.getMessage(), e);
+                    }
+                })
+                .onErrorResume(UserNotFoundException.class, e -> {
+                    Map<String, Object> errorResult = new HashMap<>();
+                    errorResult.put("success", false);
+                    errorResult.put("error", "User not found");
+                    errorResult.put("userId", userId);
+                    errorResult.put("timestamp", clock.instant().toString());
+                    return Mono.just(errorResult);
+                });
     }
 
     /* =========================
@@ -300,22 +414,35 @@ public class FirebaseServiceAuth {
     }
 
     private Mono<Void> deleteFromFirebaseAuth(String userId) {
-        return Mono.fromCallable(() -> {
-                    firebaseAuth.deleteUser(userId);
-                    log.info("🔥 Deleted from Firebase Auth: {}", userId);
-                    return (Void) null;
+        return Mono.fromRunnable(() -> {
+                    try {
+                        firebaseAuth.deleteUser(userId);
+                        log.info("🔥 Deleted from Firebase Auth: {}", userId);
+                    } catch (FirebaseAuthException e) {
+                        throw new RuntimeException(e);
+                    }
                 })
                 .subscribeOn(Schedulers.boundedElastic())
-                .onErrorResume(FirebaseAuthException.class, e -> {
-                    String code = e.getAuthErrorCode() != null
-                            ? e.getAuthErrorCode().name() : "";
-                    if ("USER_NOT_FOUND".equals(code)) {
-                        log.warn("⚠️ User not found in Firebase Auth (already deleted?): {}", userId);
-                        return Mono.empty();
+                .onErrorResume(e -> {
+                    Throwable cause = e.getCause();
+
+                    if (cause instanceof FirebaseAuthException fae) {
+                        String code = fae.getAuthErrorCode() != null
+                                ? fae.getAuthErrorCode().name()
+                                : "";
+
+                        if ("USER_NOT_FOUND".equals(code)) {
+                            log.warn("⚠️ User not found in Firebase Auth (already deleted?): {}", userId);
+                            return Mono.empty();
+                        }
+
+                        return Mono.error(fae);
                     }
+
                     return Mono.error(e);
-                });
+                }).then();
     }
+
 
     private PendingUserResponse buildPendingUserResponse(
             User user, SecurityContext securityContext) {
