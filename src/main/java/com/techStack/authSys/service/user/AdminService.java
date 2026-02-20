@@ -1,6 +1,7 @@
 package com.techStack.authSys.service.user;
 
 import com.techStack.authSys.dto.request.UserRegistrationDTO;
+import com.techStack.authSys.exception.account.UserNotFoundException;
 import com.techStack.authSys.exception.authorization.AccessDeniedException;
 import com.techStack.authSys.models.audit.ActionType;
 import com.techStack.authSys.models.authorization.Permissions;
@@ -196,6 +197,70 @@ public class AdminService {
     /* =========================
        PERMISSION MANAGEMENT
        ========================= */
+
+    public Mono<Void> approveUserAndGrantPermissions(String userId, String approvedBy) {
+        Instant now = clock.instant();
+
+        return firebaseServiceAuth.getUserById(userId)
+                .flatMap(user -> {
+                    // Get the approver's role (you need to fetch this)
+                    return firebaseServiceAuth.getUserById(approvedBy)
+                            .map(approver -> {
+                                Roles approverRole = approver.getPrimaryRole(); // or getHighestRole()
+                                return approveAndGrantPermissions(
+                                        user,
+                                        approvedBy,
+                                        approverRole,
+                                        now
+                                );
+                            });
+                })
+                .doOnSuccess(v -> log.info("✅ User approved: {}", userId)).then();
+    }
+    public Mono<Map<String, Object>> getUserPermissions(String userId) {
+        log.debug("🔍 Getting permissions for user: {}", userId);
+
+        return firebaseServiceAuth.getUserById(userId)
+                .switchIfEmpty(Mono.error(new UserNotFoundException("User not found: " + userId)))
+                .flatMap(user -> Mono.fromCallable(() -> permissionProvider.resolveEffectivePermissions(user)))
+                .map(permissionsSet -> {
+                    Map<String, Object> result = new LinkedHashMap<>();  // Preserve order
+                    result.put("success", true);
+                    result.put("userId", userId);
+                    result.put("permissions", permissionsSet);
+                    result.put("count", permissionsSet.size());
+                    result.put("timestamp", clock.instant().toString());
+
+                    // Add permission categories for better organization
+                    Map<String, List<String>> categorized = permissionsSet.stream()
+                            .collect(Collectors.groupingBy(
+                                    perm -> perm.split("_")[0],  // Categorize by prefix (e.g., USER_, ADMIN_)
+                                    Collectors.toList()
+                            ));
+                    result.put("categorized", categorized);
+
+                    return result;
+                })
+                .doOnSuccess(result ->
+                        log.info("✅ Retrieved {} permissions for user {}",
+                                result.get("count"), userId))
+                .doOnError(e -> {
+                    if (e instanceof UserNotFoundException) {
+                        log.warn("⚠️ User not found: {}", userId);
+                    } else {
+                        log.error("❌ Failed to get permissions for user {}: {}",
+                                userId, e.getMessage(), e);
+                    }
+                })
+                .onErrorResume(UserNotFoundException.class, e -> {
+                    Map<String, Object> errorResult = new HashMap<>();
+                    errorResult.put("success", false);
+                    errorResult.put("error", "User not found");
+                    errorResult.put("userId", userId);
+                    errorResult.put("timestamp", clock.instant().toString());
+                    return Mono.just(errorResult);
+                });
+    }
 
     /**
      * Approve user and grant appropriate permissions

@@ -11,6 +11,7 @@ import com.techStack.authSys.models.user.PermissionData;
 import com.techStack.authSys.models.user.Roles;
 import com.techStack.authSys.models.user.User;
 import com.techStack.authSys.models.user.UserStatus;
+import com.techStack.authSys.repository.authorization.PermissionProvider;
 import com.techStack.authSys.repository.user.FirestoreUserRepository;
 import com.techStack.authSys.service.authorization.RoleAssignmentService;
 import com.techStack.authSys.service.user.AdminService;
@@ -42,9 +43,9 @@ public class FirebaseServiceAuth {
 
     private final FirebaseAuth firebaseAuth;
     private final FirestoreUserRepository userRepository;
-    private final AdminService adminService;
     private final FirebaseAuthValidator authValidator;
     private final DeviceVerificationService deviceVerificationService;
+    private final PermissionProvider permissionProvider;
     private final RoleAssignmentService roleAssignmentService;
     private final Clock clock;
 
@@ -116,14 +117,14 @@ public class FirebaseServiceAuth {
 
         log.info("💾 Saving user {} atomically at {}", user.getId(), now);
 
-        return adminService.getActivePermissions(user)
+        return Mono.fromCallable(() -> permissionProvider.resolveEffectivePermissions(user))
                 .switchIfEmpty(Mono.just(Collections.emptySet()))
                 .flatMap(permissions -> {
                     log.debug("📦 Got {} permissions for user, preparing permission data...",
                             permissions.size());
 
                     try {
-                        PermissionData permissionData = adminService.preparePermissionData(
+                        PermissionData permissionData = preparePermissionData(
                                 user,
                                 permissions,
                                 approverId,
@@ -164,6 +165,41 @@ public class FirebaseServiceAuth {
                         log.error("❌ Failed to save user to Firestore at {}: {}",
                                 now, e.getMessage(), e));
     }
+    /**
+     * Prepare permission data for storage
+     */
+    private PermissionData preparePermissionData(
+            User user,
+            Set<String> permissions,
+            String approverId,
+            Instant now) {
+
+        log.debug("📦 Preparing permission data for user: {}", user.getId());
+
+        return PermissionData.builder()
+                .userId(user.getId())
+                .email(user.getEmail())
+                .roles(new ArrayList<>(user.getRoleNames()))
+                .permissions(new ArrayList<>(permissions))
+                .status(user.getStatus() != null ? user.getStatus() : UserStatus.PENDING_APPROVAL)
+                .approvedBy(approverId)
+                .approvedAt(now)
+                .grantedAt(now)
+                .version(1)
+                .active(true)
+                .permissionMetadata(Map.of(
+                        "source", "role-based",
+                        "resolvedAt", now.toString(),
+                        "totalPermissions", permissions.size()
+                ))
+                .auditTrail(List.of(Map.of(
+                        "action", "USER_CREATED",
+                        "performedBy", approverId,
+                        "timestamp", now.toString()
+                )))
+                .build();
+    }
+
 
     /**
      * Get current user ID from security context
@@ -239,75 +275,6 @@ public class FirebaseServiceAuth {
     public Mono<Void> updateLastLogin(String userId, String ipAddress) {
         return userRepository.updateLastLogin(userId, ipAddress)
                 .doOnSuccess(v -> log.debug("Updated last login for {}", userId));
-    }
-
-    /* =========================
-   Permission Management
-   ========================= */
-
-    public Mono<Void> approveUserAndGrantPermissions(String userId, String approvedBy) {
-        Instant now = clock.instant();
-
-        return getUserById(userId)
-                .flatMap(user -> {
-                    // Get the approver's role (you need to fetch this)
-                    return getUserById(approvedBy)
-                            .map(approver -> {
-                                Roles approverRole = approver.getPrimaryRole(); // or getHighestRole()
-                                return adminService.approveAndGrantPermissions(
-                                        user,
-                                        approvedBy,
-                                        approverRole,
-                                        now
-                                );
-                            });
-                })
-                .doOnSuccess(v -> log.info("✅ User approved: {}", userId)).then();
-    }
-
-    public Mono<Map<String, Object>> getUserPermissions(String userId) {
-        log.debug("🔍 Getting permissions for user: {}", userId);
-
-        return getUserById(userId)
-                .switchIfEmpty(Mono.error(new UserNotFoundException("User not found: " + userId)))
-                .flatMap(adminService::getActivePermissions)
-                .map(permissionsSet -> {
-                    Map<String, Object> result = new LinkedHashMap<>();  // Preserve order
-                    result.put("success", true);
-                    result.put("userId", userId);
-                    result.put("permissions", permissionsSet);
-                    result.put("count", permissionsSet.size());
-                    result.put("timestamp", clock.instant().toString());
-
-                    // Add permission categories for better organization
-                    Map<String, List<String>> categorized = permissionsSet.stream()
-                            .collect(Collectors.groupingBy(
-                                    perm -> perm.split("_")[0],  // Categorize by prefix (e.g., USER_, ADMIN_)
-                                    Collectors.toList()
-                            ));
-                    result.put("categorized", categorized);
-
-                    return result;
-                })
-                .doOnSuccess(result ->
-                        log.info("✅ Retrieved {} permissions for user {}",
-                                result.get("count"), userId))
-                .doOnError(e -> {
-                    if (e instanceof UserNotFoundException) {
-                        log.warn("⚠️ User not found: {}", userId);
-                    } else {
-                        log.error("❌ Failed to get permissions for user {}: {}",
-                                userId, e.getMessage(), e);
-                    }
-                })
-                .onErrorResume(UserNotFoundException.class, e -> {
-                    Map<String, Object> errorResult = new HashMap<>();
-                    errorResult.put("success", false);
-                    errorResult.put("error", "User not found");
-                    errorResult.put("userId", userId);
-                    errorResult.put("timestamp", clock.instant().toString());
-                    return Mono.just(errorResult);
-                });
     }
 
     /* =========================
