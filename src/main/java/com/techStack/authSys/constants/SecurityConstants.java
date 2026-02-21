@@ -1,5 +1,6 @@
 package com.techStack.authSys.constants;
 
+import com.techStack.authSys.models.security.TokenType;
 import lombok.Getter;
 import lombok.Setter;
 import org.springframework.beans.factory.annotation.Value;
@@ -7,8 +8,11 @@ import org.springframework.beans.factory.annotation.Value;
 import javax.crypto.spec.SecretKeySpec;
 import java.time.Duration;
 import java.util.Collections;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
+
+import static com.techStack.authSys.models.security.TokenType.*;
 
 public final class SecurityConstants {
 
@@ -63,7 +67,7 @@ public final class SecurityConstants {
     public static final String CLAIM_TYPE_REFRESH = "refresh";
     public static final String CLAIM_TYPE_TEMPORARY = "temporary";
     public static final String CLAIM_TYPE_PASSWORD_RESET = "password_reset";
-
+    public static final String CLAIM_TYPE_PERMISSIONS_GRANTED = "permissions_granted";
 
     public static final String FIELD_VERIFICATION_TOKEN_HASH = "verificationTokenHash";
     public static final String FIELD_TOKEN_EXPIRES_AT = "verificationTokenExpiresAt";

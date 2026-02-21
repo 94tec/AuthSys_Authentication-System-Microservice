@@ -1,6 +1,5 @@
 package com.techStack.authSys.service.token;
 
-import com.google.api.core.ApiFuture;
 import com.google.cloud.firestore.*;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.UserRecord;
@@ -39,6 +38,14 @@ import static com.techStack.authSys.constants.SecurityConstants.*;
  *
  * Manages JWT token generation, validation, and lifecycle.
  * Uses Clock injection for all timestamp operations.
+ *
+ * <p>Internal duplication is eliminated via:
+ * <ul>
+ *   <li>{@link #buildTemporaryToken} — shared builder for all scoped temporary tokens</li>
+ *   <li>{@link #extractUserIdForType} — shared extractor for temporary token types</li>
+ *   <li>{@link #buildAuditPayload} — shared audit log map builder</li>
+ *   <li>{@link #revokeTokenInFirestore} — shared Firestore revocation writer</li>
+ * </ul>
  */
 @Service
 @RequiredArgsConstructor
@@ -58,28 +65,18 @@ public class JwtService {
     private final Clock clock;
 
     /* =========================
-       Token Generation
-       ========================= */
-    /* =========================
-       ACCESS TOKEN - Overloaded Methods
+       ACCESS TOKEN
        ========================= */
 
     /**
-     * Generate access token (simple - for first-time setup completion)
+     * Generate access token (simple — no request context available).
      */
     public String generateAccessToken(User user) {
-        Instant now = clock.instant();
-        return generateAccessToken(
-                user,
-                "unknown",  // IP not available in this context
-                "unknown",  // User agent not available
-                now,
-                user.getAllPermissions()
-        );
+        return generateAccessToken(user, "unknown", "unknown", clock.instant(), user.getAllPermissions());
     }
 
     /**
-     * Generate access token (full version with context)
+     * Generate access token (full version with request context).
      */
     public String generateAccessToken(
             User user,
@@ -88,41 +85,33 @@ public class JwtService {
             Instant issuedAt,
             Set<Permissions> permissions
     ) {
-        // Convert Permissions objects to Strings for the JWT claims
-        Set<String> permissionsForClaims = permissions.stream()
-                .map(Permissions::name)
-                .collect(Collectors.toSet());
-
         Map<String, Object> claims = buildEnhancedClaims(
-                user, ipAddress, userAgent, TOKEN_TYPE_ACCESS, permissionsForClaims
-        );
+                user, ipAddress, userAgent, TOKEN_TYPE_ACCESS, toPermissionNames(permissions));
 
         return jwtConfig.jwtBuilder()
                 .setClaims(claims)
                 .setSubject(user.getId())
                 .setIssuer(jwtConfig.getIssuer())
                 .setIssuedAt(Date.from(issuedAt))
-                .setExpiration(Date.from(issuedAt.plusSeconds(
-                        jwtConfig.getAccessTokenExpirationInSeconds())))
+                .setExpiration(Date.from(issuedAt.plusSeconds(jwtConfig.getAccessTokenExpirationInSeconds())))
                 .signWith(jwtConfig.accessTokenSecretKey(), SignatureAlgorithm.HS512)
                 .compact();
     }
 
     /* =========================
-       REFRESH TOKEN - Overloaded Methods
+       REFRESH TOKEN
        ========================= */
 
     /**
-     * Generate refresh token (simple - for first-time setup completion)
+     * Generate refresh token (simple — no request context available).
      */
     public String generateRefreshToken(String userId) {
         Instant now = clock.instant();
+        String jti = UUID.randomUUID().toString();
 
         Map<String, Object> claims = new HashMap<>();
         claims.put("type", TOKEN_TYPE_REFRESH);
         claims.put("userId", userId);
-
-        String jti = UUID.randomUUID().toString();
         claims.put("jti", jti);
 
         return jwtConfig.refreshTokenJwtBuilder()
@@ -131,14 +120,13 @@ public class JwtService {
                 .setIssuer(jwtConfig.getIssuer())
                 .setId(jti)
                 .setIssuedAt(Date.from(now))
-                .setExpiration(Date.from(now.plusSeconds(
-                        jwtConfig.getRefreshTokenExpirationInSeconds())))
+                .setExpiration(Date.from(now.plusSeconds(jwtConfig.getRefreshTokenExpirationInSeconds())))
                 .signWith(jwtConfig.refreshTokenSecretKey(), SignatureAlgorithm.HS512)
                 .compact();
     }
 
     /**
-     * Generate refresh token (full version with context)
+     * Generate refresh token (full version with request context).
      */
     public String generateRefreshToken(
             User user,
@@ -147,16 +135,9 @@ public class JwtService {
             Instant issuedAt,
             Set<Permissions> permissions
     ) {
-        // Convert Permissions objects to Strings for JWT claims
-        Set<String> permissionsForClaims = permissions.stream()
-                .map(Permissions::name)
-                .collect(Collectors.toSet());
-
-        Map<String, Object> claims = buildEnhancedClaims(
-                user, ipAddress, userAgent, TOKEN_TYPE_REFRESH, permissionsForClaims
-        );
-
         String jti = UUID.randomUUID().toString();
+        Map<String, Object> claims = buildEnhancedClaims(
+                user, ipAddress, userAgent, TOKEN_TYPE_REFRESH, toPermissionNames(permissions));
         claims.put("jti", jti);
 
         return jwtConfig.refreshTokenJwtBuilder()
@@ -165,8 +146,7 @@ public class JwtService {
                 .setIssuer(jwtConfig.getIssuer())
                 .setId(jti)
                 .setIssuedAt(Date.from(issuedAt))
-                .setExpiration(Date.from(issuedAt.plusSeconds(
-                        jwtConfig.getRefreshTokenExpirationInSeconds())))
+                .setExpiration(Date.from(issuedAt.plusSeconds(jwtConfig.getRefreshTokenExpirationInSeconds())))
                 .signWith(jwtConfig.refreshTokenSecretKey(), SignatureAlgorithm.HS512)
                 .compact();
     }
@@ -176,16 +156,32 @@ public class JwtService {
        ========================= */
 
     /**
-     * Generate temporary token for first-time setup
-     * Scope: FIRST_TIME_SETUP (password change + OTP)
-     * Expiry: 30 minutes
+     * Generate temporary token for first-time setup (password change + OTP).
+     * Expiry: 30 minutes.
      */
     public String generateTemporaryToken(String userId) {
+        return buildTemporaryToken(userId, TOKEN_TYPE_TEMPORARY_SETUP, "FIRST_TIME_SETUP", 1800);
+    }
+
+    /**
+     * Generate temporary token for login OTP verification.
+     * Expiry: 5 minutes.
+     */
+    public String generateTemporaryLoginToken(String userId) {
+        return buildTemporaryToken(userId, TOKEN_TYPE_TEMPORARY_LOGIN, "LOGIN_OTP", 300);
+    }
+
+    /**
+     * Shared builder for all scoped temporary tokens.
+     * Eliminates the duplicated claims map + JWT builder block that existed
+     * between {@code generateTemporaryToken} and {@code generateTemporaryLoginToken}.
+     */
+    private String buildTemporaryToken(String userId, String tokenType, String scope, long expirySeconds) {
         Instant now = clock.instant();
 
         Map<String, Object> claims = new HashMap<>();
-        claims.put("type", TOKEN_TYPE_TEMPORARY_SETUP);
-        claims.put("scope", "FIRST_TIME_SETUP");
+        claims.put("type", tokenType);
+        claims.put("scope", scope);
         claims.put("userId", userId);
 
         return jwtConfig.jwtBuilder()
@@ -193,32 +189,41 @@ public class JwtService {
                 .setSubject(userId)
                 .setIssuer(jwtConfig.getIssuer())
                 .setIssuedAt(Date.from(now))
-                .setExpiration(Date.from(now.plusSeconds(1800))) // 30 minutes
+                .setExpiration(Date.from(now.plusSeconds(expirySeconds)))
                 .signWith(jwtConfig.accessTokenSecretKey(), SignatureAlgorithm.HS512)
                 .compact();
     }
 
+    /* =========================
+       TOKEN TYPE CHECKS
+       ========================= */
+
     /**
-     * Generate temporary token for login OTP verification
-     * Scope: LOGIN_OTP (verify OTP only)
-     * Expiry: 5 minutes
+     * Returns true if the token carries a refresh type claim.
      */
-    public String generateTemporaryLoginToken(String userId) {
-        Instant now = clock.instant();
+    public boolean isRefreshToken(String token) {
+        return hasTokenType(token, TOKEN_TYPE_REFRESH);
+    }
 
-        Map<String, Object> claims = new HashMap<>();
-        claims.put("type", TOKEN_TYPE_TEMPORARY_LOGIN);
-        claims.put("scope", "LOGIN_OTP");
-        claims.put("userId", userId);
+    /**
+     * Returns true if the token carries an access type claim.
+     */
+    public boolean isAccessToken(String token) {
+        return hasTokenType(token, TOKEN_TYPE_ACCESS);
+    }
 
-        return jwtConfig.jwtBuilder()
-                .setClaims(claims)
-                .setSubject(userId)
-                .setIssuer(jwtConfig.getIssuer())
-                .setIssuedAt(Date.from(now))
-                .setExpiration(Date.from(now.plusSeconds(300))) // 5 minutes
-                .signWith(jwtConfig.accessTokenSecretKey(), SignatureAlgorithm.HS512)
-                .compact();
+    /**
+     * Shared type-check implementation for {@link #isRefreshToken} and {@link #isAccessToken}.
+     * Both methods previously duplicated the identical try/catch + claim extraction block.
+     */
+    private boolean hasTokenType(String token, String expectedType) {
+        try {
+            String type = extractAllClaims(token).get("type", String.class);
+            return expectedType.equals(type);
+        } catch (Exception e) {
+            log.debug("Token type check failed [expected={}]: {}", expectedType, e.getMessage());
+            return false;
+        }
     }
 
     /* =========================
@@ -226,184 +231,126 @@ public class JwtService {
        ========================= */
 
     /**
-     * Extract user ID from temporary setup token
+     * Extract user ID from a temporary setup token.
      */
     public String extractUserIdFromTemporaryToken(String token) {
-        try {
-            Claims claims = extractAllClaims(token);
-            String type = claims.get("type", String.class);
-
-            if (!TOKEN_TYPE_TEMPORARY_SETUP.equals(type)) {
-                log.warn("Invalid token type for setup: {}", type);
-                return null;
-            }
-
-            return claims.getSubject();
-        } catch (Exception e) {
-            log.error("Failed to extract user ID from temporary setup token: {}", e.getMessage());
-            return null;
-        }
+        return extractUserIdForType(token, TOKEN_TYPE_TEMPORARY_SETUP, "setup");
     }
 
     /**
-     * Extract user ID from temporary login OTP token
+     * Extract user ID from a temporary login OTP token.
      */
     public String extractUserIdFromTemporaryLoginToken(String token) {
+        return extractUserIdForType(token, TOKEN_TYPE_TEMPORARY_LOGIN, "login OTP");
+    }
+
+    /**
+     * Shared user ID extractor for temporary token types.
+     * Previously each method had an identical try/catch block, type-string check, and null return.
+     *
+     * @param token        the raw JWT
+     * @param expectedType the token type claim value expected (e.g. TOKEN_TYPE_TEMPORARY_SETUP)
+     * @param label        human-readable label used in warning/error log messages
+     * @return the subject (userId), or null if the token is invalid or the wrong type
+     */
+    private String extractUserIdForType(String token, String expectedType, String label) {
         try {
             Claims claims = extractAllClaims(token);
             String type = claims.get("type", String.class);
 
-            if (!TOKEN_TYPE_TEMPORARY_LOGIN.equals(type)) {
-                log.warn("Invalid token type for login OTP: {}", type);
+            if (!expectedType.equals(type)) {
+                log.warn("Invalid token type for {}: expected={}, actual={}", label, expectedType, type);
                 return null;
             }
 
             return claims.getSubject();
         } catch (Exception e) {
-            log.error("Failed to extract user ID from temporary login token: {}", e.getMessage());
+            log.error("Failed to extract user ID from {} token: {}", label, e.getMessage());
             return null;
         }
     }
 
     /**
-     * Extract all claims from token
+     * Extract all claims from a token using the access-key parser.
      */
-    private Claims extractAllClaims(String token) {
+    public Claims extractAllClaims(String token) {
         return jwtConfig.jwtParser()
                 .parseClaimsJws(token)
                 .getBody();
     }
 
     /* =========================
-       HELPER METHODS
+       TOKEN PAIR GENERATION
        ========================= */
 
     /**
-     * Build enhanced claims for JWT
-     */
-    private Map<String, Object> buildEnhancedClaims(
-            User user,
-            String ipAddress,
-            String userAgent,
-            String tokenType,
-            Set<String> permissions
-    ) {
-        Map<String, Object> claims = new HashMap<>();
-
-        claims.put("type", tokenType);
-        claims.put("userId", user.getId());
-        claims.put("email", user.getEmail());
-        claims.put("roles", user.getRoleNames());
-        claims.put("permissions", permissions);
-        claims.put("ipAddress", ipAddress);
-        claims.put("userAgent", userAgent);
-        claims.put("emailVerified", user.isEmailVerified());
-        claims.put("phoneVerified", user.isPhoneVerified());
-
-        return claims;
-    }
-
-    /**
-     * Generate access and refresh token pair
+     * Generate access + refresh token pair (without expiry metadata).
      */
     public Mono<TokenPair> generateTokenPair(
-            User user,
-            String ipAddress,
-            String userAgent,
-            Set<Permissions> permissions
-    ) {
+            User user, String ipAddress, String userAgent, Set<Permissions> permissions) {
         return generateTokenPairWithExpiry(user, ipAddress, userAgent, permissions)
-                .map(components -> new TokenPair(
-                        components.getAccessToken(),
-                        components.getRefreshToken()
-                ));
+                .map(c -> new TokenPair(c.getAccessToken(), c.getRefreshToken()));
     }
 
     /**
-     * Generate token pair with expiry information
+     * Generate access + refresh token pair with expiry timestamps included.
      */
     public Mono<TokenComponentsWithExpiry> generateTokenPairWithExpiry(
-            User user,
-            String ipAddress,
-            String userAgent,
-            Set<Permissions> permissions
-    ) {
+            User user, String ipAddress, String userAgent, Set<Permissions> permissions) {
         Instant now = clock.instant();
 
         return verifyFirebaseUser(user.getId())
-                .flatMap(firebaseToken ->
-                        generateTokenComponents(user, ipAddress, userAgent, now, permissions))
+                .flatMap(__ -> generateTokenComponents(user, ipAddress, userAgent, now, permissions))
                 .flatMap(components -> storeRefreshToken(components, now))
-                .doOnSuccess(pair -> logTokenGenerationSuccess(user, ipAddress))
+                .doOnSuccess(__ -> logTokenGenerationSuccess(user, ipAddress))
                 .doOnError(e -> logTokenGenerationFailure(user, ipAddress, e))
                 .subscribeOn(Schedulers.boundedElastic());
     }
 
     /**
-     * Generate token components (access + refresh)
+     * Build both token strings and calculate their expiry instants.
      */
     public Mono<TokenComponentsWithExpiry> generateTokenComponents(
-            User user,
-            String ipAddress,
-            String userAgent,
-            Instant issuedAt,
-            Set<Permissions> permissions
-    ) {
+            User user, String ipAddress, String userAgent, Instant issuedAt, Set<Permissions> permissions) {
         return Mono.fromCallable(() -> {
-                    String accessToken = generateAccessToken(user, ipAddress, userAgent, issuedAt, permissions);
+                    String accessToken  = generateAccessToken(user, ipAddress, userAgent, issuedAt, permissions);
                     String refreshToken = generateRefreshToken(user, ipAddress, userAgent, issuedAt, permissions);
-
-                    Instant accessTokenExpiry = issuedAt.plusSeconds(
-                            jwtConfig.getAccessTokenExpirationInSeconds()
-                    );
-                    Instant refreshTokenExpiry = issuedAt.plusSeconds(
-                            jwtConfig.getRefreshTokenExpirationInSeconds()
-                    );
 
                     return TokenComponentsWithExpiry.builder()
                             .userId(user.getId())
                             .tokenPair(new TokenPair(accessToken, refreshToken))
-                            .accessTokenExpiry(accessTokenExpiry)
-                            .refreshTokenExpiry(refreshTokenExpiry)
+                            .accessTokenExpiry(issuedAt.plusSeconds(jwtConfig.getAccessTokenExpirationInSeconds()))
+                            .refreshTokenExpiry(issuedAt.plusSeconds(jwtConfig.getRefreshTokenExpirationInSeconds()))
                             .ipAddress(ipAddress)
                             .userAgent(userAgent)
                             .build();
-
-                }).subscribeOn(Schedulers.boundedElastic())
+                })
+                .subscribeOn(Schedulers.boundedElastic())
                 .onErrorResume(e -> {
                     log.error("Token generation failed for user {}", user.getId(), e);
-                    return Mono.error(new CustomException(
-                            HttpStatus.INTERNAL_SERVER_ERROR,
-                            "Token generation failed"
-                    ));
+                    return Mono.error(new CustomException(HttpStatus.INTERNAL_SERVER_ERROR, "Token generation failed"));
                 });
     }
 
-
-
     /* =========================
-       Token Storage
+       TOKEN STORAGE
        ========================= */
 
     /**
-     * Store refresh token in Firestore
+     * Hash and persist a refresh token record in Firestore.
      */
     public Mono<TokenComponentsWithExpiry> storeRefreshToken(
-            TokenComponentsWithExpiry components,
-            Instant issuedAt
-    ) {
+            TokenComponentsWithExpiry components, Instant issuedAt) {
         if (components == null || components.getRefreshToken() == null) {
             return Mono.error(new IllegalArgumentException("Token components cannot be null"));
         }
 
         return validateRefreshToken(components.getRefreshToken(), components.getUserId())
                 .flatMap(claims -> {
-                    String tokenHash = encryptionService.hashToken(components.getRefreshToken());
-
                     RefreshTokenRecord record = RefreshTokenRecord.builder()
                             .tokenId(claims.getId())
                             .userId(components.getUserId())
-                            .tokenHash(tokenHash)
+                            .tokenHash(encryptionService.hashToken(components.getRefreshToken()))
                             .ipAddress(components.getIpAddress())
                             .userAgent(components.getUserAgent())
                             .issuedAt(issuedAt)
@@ -411,128 +358,92 @@ public class JwtService {
                             .revoked(false)
                             .build();
 
-                    return storeRefreshTokenRecord(record)
-                            .thenReturn(components);
+                    return storeRefreshTokenRecord(record).thenReturn(components);
                 })
                 .onErrorResume(e -> handleStorageError(e, components.getUserId()))
                 .subscribeOn(Schedulers.boundedElastic());
     }
 
-    /**
-     * Store refresh token record in Firestore
-     */
     private Mono<Void> storeRefreshTokenRecord(RefreshTokenRecord record) {
         return Mono.fromFuture(FirestoreUtil.toCompletableFuture(
                         firestore.collection(COLLECTION_REFRESH_TOKENS)
                                 .document(record.getTokenId())
-                                .set(record)
-                ))
+                                .set(record)))
                 .timeout(Duration.ofSeconds(5))
                 .doOnSuccess(__ -> log.info("Refresh token stored for user {}", record.getUserId()))
-                .onErrorMap(e -> new CustomException(
-                        HttpStatus.INTERNAL_SERVER_ERROR,
-                        "Failed to store refresh token",
-                        e))
+                .onErrorMap(e -> new CustomException(HttpStatus.INTERNAL_SERVER_ERROR,
+                        "Failed to store refresh token", e))
                 .then();
     }
 
     /* =========================
-       Token Validation
+       TOKEN VALIDATION
        ========================= */
 
     /**
-     * Parse token without type enforcement
+     * Parse token without enforcing a specific type claim.
+     * Tries the access key first, falls back to the refresh key.
      */
     public Mono<Claims> parseToken(String token) {
         return Mono.fromCallable(() -> {
                     try {
-                        // Try access token key first
                         return Jwts.parserBuilder()
                                 .setSigningKey(jwtConfig.accessTokenSecretKey())
                                 .setAllowedClockSkewSeconds(60)
-                                .build()
-                                .parseClaimsJws(token)
-                                .getBody();
+                                .build().parseClaimsJws(token).getBody();
                     } catch (JwtException e) {
-                        // Try refresh token key if access key fails
                         return Jwts.parserBuilder()
                                 .setSigningKey(jwtConfig.refreshTokenSecretKey())
                                 .setAllowedClockSkewSeconds(60)
-                                .build()
-                                .parseClaimsJws(token)
-                                .getBody();
+                                .build().parseClaimsJws(token).getBody();
                     }
                 })
                 .subscribeOn(Schedulers.boundedElastic())
-                .onErrorMap(e -> new CustomException(
-                        HttpStatus.UNAUTHORIZED,
-                        "Failed to parse token: " + e.getMessage()
-                ));
+                .onErrorMap(e -> new CustomException(HttpStatus.UNAUTHORIZED,
+                        "Failed to parse token: " + e.getMessage()));
     }
 
     /**
-     * Validate token with expected type
+     * Validate token and assert that its type claim matches {@code expectedType}.
      */
     public Mono<Claims> validateToken(String token, String expectedType) {
         Instant now = clock.instant();
 
         return Mono.fromCallable(() -> {
-                    try {
-                        Key signingKey = TOKEN_TYPE_REFRESH.equals(expectedType)
-                                ? jwtConfig.refreshTokenSecretKey()
-                                : jwtConfig.accessTokenSecretKey();
+                    Key signingKey = TOKEN_TYPE_REFRESH.equals(expectedType)
+                            ? jwtConfig.refreshTokenSecretKey()
+                            : jwtConfig.accessTokenSecretKey();
 
-                        JwtParserBuilder parser = Jwts.parserBuilder()
-                                .setSigningKey(signingKey)
-                                .setAllowedClockSkewSeconds(30)
-                                .requireIssuer(jwtConfig.getIssuer());
+                    JwtParserBuilder parser = Jwts.parserBuilder()
+                            .setSigningKey(signingKey)
+                            .setAllowedClockSkewSeconds(30)
+                            .requireIssuer(jwtConfig.getIssuer());
 
-                        if (expectedType != null) {
-                            parser.require("type", expectedType);
-                        }
-
-                        log.debug("Validating JWT (type={}, issuer={})",
-                                expectedType, jwtConfig.getIssuer());
-
-                        Claims claims = parser.build().parseClaimsJws(token).getBody();
-
-                        // Check expiration with grace period
-                        Date expiration = claims.getExpiration();
-                        Date currentTime = Date.from(now);
-
-                        if (expiration.before(new Date(
-                                currentTime.getTime() - TimeUnit.MINUTES.toMillis(5)))) {
-                            log.error("Token expired at {} (current time: {})", expiration, currentTime);
-                            throw new ExpiredJwtException(null, claims, "Token expired too long ago");
-                        }
-
-                        log.debug("Token valid for user: {}", claims.getSubject());
-                        return claims;
-
-                    } catch (ExpiredJwtException e) {
-                        log.error("Token expired: {}", e.getMessage());
-                        throw e;
-                    } catch (MalformedJwtException e) {
-                        log.error("Malformed JWT: {}", e.getMessage());
-                        throw e;
-                    } catch (SignatureException e) {
-                        log.error("Signature mismatch (using key: {})",
-                                TOKEN_TYPE_REFRESH.equals(expectedType) ? "refresh" : "access");
-                        throw e;
-                    } catch (JwtException e) {
-                        log.error("General JWT error: {}", e.getMessage());
-                        throw e;
+                    if (expectedType != null) {
+                        parser.require("type", expectedType);
                     }
+
+                    log.debug("Validating JWT [type={}, issuer={}]", expectedType, jwtConfig.getIssuer());
+                    Claims claims = parser.build().parseClaimsJws(token).getBody();
+
+                    // Secondary hard-expiry guard (beyond JJWT's clock-skew allowance)
+                    Date currentTime = Date.from(now);
+                    if (claims.getExpiration().before(
+                            new Date(currentTime.getTime() - TimeUnit.MINUTES.toMillis(5)))) {
+                        log.error("Token expired at {} (current: {})", claims.getExpiration(), currentTime);
+                        throw new ExpiredJwtException(null, claims, "Token expired too long ago");
+                    }
+
+                    log.debug("Token valid for user: {}", claims.getSubject());
+                    return claims;
                 })
                 .subscribeOn(Schedulers.boundedElastic())
                 .onErrorMap(this::mapToSecurityException);
     }
 
-    /**
-     * Validate refresh token
-     */
+    /** Validate refresh token and confirm it belongs to {@code expectedUserId}. */
     public Mono<Claims> validateRefreshToken(String token, String expectedUserId) {
-        return validateToken(token, TOKEN_TYPE_REFRESH)
+        return validateRefreshToken(token)
                 .flatMap(claims -> {
                     if (!expectedUserId.equals(claims.getSubject())) {
                         return Mono.error(new JwtException("Token subject does not match user ID"));
@@ -541,19 +452,18 @@ public class JwtService {
                 });
     }
 
-    /**
-     * Validate refresh token without user ID check
-     */
+    /** Validate refresh token without a user ID assertion. */
     public Mono<Claims> validateRefreshToken(String token) {
         return validateToken(token, TOKEN_TYPE_REFRESH);
     }
 
     /**
-     * Validate access token
+     * Synchronous access-token validation entry point (used in filters).
+     * Returns a {@link TokenValidationResult} rather than throwing for expired tokens,
+     * so the caller can decide whether to attempt a silent refresh.
      */
     public TokenValidationResult validateAccessToken(String token, String ipAddress) {
         if (StringUtils.isBlank(token)) {
-            log.warn("Empty token provided for validation");
             throw new CustomException(HttpStatus.UNAUTHORIZED, "Authorization token is required");
         }
 
@@ -566,118 +476,66 @@ public class JwtService {
             return buildValidationResult(claims, true, "Valid token");
 
         } catch (ExpiredJwtException e) {
-            log.warn("Expired token detected for subject: {}", e.getClaims().getSubject());
-
-            auditLogService.logSecurityEvent(
-                    "TOKEN_VALIDATION_FAILURE",
+            log.warn("Expired token for subject: {}", e.getClaims().getSubject());
+            auditLogService.logSecurityEvent("TOKEN_VALIDATION_FAILURE",
                     e.getClaims().getSubject(),
-                    Map.of("reason", "expired", "ip", ipAddress, "timestamp", now).toString()
-            );
-
+                    buildAuditPayload("expired", ipAddress, now));
             return buildValidationResult(e.getClaims(), false, "Token expired");
 
         } catch (JwtException e) {
             log.warn("Invalid access token: {}", e.getMessage());
-
-            auditLogService.logSecurityEvent(
-                    "TOKEN_VALIDATION_FAILURE",
-                    "unknown",
-                    Map.of("reason", "invalid", "error", e.getMessage(),
-                            "ip", ipAddress, "timestamp", now).toString()
-            );
-
+            auditLogService.logSecurityEvent("TOKEN_VALIDATION_FAILURE", "unknown",
+                    buildAuditPayload("invalid", ipAddress, now, "error", e.getMessage()));
             throw new CustomException(HttpStatus.UNAUTHORIZED, "Invalid access token");
         }
     }
 
-    /**
-     * Validate JWT structure
-     */
     private Claims validateJwtStructure(String token) throws JwtException {
         return Jwts.parserBuilder()
                 .setSigningKey(jwtConfig.accessTokenSecretKey())
                 .setAllowedClockSkewSeconds(60)
                 .requireIssuer(jwtConfig.getIssuer())
                 .require("type", TOKEN_TYPE_ACCESS)
-                .build()
-                .parseClaimsJws(token)
-                .getBody();
+                .build().parseClaimsJws(token).getBody();
     }
 
     /* =========================
-       Token Refresh
+       TOKEN REFRESH
        ========================= */
 
-    /**
-     * Refresh tokens using refresh token
-     */
     public Mono<TokenPair> refreshTokens(
-            String refreshToken,
-            String ipAddress,
-            String userAgent,
-            Set<Permissions> permissions
-    ) {
+            String refreshToken, String ipAddress, String userAgent, Set<Permissions> permissions) {
         if (StringUtils.isBlank(refreshToken)) {
-            return Mono.error(new CustomException(
-                    HttpStatus.BAD_REQUEST,
-                    "Refresh token is required"
-            ));
+            return Mono.error(new CustomException(HttpStatus.BAD_REQUEST, "Refresh token is required"));
         }
 
         return Mono.defer(() -> validateRefreshToken(refreshToken))
-                .flatMap(claims -> processValidRefreshToken(
-                        claims, ipAddress, userAgent, permissions))
+                .flatMap(claims -> processValidRefreshToken(claims, ipAddress, userAgent, permissions))
                 .doOnSuccess(tokens -> logRefreshSuccess(tokens, ipAddress))
                 .doOnError(e -> logRefreshFailure(e, ipAddress))
                 .subscribeOn(Schedulers.boundedElastic());
     }
 
-    /**
-     * Process valid refresh token
-     */
     private Mono<TokenPair> processValidRefreshToken(
-            Claims claims,
-            String ipAddress,
-            String userAgent,
-            Set<Permissions> permissions
-    ) {
+            Claims claims, String ipAddress, String userAgent, Set<Permissions> permissions) {
         return checkTokenRevocationStatus(claims.getId())
                 .then(retrieveUserFromClaims(claims))
                 .flatMap(user -> verifyTokenContext(claims, ipAddress, userAgent, user))
-                .flatMap(user -> generateNewTokenPair(user, ipAddress, userAgent, permissions))
-                .flatMap(tokenPair -> revokeOldToken(claims.getId(), tokenPair)
-                        .thenReturn(tokenPair));
-    }
-
-    /**
-     * Generate new token pair
-     */
-    private Mono<TokenPair> generateNewTokenPair(
-            User user,
-            String ipAddress,
-            String userAgent,
-            Set<Permissions> permissions
-    ) {
-        return generateTokenPair(user, ipAddress, userAgent, permissions)
-                .timeout(Duration.ofSeconds(5))
-                .onErrorMap(e -> new CustomException(
-                        HttpStatus.INTERNAL_SERVER_ERROR,
-                        "Failed to generate new tokens"
-                ));
+                .flatMap(user -> generateTokenPair(user, ipAddress, userAgent, permissions)
+                        .timeout(Duration.ofSeconds(5))
+                        .onErrorMap(e -> new CustomException(
+                                HttpStatus.INTERNAL_SERVER_ERROR, "Failed to generate new tokens")))
+                .flatMap(tokenPair -> revokeOldToken(claims.getId(), tokenPair).thenReturn(tokenPair));
     }
 
     /* =========================
-       Token Revocation
+       TOKEN REVOCATION
        ========================= */
 
-    /**
-     * Revoke tokens for specific IP address
-     */
     public Mono<Void> revokeTokensForIp(String userId, String ipAddress, String revokedBy) {
         if (StringUtils.isBlank(ipAddress)) {
             return Mono.error(new IllegalArgumentException("IP address cannot be empty"));
         }
-
         return findActiveTokensByIp(userId, ipAddress)
                 .flatMap(docs -> revokeTokenBatch(docs, revokedBy))
                 .doOnSuccess(count -> logRevocationSuccess(ipAddress, count, revokedBy))
@@ -685,231 +543,153 @@ public class JwtService {
                 .then();
     }
 
-    /**
-     * Find active tokens by IP
-     */
     private Mono<List<QueryDocumentSnapshot>> findActiveTokensByIp(String userId, String ipAddress) {
         return Mono.fromCallable(() ->
-                        firestore.collection("users")
-                                .document(userId)
+                        firestore.collection("users").document(userId)
                                 .collection(COLLECTION_REFRESH_TOKENS)
                                 .whereEqualTo("ipAddress", ipAddress)
                                 .whereEqualTo("revoked", false)
-                                .get()
-                )
-                .flatMap(apiFuture -> Mono.fromFuture(FirestoreUtil.toCompletableFuture(apiFuture)))
+                                .get())
+                .flatMap(f -> Mono.fromFuture(FirestoreUtil.toCompletableFuture(f)))
                 .timeout(Duration.ofSeconds(5))
                 .map(QuerySnapshot::getDocuments)
-                .doOnNext(docs -> {
-                    if (docs.isEmpty()) {
-                        log.info("No active tokens found for IP: {}", ipAddress);
-                    }
-                });
+                .doOnNext(docs -> { if (docs.isEmpty()) log.info("No active tokens for IP: {}", ipAddress); });
     }
 
-    /**
-     * Revoke token batch
-     */
     private Mono<Integer> revokeTokenBatch(List<QueryDocumentSnapshot> documents, String revokedBy) {
-        if (documents.isEmpty()) {
-            return Mono.just(0);
-        }
+        if (documents.isEmpty()) return Mono.just(0);
 
         Instant now = clock.instant();
-
         return Mono.fromCallable(() -> {
                     WriteBatch batch = firestore.batch();
-                    documents.forEach(doc ->
-                            batch.update(doc.getReference(), Map.of(
-                                    "revoked", true,
-                                    "revokedAt", now,
-                                    "revokedBy", revokedBy
-                            ))
-                    );
+                    documents.forEach(doc -> batch.update(doc.getReference(),
+                            Map.of("revoked", true, "revokedAt", now, "revokedBy", revokedBy)));
                     return batch.commit();
                 })
-                .flatMap(apiFuture -> Mono.fromFuture(FirestoreUtil.toCompletableFuture(apiFuture)))
+                .flatMap(f -> Mono.fromFuture(FirestoreUtil.toCompletableFuture(f)))
                 .timeout(Duration.ofSeconds(10))
                 .thenReturn(documents.size());
     }
 
     /**
-     * Revoke refresh token
+     * Revoke a single refresh token by its document ID.
      */
     public Mono<Void> revokeRefreshToken(String tokenId, String revokedBy) {
-        Instant now = clock.instant();
-
-        Map<String, Object> updates = Map.of(
-                "revoked", true,
-                "revokedAt", now,
-                "revokedBy", revokedBy
+        return revokeTokenInFirestore(
+                firestore.collection(COLLECTION_REFRESH_TOKENS).document(tokenId),
+                Map.of("revoked", true, "revokedAt", clock.instant(), "revokedBy", revokedBy),
+                Duration.ofSeconds(5),
+                tokenId
         );
-
-        ApiFuture<WriteResult> apiFuture = firestore.collection(COLLECTION_REFRESH_TOKENS)
-                .document(tokenId)
-                .update(updates);
-
-        return Mono.fromFuture(FirestoreUtil.toCompletableFuture(apiFuture))
-                .timeout(Duration.ofSeconds(5))
-                .doOnSuccess(__ -> log.info("Successfully revoked token {}", tokenId))
-                .doOnError(e -> log.error("Failed to revoke token {}", tokenId, e))
-                .then();
     }
 
     /**
-     * Revoke old token during refresh
+     * Write a revocation record for an old refresh token during token rotation.
+     * Failure is non-critical — errors are swallowed so the refresh still completes.
      */
     private Mono<Void> revokeOldToken(String jti, TokenPair newTokens) {
-        Instant now = clock.instant();
-
-        Map<String, Object> revokedTokenData = Map.of(
-                "revokedAt", now.toString(),
+        Map<String, Object> data = Map.of(
+                "revokedAt", clock.instant().toString(),
                 "replacedBy", newTokens.getRefreshToken(),
                 "tokenType", "REFRESH_TOKEN",
                 "revocationReason", "TOKEN_REFRESHED"
         );
 
         return FirestoreUtils.apiFutureToMono(
-                        firestore.collection(COLLECTION_REVOKED_TOKENS)
-                                .document(jti)
-                                .set(revokedTokenData)
-                )
-                .doOnSuccess(v -> log.debug("✅ Old refresh token revoked: {}", jti))
-                .doOnError(e -> log.error("❌ Failed to revoke old refresh token: {}", e.getMessage()))
+                        firestore.collection(COLLECTION_REVOKED_TOKENS).document(jti).set(data))
+                .doOnSuccess(__ -> log.debug("Old refresh token revoked: {}", jti))
                 .onErrorResume(e -> {
-                    log.warn("⚠️ Non-critical: Could not revoke old token, continuing with refresh");
+                    log.warn("Non-critical: could not revoke old token {}, continuing", jti);
                     return Mono.empty();
                 }).then();
     }
 
     /**
-     * Check if refresh token is revoked
+     * Shared reactive Firestore revocation writer.
+     * Used by {@link #revokeRefreshToken} to avoid duplicating the update → timeout → log chain.
      */
+    private Mono<Void> revokeTokenInFirestore(
+            DocumentReference ref, Map<String, Object> updates, Duration timeout, String tokenId) {
+        return Mono.fromFuture(FirestoreUtil.toCompletableFuture(ref.update(updates)))
+                .timeout(timeout)
+                .doOnSuccess(__ -> log.info("Token revoked: {}", tokenId))
+                .doOnError(e -> log.error("Failed to revoke token {}: {}", tokenId, e.getMessage()))
+                .then();
+    }
+
     public Mono<Boolean> isRefreshTokenRevoked(String tokenId) {
-        return Mono.fromCallable(() ->
-                        firestore.collection(COLLECTION_REFRESH_TOKENS)
-                                .document(tokenId)
-                                .get()
-                )
-                .flatMap(apiFuture -> Mono.fromFuture(FirestoreUtil.toCompletableFuture(apiFuture)))
+        return Mono.fromCallable(() -> firestore.collection(COLLECTION_REFRESH_TOKENS).document(tokenId).get())
+                .flatMap(f -> Mono.fromFuture(FirestoreUtil.toCompletableFuture(f)))
                 .timeout(Duration.ofSeconds(3))
-                .map(document -> document.exists() &&
-                        Boolean.TRUE.equals(document.getBoolean("revoked")))
+                .map(doc -> doc.exists() && Boolean.TRUE.equals(doc.getBoolean("revoked")))
                 .onErrorResume(e -> {
                     log.error("Failed to check token revocation status", e);
-                    return Mono.just(true); // Fail secure
+                    return Mono.just(true); // fail-secure
                 });
     }
 
     /* =========================
-       Email Verification Tokens
+       EMAIL VERIFICATION TOKENS
        ========================= */
 
-    /**
-     * Generate email verification token
-     */
-    public Mono<String> generateEmailVerificationToken(
-            String userId,
-            String email,
-            String ipAddress
-    ) {
-        if (StringUtils.isBlank(userId)) {
-            return Mono.error(new IllegalArgumentException("User ID cannot be empty"));
-        }
-        if (StringUtils.isBlank(email)) {
-            return Mono.error(new IllegalArgumentException("Email cannot be empty"));
-        }
-        if (StringUtils.isBlank(ipAddress)) {
-            return Mono.error(new IllegalArgumentException("IP address cannot be empty"));
-        }
+    public Mono<String> generateEmailVerificationToken(String userId, String email, String ipAddress) {
+        if (StringUtils.isBlank(userId))    return Mono.error(new IllegalArgumentException("User ID cannot be empty"));
+        if (StringUtils.isBlank(email))     return Mono.error(new IllegalArgumentException("Email cannot be empty"));
+        if (StringUtils.isBlank(ipAddress)) return Mono.error(new IllegalArgumentException("IP address cannot be empty"));
 
-        return Mono.fromCallable(() -> {
-                    Map<String, Object> claims = buildEmailVerificationClaims(
-                            userId, email, ipAddress
-                    );
-                    return buildEmailVerificationJwt(email, claims);
-                })
+        return Mono.fromCallable(() -> buildEmailVerificationJwt(
+                        email, buildEmailVerificationClaims(userId, email, ipAddress)))
                 .subscribeOn(Schedulers.boundedElastic())
                 .timeout(Duration.ofSeconds(2))
-                .doOnSuccess(token -> log.info("Generated email verification token for {}", email))
+                .doOnSuccess(__ -> log.info("Generated email verification token for {}", email))
                 .doOnError(e -> log.error("Failed to generate email verification token", e));
     }
 
-    /**
-     * Build email verification claims
-     */
-    private Map<String, Object> buildEmailVerificationClaims(
-            String userId,
-            String email,
-            String ipAddress
-    ) {
-        Instant now = clock.instant();
-
+    private Map<String, Object> buildEmailVerificationClaims(String userId, String email, String ipAddress) {
         Map<String, Object> claims = new HashMap<>();
         claims.put("userId", userId);
         claims.put("email", email);
         claims.put("ipAddress", ipAddress);
         claims.put("type", TOKEN_TYPE_EMAIL_VERIFICATION);
         claims.put("tokenVersion", 1);
-        claims.put("generatedAt", now.getEpochSecond());
-
+        claims.put("generatedAt", clock.instant().getEpochSecond());
         return Collections.unmodifiableMap(claims);
     }
 
-    /**
-     * Build email verification JWT
-     */
     private String buildEmailVerificationJwt(String email, Map<String, Object> claims) {
         Instant now = clock.instant();
-        Instant expiration = now.plusSeconds(jwtConfig.getEmailVerificationExpirationInSeconds());
-
         return Jwts.builder()
                 .setClaims(claims)
                 .setSubject(email)
                 .setIssuer(jwtConfig.getIssuer())
                 .setIssuedAt(Date.from(now))
-                .setExpiration(Date.from(expiration))
+                .setExpiration(Date.from(now.plusSeconds(jwtConfig.getEmailVerificationExpirationInSeconds())))
                 .signWith(jwtConfig.accessTokenSecretKey(), SignatureAlgorithm.HS512)
                 .compact();
     }
 
-    /**
-     * Verify email verification token
-     */
     public Mono<TokenClaims> verifyEmailVerificationToken(String token) {
         if (StringUtils.isBlank(token)) {
-            return Mono.error(new CustomException(
-                    HttpStatus.BAD_REQUEST,
-                    "Token cannot be empty"
-            ));
+            return Mono.error(new CustomException(HttpStatus.BAD_REQUEST, "Token cannot be empty"));
         }
-
         return validateToken(token, TOKEN_TYPE_EMAIL_VERIFICATION)
                 .flatMap(this::validateEmailVerificationClaims)
                 .map(this::buildTokenClaims)
-                .doOnSuccess(claims -> log.info("Verified email token for {}", claims.email()))
+                .doOnSuccess(c -> log.info("Verified email token for {}", c.email()))
                 .doOnError(e -> log.warn("Email verification failed: {}", e.getMessage()))
                 .onErrorResume(this::handleEmailVerificationError);
     }
 
-    /**
-     * Validate email verification claims
-     */
     private Mono<Claims> validateEmailVerificationClaims(Claims claims) {
         return Mono.just(claims)
                 .filter(c -> TOKEN_TYPE_EMAIL_VERIFICATION.equals(c.get("type")))
                 .switchIfEmpty(Mono.error(new CustomException(
-                        HttpStatus.UNAUTHORIZED,
-                        "Invalid token type, expected email verification")))
+                        HttpStatus.UNAUTHORIZED, "Invalid token type, expected email verification")))
                 .filter(c -> StringUtils.isNotBlank(c.getSubject()))
                 .switchIfEmpty(Mono.error(new CustomException(
-                        HttpStatus.UNAUTHORIZED,
-                        "Missing email in token")));
+                        HttpStatus.UNAUTHORIZED, "Missing email in token")));
     }
 
-    /**
-     * Build token claims from Claims
-     */
     private TokenClaims buildTokenClaims(Claims claims) {
         return TokenClaims.builder()
                 .userId(claims.get("userId", String.class))
@@ -921,194 +701,109 @@ public class JwtService {
                 .build();
     }
 
-    /**
-     * Handle email verification errors
-     */
     private Mono<TokenClaims> handleEmailVerificationError(Throwable e) {
-        if (e instanceof ExpiredJwtException) {
-            return Mono.error(new CustomException(
-                    HttpStatus.UNAUTHORIZED,
-                    "Token has expired"
-            ));
-        } else if (e instanceof SignatureException) {
-            return Mono.error(new CustomException(
-                    HttpStatus.UNAUTHORIZED,
-                    "Invalid token signature"
-            ));
-        } else if (e instanceof MalformedJwtException) {
-            return Mono.error(new CustomException(
-                    HttpStatus.BAD_REQUEST,
-                    "Malformed token"
-            ));
-        } else if (e instanceof CustomException ce) {
-            return Mono.error(ce);
-        } else {
-            log.error("Unexpected token error: {}", e.getMessage(), e);
-            return Mono.error(new CustomException(
-                    HttpStatus.INTERNAL_SERVER_ERROR,
-                    "Token processing failed"
-            ));
-        }
+        if (e instanceof ExpiredJwtException)  return Mono.error(new CustomException(HttpStatus.UNAUTHORIZED, "Token has expired"));
+        if (e instanceof SignatureException)   return Mono.error(new CustomException(HttpStatus.UNAUTHORIZED, "Invalid token signature"));
+        if (e instanceof MalformedJwtException)return Mono.error(new CustomException(HttpStatus.BAD_REQUEST,  "Malformed token"));
+        if (e instanceof CustomException ce)   return Mono.error(ce);
+        log.error("Unexpected token error: {}", e.getMessage(), e);
+        return Mono.error(new CustomException(HttpStatus.INTERNAL_SERVER_ERROR, "Token processing failed"));
     }
 
     /* =========================
-       Token Expiry
+       TOKEN EXPIRY
        ========================= */
 
-    /**
-     * Get refresh token expiry
-     */
-    public Mono<Instant> getRefreshTokenExpiry(String refreshToken) {
-        return getTokenExpiry(refreshToken, TOKEN_TYPE_REFRESH);
-    }
+    public Mono<Instant> getRefreshTokenExpiry(String token) { return getTokenExpiry(token, TOKEN_TYPE_REFRESH); }
+    public Mono<Instant> getAccessTokenExpiry(String token)  { return getTokenExpiry(token, TOKEN_TYPE_ACCESS);  }
 
-    /**
-     * Get access token expiry
-     */
-    public Mono<Instant> getAccessTokenExpiry(String accessToken) {
-        return getTokenExpiry(accessToken, TOKEN_TYPE_ACCESS);
-    }
-
-    /**
-     * Get token expiry
-     */
-    private Mono<Instant> getTokenExpiry(String token, String tokenType) {
+    public Mono<Instant> getTokenExpiry(String token, String tokenType) {
         return validateToken(token, tokenType)
-                .map(claims -> claims.getExpiration().toInstant())
-                .onErrorMap(e -> new CustomException(
-                        HttpStatus.UNAUTHORIZED,
-                        String.format("Invalid %s token: %s", tokenType, e.getMessage())
-                ));
+                .map(c -> c.getExpiration().toInstant())
+                .onErrorMap(e -> new CustomException(HttpStatus.UNAUTHORIZED,
+                        String.format("Invalid %s token: %s", tokenType, e.getMessage())));
     }
 
     /* =========================
-       Claim Extraction
+       CLAIM EXTRACTION
        ========================= */
 
-    /**
-     /**
-     * Get claims from token
-     */
     public Mono<Claims> getClaimsFromToken(String token) {
         if (StringUtils.isBlank(token)) {
-            return Mono.error(new CustomException(
-                    HttpStatus.BAD_REQUEST,
-                    "Token cannot be empty"
-            ));
+            return Mono.error(new CustomException(HttpStatus.BAD_REQUEST, "Token cannot be empty"));
         }
-
         return parseToken(token)
                 .timeout(Duration.ofSeconds(2))
-                .doOnSuccess(claims -> log.debug("✅ Successfully extracted claims from token"))
-                .doOnError(e -> log.warn("❌ Failed to extract claims from token: {}", e.getMessage()))
+                .doOnSuccess(__ -> log.debug("Claims extracted successfully"))
+                .doOnError(e -> log.warn("Failed to extract claims: {}", e.getMessage()))
                 .onErrorMap(this::mapToSecurityException);
     }
 
-
-    /**
-     * Get user ID from token
-     */
     public Mono<String> getUserIdFromToken(String token) {
         return getClaimsFromToken(token)
                 .map(Claims::getSubject)
-                .switchIfEmpty(Mono.error(new CustomException(
-                        HttpStatus.UNAUTHORIZED,
-                        "Missing subject claim"
-                )));
+                .switchIfEmpty(Mono.error(new CustomException(HttpStatus.UNAUTHORIZED, "Missing subject claim")));
     }
 
-    /**
-     * Get email from token
-     */
     public Mono<String> getEmailFromToken(String token) {
-        return getClaimsFromToken(token)
-                .flatMap(claims -> {
-                    String email = claims.get("email", String.class);
-                    return StringUtils.isNotBlank(email)
-                            ? Mono.just(email)
-                            : Mono.error(new CustomException(
-                            HttpStatus.UNAUTHORIZED,
-                            "Missing email claim"
-                    ));
-                });
+        return getClaimsFromToken(token).flatMap(claims -> {
+            String email = claims.get("email", String.class);
+            return StringUtils.isNotBlank(email)
+                    ? Mono.just(email)
+                    : Mono.error(new CustomException(HttpStatus.UNAUTHORIZED, "Missing email claim"));
+        });
     }
 
-    /**
-     * Get roles from token
-     */
     public Mono<List<String>> getRolesFromToken(String token) {
-        return getClaimsFromToken(token)
-                .map(claims -> {
-                    List<String> roles = claims.get("roles", List.class);
-                    return roles != null ? roles : Collections.emptyList();
-                });
+        return getClaimsFromToken(token).map(claims -> {
+            List<String> roles = claims.get("roles", List.class);
+            return roles != null ? roles : Collections.emptyList();
+        });
     }
 
-    /**
-     * Get permissions from token
-     */
     public Mono<Set<String>> getPermissionsFromToken(String token) {
-        return getClaimsFromToken(token)
-                .map(claims -> {
-                    List<String> permissions = claims.get("permissions", List.class);
-                    return permissions != null
-                            ? new HashSet<>(permissions)
-                            : Collections.emptySet();
-                });
+        return getClaimsFromToken(token).map(claims -> {
+            List<String> perms = claims.get("permissions", List.class);
+            return perms != null ? new HashSet<>(perms) : Collections.emptySet();
+        });
     }
 
     /* =========================
-       Helper Methods
+       FIREBASE HELPERS
        ========================= */
 
-    /**
-     * Verify Firebase user exists
-     */
     public Mono<String> verifyFirebaseUser(String userId) {
         return Mono.fromCallable(() -> {
-                    UserRecord userRecord = firebaseAuth.getUser(userId);
-                    log.info("Firebase verification for user ID {} successful", userId);
-                    return userRecord.getUid();
+                    UserRecord record = firebaseAuth.getUser(userId);
+                    log.info("Firebase verification succeeded for user {}", userId);
+                    return record.getUid();
                 })
                 .subscribeOn(Schedulers.boundedElastic())
                 .onErrorResume(e -> {
                     log.error("Firebase user verification failed for user {}", userId, e);
-                    return Mono.error(new CustomException(
-                            HttpStatus.NOT_FOUND,
-                            "User not found in Firebase"
-                    ));
+                    return Mono.error(new CustomException(HttpStatus.NOT_FOUND, "User not found in Firebase"));
                 });
     }
 
-    /**
-     * Check token revocation status
-     */
+    /* =========================
+       REVOCATION CHECK HELPERS
+       ========================= */
+
+    /** Reactive revocation check — used in the refresh flow. */
     private Mono<Void> checkTokenRevocationStatus(String jti) {
         return Mono.fromCallable(() ->
-                firestore.collection(COLLECTION_REVOKED_TOKENS)
-                        .document(jti)
-                        .get()
-                        .get(2, TimeUnit.SECONDS)
-        ).flatMap(document -> {
-            if (document.exists()) {
-                return Mono.error(new CustomException(
-                        HttpStatus.UNAUTHORIZED,
-                        "Refresh token has been revoked"
-                ));
-            }
-            return Mono.empty();
-        }).onErrorResume(e -> {
-            log.error("Error checking token revocation status", e);
-            return Mono.error(new CustomException(
-                    HttpStatus.UNAUTHORIZED,
-                    "Unable to verify token status"
-            ));
-        }).then();
+                        firestore.collection(COLLECTION_REVOKED_TOKENS).document(jti)
+                                .get().get(2, TimeUnit.SECONDS))
+                .flatMap(doc -> doc.exists()
+                        ? Mono.error(new CustomException(HttpStatus.UNAUTHORIZED, "Refresh token has been revoked"))
+                        : Mono.empty())
+                .onErrorResume(e -> {
+                    log.error("Error checking token revocation status", e);
+                    return Mono.error(new CustomException(HttpStatus.UNAUTHORIZED, "Unable to verify token status"));
+                }).then();
     }
 
-    /**
-     * Check token revocation status (synchronous)
-     */
+    /** Synchronous revocation check — used in the filter/validation path. */
     private void checkTokenRevocationStatus(Claims claims) {
         if (isTokenRevoked(claims.getId())) {
             log.warn("Attempt to use revoked token: {}", claims.getId());
@@ -1116,117 +811,90 @@ public class JwtService {
         }
     }
 
-    /**
-     * Check if token is revoked
-     */
     private boolean isTokenRevoked(String jti) {
         try {
-            DocumentSnapshot doc = firestore.collection(COLLECTION_REVOKED_TOKENS)
-                    .document(jti)
-                    .get()
-                    .get(2, TimeUnit.SECONDS);
-            return doc.exists();
+            return firestore.collection(COLLECTION_REVOKED_TOKENS)
+                    .document(jti).get().get(2, TimeUnit.SECONDS).exists();
         } catch (Exception e) {
             log.error("Error checking token revocation status", e);
-            return true; // Fail secure
+            return true; // fail-secure
         }
     }
 
-    /**
-     * Retrieve user from claims
-     */
+    /* =========================
+       USER RETRIEVAL
+       ========================= */
+
     private Mono<User> retrieveUserFromClaims(Claims claims) {
         return Mono.fromCallable(() -> {
                     String userId = claims.getSubject();
-                    if (userId == null || userId.isBlank()) {
+                    if (StringUtils.isBlank(userId)) {
                         throw new CustomException(HttpStatus.UNAUTHORIZED, "Invalid token: no subject");
                     }
 
-                    DocumentSnapshot userDoc = firestore.collection("users")
-                            .document(userId)
-                            .get()
-                            .get(2, TimeUnit.SECONDS);
+                    DocumentSnapshot doc = firestore.collection("users")
+                            .document(userId).get().get(2, TimeUnit.SECONDS);
 
-                    if (!userDoc.exists()) {
+                    if (!doc.exists()) {
                         throw new CustomException(HttpStatus.NOT_FOUND, "User not found");
                     }
 
-                    // Fetch roles as Strings
-                    List<String> roleNames = userDoc.get("roles", List.class);
-
-                    // Fetch known devices as a single String
-                    String knownFingerprints = userDoc.getString("knownDeviceFingerprints");
+                    List<String> roleNames = doc.get("roles", List.class);
+                    String knownFingerprints = doc.getString("knownDeviceFingerprints");
 
                     return User.builder()
                             .id(userId)
-                            .email(userDoc.getString("email"))
+                            .email(doc.getString("email"))
                             .roleNames(roleNames != null ? roleNames : List.of())
-                            .firstName(userDoc.getString("firstName"))
-                            .lastName(userDoc.getString("lastName"))
-                            .mfaRequired(Boolean.TRUE.equals(userDoc.getBoolean("mfaRequired")))
+                            .firstName(doc.getString("firstName"))
+                            .lastName(doc.getString("lastName"))
+                            .mfaRequired(Boolean.TRUE.equals(doc.getBoolean("mfaRequired")))
                             .knownDeviceFingerprints(knownFingerprints != null ? knownFingerprints : "")
                             .build();
                 })
                 .subscribeOn(Schedulers.boundedElastic())
-                .onErrorMap(e -> new CustomException(
-                        HttpStatus.INTERNAL_SERVER_ERROR,
-                        "Failed to retrieve user",
-                        e
-                ));
+                .onErrorMap(e -> new CustomException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to retrieve user", e));
     }
 
-    /**
-     * Verify token context
-     */
-    private Mono<User> verifyTokenContext(
-            Claims claims,
-            String ipAddress,
-            String userAgent,
-            User user
-    ) {
-        return Mono.fromCallable(() -> {
-            String tokenIp = claims.get("ipAddress", String.class);
-            String tokenUserAgent = claims.get("userAgent", String.class);
+    /* =========================
+       TOKEN CONTEXT VALIDATION
+       ========================= */
 
-            if (shouldEnforceIpValidation() || StringUtils.equals(tokenIp, ipAddress)) {
-                // IP validation is disabled or matches
-            } else {
+    private Mono<User> verifyTokenContext(Claims claims, String ipAddress, String userAgent, User user) {
+        return Mono.fromCallable(() -> {
+            String tokenIp        = claims.get("ipAddress",  String.class);
+            String tokenUserAgent = claims.get("userAgent",  String.class);
+
+            if (!shouldEnforceIpValidation() && !StringUtils.equals(tokenIp, ipAddress)) {
                 log.warn("IP address changed from {} to {}", tokenIp, ipAddress);
                 throw new CustomException(HttpStatus.UNAUTHORIZED, "Token context invalid - IP mismatch");
             }
-
             if (!StringUtils.equals(tokenUserAgent, userAgent)) {
                 log.warn("User-Agent changed from {} to {}", tokenUserAgent, userAgent);
                 throw new CustomException(HttpStatus.UNAUTHORIZED, "Token context invalid - User-Agent mismatch");
             }
-
             return user;
         });
     }
 
-    /**
-     * Validate token context
-     */
     private void validateTokenContext(Claims claims, String currentIp) {
-        if (shouldEnforceIpValidation()) {
-            return;
-        }
-
+        if (shouldEnforceIpValidation()) return;
         String tokenIp = claims.get("ipAddress", String.class);
         if (!StringUtils.equals(tokenIp, currentIp)) {
-            log.warn("IP address mismatch: token [{}], current [{}]", tokenIp, currentIp);
+            log.warn("IP mismatch: token [{}], current [{}]", tokenIp, currentIp);
             throw new JwtException("Token context invalid - IP mismatch");
         }
     }
 
-    /**
-     * Build validation result
-     */
-    private TokenValidationResult buildValidationResult(
-            Claims claims,
-            boolean isValid,
-            String message
-    ) {
+    private boolean shouldEnforceIpValidation() {
+        return environment.getProperty("security.ip-validation.enabled", Boolean.class, true);
+    }
+
+    /* =========================
+       RESULT / ERROR BUILDERS
+       ========================= */
+
+    private TokenValidationResult buildValidationResult(Claims claims, boolean valid, String message) {
         return TokenValidationResult.builder()
                 .subject(claims.getSubject())
                 .userId(claims.get("userId", String.class))
@@ -1235,204 +903,125 @@ public class JwtService {
                 .permissions(claims.get("permissions", List.class))
                 .issuedAt(claims.getIssuedAt().toInstant())
                 .expiration(claims.getExpiration().toInstant())
-                .valid(isValid)
+                .valid(valid)
                 .message(message)
                 .mfaEnabled(claims.get("mfaEnabled", Boolean.class))
                 .build();
     }
 
-    /**
-     * Handle storage error
-     */
     private Mono<TokenComponentsWithExpiry> handleStorageError(Throwable e, String userId) {
         log.error("Failed to store refresh token for user {}", userId, e);
-
-        if (e instanceof TimeoutException) {
-            return Mono.error(new CustomException(
-                    HttpStatus.REQUEST_TIMEOUT,
-                    "Refresh token storage timed out"
-            ));
-        } else if (e instanceof JwtException) {
-            return Mono.error(new CustomException(
-                    HttpStatus.BAD_REQUEST,
-                    String.format("Invalid refresh token: %s", e.getMessage())
-            ));
-        } else if (e instanceof FirestoreException) {
-            return Mono.error(new CustomException(
-                    HttpStatus.SERVICE_UNAVAILABLE,
-                    "Database unavailable for token storage"
-            ));
-        }
-
-        return Mono.error(new CustomException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
-                "Failed to store refresh token"
-        ));
+        if (e instanceof TimeoutException)   return Mono.error(new CustomException(HttpStatus.REQUEST_TIMEOUT,    "Refresh token storage timed out"));
+        if (e instanceof JwtException)       return Mono.error(new CustomException(HttpStatus.BAD_REQUEST,        "Invalid refresh token: " + e.getMessage()));
+        if (e instanceof FirestoreException) return Mono.error(new CustomException(HttpStatus.SERVICE_UNAVAILABLE,"Database unavailable for token storage"));
+        return Mono.error(new CustomException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to store refresh token"));
     }
 
-    /**
-     * Map to security exception
-     */
     public CustomException mapToSecurityException(Throwable e) {
-        if (e instanceof ExpiredJwtException) {
-            return new CustomException(HttpStatus.UNAUTHORIZED, "Token expired");
-        }
-        if (e instanceof JwtException) {
-            return new CustomException(HttpStatus.UNAUTHORIZED, "Invalid token");
-        }
-        if (e instanceof TimeoutException) {
-            return new CustomException(HttpStatus.REQUEST_TIMEOUT, "Token validation timeout");
-        }
+        if (e instanceof ExpiredJwtException) return new CustomException(HttpStatus.UNAUTHORIZED,            "Token expired");
+        if (e instanceof JwtException)        return new CustomException(HttpStatus.UNAUTHORIZED,            "Invalid token");
+        if (e instanceof TimeoutException)    return new CustomException(HttpStatus.REQUEST_TIMEOUT,         "Token validation timeout");
         return new CustomException(HttpStatus.INTERNAL_SERVER_ERROR, "Token processing failed");
     }
 
-    /**
-     * Check if token is valid
-     */
     public Mono<Boolean> isTokenValid(String token) {
-        return getClaimsFromToken(token)
-                .map(claims -> true)
-                .onErrorResume(e -> Mono.just(false));
-    }
-
-    /**
-     * Format full name
-     */
-    private String formatFullName(String firstName, String lastName) {
-        return String.format("%s %s",
-                        Objects.toString(firstName, ""),
-                        Objects.toString(lastName, ""))
-                .trim();
-    }
-
-    /**
-     * Should enforce IP validation
-     */
-    private boolean shouldEnforceIpValidation() {
-        return environment.getProperty("security.ip-validation.enabled", Boolean.class, true);
+        return getClaimsFromToken(token).map(__ -> true).onErrorResume(e -> Mono.just(false));
     }
 
     /* =========================
-       Logging Methods
+       SHARED PRIVATE UTILITIES
        ========================= */
 
     /**
-     * Log token generation success
+     * Convert a set of {@link Permissions} enum values to their string names for JWT claims.
      */
+    private Set<String> toPermissionNames(Set<Permissions> permissions) {
+        return permissions.stream().map(Permissions::name).collect(Collectors.toSet());
+    }
+
+    /**
+     * Build the base enhanced claims map shared by access and refresh token builders.
+     */
+    private Map<String, Object> buildEnhancedClaims(
+            User user, String ipAddress, String userAgent,
+            String tokenType, Set<String> permissions) {
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("type",          tokenType);
+        claims.put("userId",        user.getId());
+        claims.put("email",         user.getEmail());
+        claims.put("roles",         user.getRoleNames());
+        claims.put("permissions",   permissions);
+        claims.put("ipAddress",     ipAddress);
+        claims.put("userAgent",     userAgent);
+        claims.put("emailVerified", user.isEmailVerified());
+        claims.put("phoneVerified", user.isPhoneVerified());
+        return claims;
+    }
+
+    /**
+     * Build an audit log payload string with a fixed base set of fields.
+     * Accepts optional additional key-value pairs appended at the end.
+     *
+     * <p>Before this helper both {@link #validateAccessToken} call sites duplicated
+     * {@code Map.of("reason", ..., "ip", ..., "timestamp", ...).toString()} inline.
+     */
+    private String buildAuditPayload(String reason, String ip, Instant timestamp, Object... extras) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("reason",    reason);
+        payload.put("ip",        ip);
+        payload.put("timestamp", timestamp);
+        for (int i = 0; i + 1 < extras.length; i += 2) {
+            payload.put(extras[i].toString(), extras[i + 1]);
+        }
+        return payload.toString();
+    }
+
+    /* =========================
+       LOGGING
+       ========================= */
+
     public void logTokenGenerationSuccess(User user, String ipAddress) {
         Instant now = clock.instant();
-
-        log.info("Successfully generated tokens for user {} from IP {}", user.getId(), ipAddress);
-
-        auditLogService.logSecurityEvent(
-                "TOKEN_GENERATION",
-                user.getId(),
-                Map.of(
-                        "ipAddress", ipAddress,
-                        "status", "success",
-                        "timestamp", now
-                ).toString()
-        );
+        log.info("Tokens generated for user {} from IP {}", user.getId(), ipAddress);
+        auditLogService.logSecurityEvent("TOKEN_GENERATION", user.getId(),
+                buildAuditPayload("success", ipAddress, now));
     }
 
-    /**
-     * Log token generation failure
-     */
     public void logTokenGenerationFailure(User user, String ipAddress, Throwable e) {
         Instant now = clock.instant();
-
         log.error("Token generation failed for user {} from IP {}", user.getId(), ipAddress, e);
-
-        auditLogService.logSecurityEvent(
-                "TOKEN_GENERATION_FAILURE",
-                user.getId(),
-                Map.of(
-                        "ipAddress", ipAddress,
-                        "error", e.getMessage(),
-                        "status", "failed",
-                        "timestamp", now
-                ).toString()
-        );
+        auditLogService.logSecurityEvent("TOKEN_GENERATION_FAILURE", user.getId(),
+                buildAuditPayload("failed", ipAddress, now, "error", e.getMessage()));
     }
 
-    /*
-     * Log refresh success
-     */
-    /**
-     * Log refresh success
-     */
     private void logRefreshSuccess(TokenPair tokens, String ipAddress) {
         Instant now = clock.instant();
-
-        log.info("Successfully refreshed tokens for IP {}", ipAddress);
-
-        auditLogService.logSecurityEvent(
-                "TOKEN_REFRESH",
-                tokens.getAccessToken().substring(0, Math.min(10, tokens.getAccessToken().length())) + "...",  // ✅ Fixed
-                Map.of(
-                        "ipAddress", ipAddress,
-                        "status", "success",
-                        "timestamp", now
-                ).toString()
-        );
+        log.info("Tokens refreshed for IP {}", ipAddress);
+        String subject = tokens.getAccessToken().substring(0, Math.min(10, tokens.getAccessToken().length())) + "...";
+        auditLogService.logSecurityEvent("TOKEN_REFRESH", subject,
+                buildAuditPayload("success", ipAddress, now));
     }
 
-    /**
-     * Log refresh failure
-     */
     private void logRefreshFailure(Throwable e, String ipAddress) {
         Instant now = clock.instant();
-
         log.error("Token refresh failed for IP {}", ipAddress, e);
-
-        auditLogService.logSecurityEvent(
-                "TOKEN_REFRESH_FAILURE",
-                ipAddress,
-                Map.of(
+        auditLogService.logSecurityEvent("TOKEN_REFRESH_FAILURE", ipAddress,
+                buildAuditPayload("failed", ipAddress, now,
                         "error", e.getMessage(),
-                        "status", "failed",
-                        "type", e instanceof CustomException ? "validation" : "system",
-                        "timestamp", now
-                ).toString()
-        );
+                        "type", e instanceof CustomException ? "validation" : "system"));
     }
 
-    /**
-     * Log revocation success
-     */
     private void logRevocationSuccess(String ipAddress, int count, String revokedBy) {
-        Instant now = clock.instant();
-
-        log.info("Revoked {} tokens for IP: {}", count, ipAddress);
-
-        auditLogService.logSecurityEvent(
-                "TOKEN_REVOCATION",
-                ipAddress,
-                Map.of(
-                        "count", count,
-                        "reason", "blacklisted_ip",
-                        "initiator", revokedBy,
-                        "timestamp", now
-                ).toString()
-        );
+        log.info("Revoked {} tokens for IP {}", count, ipAddress);
+        auditLogService.logSecurityEvent("TOKEN_REVOCATION", ipAddress,
+                buildAuditPayload("blacklisted_ip", ipAddress, clock.instant(),
+                        "count", count, "initiator", revokedBy));
     }
 
-    /**
-     * Log revocation failure
-     */
     private void logRevocationFailure(String ipAddress, Throwable e, String revokedBy) {
-        Instant now = clock.instant();
-
         log.error("Failed to revoke tokens for IP {}", ipAddress, e);
-
-        auditLogService.logSecurityEvent(
-                "TOKEN_REVOCATION_FAILURE",
-                ipAddress,
-                Map.of(
-                        "error", e.getMessage(),
-                        "initiator", revokedBy,
-                        "timestamp", now
-                ).toString()
-        );
+        auditLogService.logSecurityEvent("TOKEN_REVOCATION_FAILURE", ipAddress,
+                buildAuditPayload("failed", ipAddress, clock.instant(),
+                        "error", e.getMessage(), "initiator", revokedBy));
     }
 }
