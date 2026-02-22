@@ -10,9 +10,9 @@ import com.techStack.authSys.models.user.User;
 import com.techStack.authSys.repository.metrics.MetricsService;
 import com.techStack.authSys.repository.user.FirestoreUserRepository;
 import com.techStack.authSys.service.auth.FirebaseServiceAuth;
+import com.techStack.authSys.service.auth.RegistrationEmailGate;
 import com.techStack.authSys.service.cache.RedisUserCacheService;
 import com.techStack.authSys.service.observability.AuditLogService;
-import com.techStack.authSys.service.security.EmailValidationService;
 import com.techStack.authSys.util.firebase.FirestoreUtils;
 import com.techStack.authSys.util.validation.HelperUtils;
 import com.techStack.authSys.util.password.PasswordUtils;
@@ -48,7 +48,7 @@ public class TransactionalBootstrapService {
     private final MetricsService metricsService;
     private final Firestore firestore;
     private final FirestoreUserRepository firestoreUserRepository;
-    private final EmailValidationService emailValidationService;
+    private final RegistrationEmailGate registrationEmailGate;
     private final Clock clock;
 
     private static final int MAX_RETRIES = 3;
@@ -82,7 +82,7 @@ public class TransactionalBootstrapService {
                 .email(finalEmail)
                 .build();
 
-        return emailValidationService.validateEmailForRegistration(validationDto)
+        return registrationEmailGate.validate(validationDto)
                 .doOnSuccess(v -> log.info("✅ Email validation passed for: {}",
                         HelperUtils.maskEmail(finalEmail)))
                 .then(checkExistingAdmin(finalEmail))

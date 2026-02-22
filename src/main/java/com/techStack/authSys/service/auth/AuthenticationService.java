@@ -30,6 +30,7 @@ import java.time.Instant;
 import java.util.Set;
 
 import static com.techStack.authSys.constants.SecurityConstants.*;
+import static com.techStack.authSys.util.validation.HelperUtils.maskEmail;
 
 /**
  * Unified Authentication Service
@@ -186,6 +187,7 @@ public class AuthenticationService {
 
     /* =========================
        First-Time Setup Handlers
+
        ========================= */
 
     private Mono<AuthResult> handleFirstTimeSetupRequired(User user) {
@@ -285,13 +287,6 @@ public class AuthenticationService {
                 "Authentication failed. Please try again.",
                 HttpStatus.UNAUTHORIZED
         ));
-    }
-
-    private String maskEmail(String email) {
-        if (email == null || !email.contains("@")) return email;
-        String[] parts = email.split("@");
-        if (parts[0].length() <= 2) return "***@" + parts[1];
-        return parts[0].substring(0, 2) + "***@" + parts[1];
     }
 
     /* =========================

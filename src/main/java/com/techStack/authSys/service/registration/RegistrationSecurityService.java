@@ -2,7 +2,7 @@ package com.techStack.authSys.service.registration;
 
 import com.techStack.authSys.dto.request.UserRegistrationDTO;
 import com.techStack.authSys.exception.service.CustomException;
-import com.techStack.authSys.service.security.EmailValidationService;
+import com.techStack.authSys.service.auth.RegistrationEmailGate;
 import com.techStack.authSys.service.security.GeoLocationService;
 import com.techStack.authSys.service.security.SuspiciousActivityService;
 import com.techStack.authSys.service.user.PasswordPolicyService;
@@ -34,7 +34,7 @@ public class RegistrationSecurityService {
     private final RegistrationThrottleService throttleService;
     private final GeoLocationService geoLocationService;
     private final SuspiciousActivityService suspiciousActivityService;
-    private final EmailValidationService emailValidationService;
+    private final RegistrationEmailGate registrationEmailGate;
     private final PasswordPolicyService passwordPolicyService;
 
     /**
@@ -108,7 +108,7 @@ public class RegistrationSecurityService {
      * Validate email domain
      */
     private Mono<Void> performDomainValidation(UserRegistrationDTO userDto) {
-        return emailValidationService.validateEmailForRegistration(userDto)
+        return registrationEmailGate.validate(userDto)
                 .doOnSuccess(v -> log.debug("Domain validation passed for: {}",
                         userDto.getEmail()))
                 .doOnError(e -> log.warn("Domain validation failed for: {}",

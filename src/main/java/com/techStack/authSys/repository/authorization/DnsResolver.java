@@ -15,4 +15,9 @@ public interface DnsResolver {
      * @return list of MX hostnames, empty if none found
      */
     List<String> resolveMxRecords(String domain);
+
+    /* =========================
+           A Record Lookup
+           ========================= */
+    boolean hasARecord(String domain);
 }

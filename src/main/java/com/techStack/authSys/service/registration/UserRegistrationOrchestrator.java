@@ -24,6 +24,8 @@ import java.time.Instant;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import static com.techStack.authSys.util.validation.HelperUtils.maskEmail;
+
 /**
  * User Registration Orchestrator
  *
@@ -48,7 +50,6 @@ public class UserRegistrationOrchestrator {
     private final RegistrationMetricsService registrationMetricsService;
     private final RegistrationErrorHandlerService errorHandlerService;
     private final DeviceVerificationService deviceVerificationService;
-    private final ApplicationEventPublisher eventPublisher;
     private final Clock clock;
 
     /* =========================
@@ -71,7 +72,7 @@ public class UserRegistrationOrchestrator {
         Set<String> requestedRoles = extractRequestedRoles(userDto);
 
         log.info("📝 Registration attempt for email: {} from IP: {}",
-                userDto.getEmail(), ipAddress);
+                maskEmail(userDto.getEmail()), ipAddress);
 
         return Mono.just(userDto)
                 // Phase 1: Input Validation & Security Checks

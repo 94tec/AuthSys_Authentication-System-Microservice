@@ -4,6 +4,7 @@ import com.techStack.authSys.config.core.EmailValidationConfig;
 import com.techStack.authSys.dto.request.UserRegistrationDTO;
 import com.techStack.authSys.exception.domain.InvalidDomainException;
 import com.techStack.authSys.exception.service.CustomException;
+import com.techStack.authSys.repository.authorization.DnsResolver;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -31,13 +32,13 @@ import static com.techStack.authSys.util.validation.HelperUtils.maskEmail;
 @Service
 public class EmailValidationService {
 
-    private final DnsJavaResolver dnsResolver;          // ✅ Concrete type for hasARecord()
+    private final DnsResolver dnsResolver;          // ✅ Concrete type for hasARecord()
     private final EmailValidationConfig emailValidationConfig;
     private final Map<String, String> typoCache = new ConcurrentHashMap<>();
 
     /* ✅ FIXED: Explicit constructor */
     public EmailValidationService(
-            DnsJavaResolver dnsResolver,
+            DnsResolver dnsResolver,
             EmailValidationConfig emailValidationConfig) {
         this.dnsResolver = dnsResolver;
         this.emailValidationConfig = emailValidationConfig;
