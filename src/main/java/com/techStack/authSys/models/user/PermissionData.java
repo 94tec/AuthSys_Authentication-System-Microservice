@@ -4,175 +4,255 @@ import lombok.Builder;
 import lombok.Data;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
- * Enhanced Permission Data
+ * Permission Data
  *
- * Comprehensive permission information for a user including:
- * - Basic permission data (roles, permissions, status)
- * - Approval tracking (who, when)
- * - Role hierarchy information
- * - Permission metadata
- * - Audit trail
- * - Versioning
+ * Comprehensive snapshot of a user's permission state, used as the read
+ * model when returning permission info to callers (admin APIs, audit views).
  *
- * @author TechStack Security Team
- * @version 2.0 - Enhanced
+ * This is NOT a Firestore document — it is an assembled view built from:
+ *   - FirestoreUserPermissions  (roles, grants, denials)
+ *   - FirestoreRolePermissionsRepository (resolved role permissions)
+ *   - Approval workflow state on the User entity
+ *
+ * Mutable list fields:
+ *   The static factory methods use mutable ArrayList so that callers
+ *   can append to the returned object (e.g. adding audit trail entries
+ *   after construction) without hitting UnsupportedOperationException.
+ *   List.of() is intentionally avoided here.
+ *
+ * Validity contract:
+ *   isValid() requires BOTH active=true AND status=ACTIVE. The two fields
+ *   can legitimately diverge (e.g. an admin sets active=false on an ACTIVE
+ *   user to temporarily suspend permission resolution without changing their
+ *   status). Both conditions must be true for permissions to be considered
+ *   usable.
+ *
+ * @version 2.0
  */
 @Data
 @Builder
 public class PermissionData {
 
-    /* =========================
-       Core Fields
-       ========================= */
+    // -------------------------------------------------------------------------
+    // Core fields
+    // -------------------------------------------------------------------------
 
-    /**
-     * User ID this permission data belongs to
-     */
+    /** User ID this permission data belongs to. */
     private String userId;
 
-    /**
-     * User email for reference
-     */
+    /** User email for reference and display. */
     private String email;
 
     /**
-     * List of role names assigned to user
+     * Role names assigned to this user.
+     * Mutable — use ArrayList so callers can append without exception.
      */
-    private List<String> roles;
+    @Builder.Default
+    private List<String> roles = new ArrayList<>();
 
     /**
-     * List of permission strings granted to user
+     * Resolved permission strings for this user.
+     * Represents effective permissions AFTER role resolution + grants - denials.
+     * Mutable — use ArrayList so callers can append without exception.
      */
-    private List<String> permissions;
+    @Builder.Default
+    private List<String> permissions = new ArrayList<>();
 
-    /**
-     * Current user status
-     */
+    /** Current user status from the approval workflow. */
     private UserStatus status;
 
     /**
-     * Whether permissions are currently active
+     * Whether permission resolution is active for this user.
+     * Can be false even when status=ACTIVE (e.g. temporary suspension).
+     * Both this AND status==ACTIVE must be true for isValid() to return true.
      */
     @Builder.Default
     private boolean active = true;
 
     /**
-     * Permission data version (for optimistic locking)
+     * Optimistic locking version.
+     * Increment on every write to detect concurrent modification.
      */
     @Builder.Default
     private int version = 1;
 
-    /* =========================
-       Approval Tracking
-       ========================= */
+    // -------------------------------------------------------------------------
+    // Approval tracking
+    // -------------------------------------------------------------------------
 
-    /**
-     * ID of approver who granted these permissions
-     */
+    /** ID of the approver who activated these permissions. */
     private String approvedBy;
 
-    /**
-     * When approval was granted
-     */
+    /** When approval was granted. */
     private Instant approvedAt;
 
-    /**
-     * When permissions were granted/activated
-     */
+    /** When permissions became active (may differ from approvedAt on re-activation). */
     private Instant grantedAt;
 
-    /* =========================
-       Hierarchy & Metadata
-       ========================= */
+    // -------------------------------------------------------------------------
+    // Hierarchy and metadata
+    // -------------------------------------------------------------------------
 
     /**
-     * Role hierarchy map (role -> inherited roles)
-     * Example: {"ADMIN" -> ["MANAGER", "USER"]}
+     * Role hierarchy snapshot at the time of resolution.
+     * Maps role name → list of inherited role names.
+     * Example: {"ADMIN" → ["MANAGER", "USER"]}
      */
-    private Map<String, List<String>> roleHierarchy;
+    @Builder.Default
+    private Map<String, List<String>> roleHierarchy = new HashMap<>();
 
     /**
-     * Permission metadata (source, resolution info, etc.)
+     * Permission resolution metadata.
+     * Stores source information, resolution timestamp, resolver version, etc.
+     * Example keys: "resolvedAt", "resolverVersion", "source"
      */
-    private Map<String, Object> permissionMetadata;
+    @Builder.Default
+    private Map<String, Object> permissionMetadata = new HashMap<>();
 
-    /* =========================
-       Audit Trail
-       ========================= */
+    // -------------------------------------------------------------------------
+    // Audit trail
+    // -------------------------------------------------------------------------
 
     /**
-     * Audit trail of permission changes
-     * Each entry: {"action", "performedBy", "timestamp", ...}
+     * Ordered list of permission change events for this user.
+     *
+     * Each entry is a typed AuditEntry rather than Map<String, String> —
+     * Map<String, String> cannot hold Instant timestamps without string
+     * conversion, loses type safety, and has no schema enforcement.
+     *
+     * Entries are appended in chronological order; most recent is last.
      */
-    private List<Map<String, String>> auditTrail;
+    @Builder.Default
+    private List<AuditEntry> auditTrail = new ArrayList<>();
 
-    /* =========================
-       Utility Methods
-       ========================= */
+    // -------------------------------------------------------------------------
+    // Validity and state checks
+    // -------------------------------------------------------------------------
 
     /**
-     * Check if permissions are active and valid
+     * Whether this permission data represents a usable, active permission set.
+     *
+     * Both conditions must be true:
+     *   1. active=true    — permission resolution not suspended
+     *   2. status=ACTIVE  — user is in the ACTIVE workflow state
+     *   3. permissions is non-null and non-empty
+     *
+     * Either condition being false means the user should not receive
+     * permissions in their JWT regardless of what the permissions list contains.
      */
     public boolean isValid() {
-        return active &&
-                status == UserStatus.ACTIVE &&
-                permissions != null &&
-                !permissions.isEmpty();
+        return active
+                && status == UserStatus.ACTIVE
+                && permissions != null
+                && !permissions.isEmpty();
     }
 
     /**
-     * Get total permission count
+     * Whether this user is pending any approval action.
      */
+    public boolean isPending() {
+        return status == UserStatus.PENDING_APPROVAL;
+    }
+
+    /**
+     * Whether this permission data has been explicitly deactivated
+     * while the user account remains in ACTIVE status.
+     * Used to detect temporary permission suspension.
+     */
+    public boolean isSuspended() {
+        return !active && status == UserStatus.ACTIVE;
+    }
+
+    /** Total number of resolved permissions. */
     public int getPermissionCount() {
         return permissions != null ? permissions.size() : 0;
     }
 
-    /**
-     * Get total role count
-     */
+    /** Total number of assigned roles. */
     public int getRoleCount() {
         return roles != null ? roles.size() : 0;
     }
 
-    /**
-     * Check if user has specific permission
-     */
+    /** Whether the resolved permissions include the given permission string. */
     public boolean hasPermission(String permission) {
         return permissions != null && permissions.contains(permission);
     }
 
-    /**
-     * Check if user has specific role
-     */
+    /** Whether the assigned roles include the given role name. */
     public boolean hasRole(String role) {
         return roles != null && roles.contains(role);
     }
 
-    /* =========================
-       Static Factory Methods
-       ========================= */
+    // -------------------------------------------------------------------------
+    // Audit trail helpers
+    // -------------------------------------------------------------------------
 
     /**
-     * Create empty permission data for pending users
+     * Appends an audit entry to the trail.
+     *
+     * @param action      what happened e.g. "ROLE_ASSIGNED", "PERMISSION_GRANTED"
+     * @param performedBy userId or "SYSTEM" of who made the change
+     * @param timestamp   when the change occurred
+     * @param detail      optional extra context (nullable)
      */
-    public static PermissionData empty(String userId, String email, List<String> roles) {
+    public void addAuditEntry(
+            String action,
+            String performedBy,
+            Instant timestamp,
+            String detail
+    ) {
+        if (auditTrail == null) auditTrail = new ArrayList<>();
+        auditTrail.add(new AuditEntry(action, performedBy, timestamp, detail));
+    }
+
+    // -------------------------------------------------------------------------
+    // Static factory methods
+    // -------------------------------------------------------------------------
+
+    /**
+     * Creates a PermissionData snapshot for a user who is pending approval.
+     * Permissions list is empty; active=false; status=PENDING_APPROVAL.
+     *
+     * @param userId user ID
+     * @param email  user email
+     * @param roles  role names already assigned
+     * @return pending PermissionData with no active permissions
+     */
+    public static PermissionData pending(
+            String userId,
+            String email,
+            List<String> roles
+    ) {
         return PermissionData.builder()
                 .userId(userId)
                 .email(email)
-                .roles(roles)
-                .permissions(List.of())
+                .roles(roles != null ? new ArrayList<>(roles) : new ArrayList<>())
+                .permissions(new ArrayList<>())
                 .status(UserStatus.PENDING_APPROVAL)
                 .active(false)
                 .version(1)
+                .auditTrail(new ArrayList<>())
+                .roleHierarchy(new HashMap<>())
+                .permissionMetadata(new HashMap<>())
                 .build();
     }
 
     /**
-     * Create active permission data for approved users
+     * Creates a PermissionData snapshot for a fully approved and active user.
+     *
+     * @param userId      user ID
+     * @param email       user email
+     * @param roles       role names assigned
+     * @param permissions resolved effective permission strings
+     * @param approvedBy  ID of the approver
+     * @param approvedAt  when approval was granted
+     * @return active PermissionData with populated permissions
      */
     public static PermissionData active(
             String userId,
@@ -180,19 +260,69 @@ public class PermissionData {
             List<String> roles,
             List<String> permissions,
             String approvedBy,
-            Instant approvedAt) {
-
+            Instant approvedAt
+    ) {
         return PermissionData.builder()
                 .userId(userId)
                 .email(email)
-                .roles(roles)
-                .permissions(permissions)
+                .roles(roles != null ? new ArrayList<>(roles) : new ArrayList<>())
+                .permissions(permissions != null ? new ArrayList<>(permissions) : new ArrayList<>())
                 .status(UserStatus.ACTIVE)
                 .active(true)
                 .approvedBy(approvedBy)
                 .approvedAt(approvedAt)
                 .grantedAt(approvedAt)
                 .version(1)
+                .auditTrail(new ArrayList<>())
+                .roleHierarchy(new HashMap<>())
+                .permissionMetadata(new HashMap<>())
                 .build();
+    }
+
+    /**
+     * @deprecated Use {@link #pending(String, String, List)} instead.
+     *             Renamed from "empty" to "pending" to better reflect the
+     *             user's actual state and avoid confusion with an empty object.
+     */
+    @Deprecated(since = "2.1", forRemoval = true)
+    public static PermissionData empty(String userId, String email, List<String> roles) {
+        return pending(userId, email, roles);
+    }
+
+    // -------------------------------------------------------------------------
+    // Inner: AuditEntry
+    // -------------------------------------------------------------------------
+
+    /**
+     * A single audit trail entry recording a permission-related change event.
+     *
+     * Replaces the original Map<String, String> approach which could not hold
+     * typed Instant timestamps without string conversion and had no schema.
+     */
+    public record AuditEntry(
+            /** What happened. e.g. "ROLE_ASSIGNED", "PERMISSION_GRANTED", "APPROVAL_GRANTED" */
+            String action,
+
+            /** Who performed the action. userId or "SYSTEM". */
+            String performedBy,
+
+            /** When the action occurred. */
+            Instant timestamp,
+
+            /** Optional additional context. e.g. "role=MANAGER", "permission=portfolio:publish" */
+            String detail
+    ) {
+        /** Compact constructor — guards against null required fields. */
+        public AuditEntry {
+            if (action == null || action.isBlank()) {
+                throw new IllegalArgumentException("AuditEntry action must not be null or blank");
+            }
+            if (performedBy == null || performedBy.isBlank()) {
+                throw new IllegalArgumentException("AuditEntry performedBy must not be null or blank");
+            }
+            if (timestamp == null) {
+                throw new IllegalArgumentException("AuditEntry timestamp must not be null");
+            }
+        }
     }
 }

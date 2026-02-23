@@ -6,6 +6,15 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
+
+/**
+ * @deprecated Legacy enum-based permissions.
+ * This enum is FROZEN. Do not add new permissions here.
+ * All new domains use string-based permissions stored in the database.
+ * See Permission entity and permissions.yaml for new permission definitions.
+ * Scheduled for removal after full migration. Tracked in: [your ticket ref]
+ */
+@Deprecated(since = "2.0", forRemoval = true)
 @Getter
 public enum Permissions {
     // CRUD
