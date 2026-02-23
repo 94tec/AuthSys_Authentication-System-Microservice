@@ -1,7 +1,6 @@
 package com.techStack.authSys.dto.response;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
-import com.techStack.authSys.models.authorization.Permissions;
 import com.techStack.authSys.models.user.User;
 import lombok.*;
 

@@ -6,7 +6,6 @@ import com.techStack.authSys.exception.auth.FirstTimeSetupRequiredException;
 import com.techStack.authSys.exception.auth.OtpVerificationRequiredException;
 import com.techStack.authSys.exception.data.NetworkException;
 import com.techStack.authSys.exception.auth.TransientAuthenticationException;
-import com.techStack.authSys.models.authorization.Permissions;
 import com.techStack.authSys.models.user.User;
 import com.techStack.authSys.repository.security.RateLimiterService;
 import com.techStack.authSys.service.token.JwtService;

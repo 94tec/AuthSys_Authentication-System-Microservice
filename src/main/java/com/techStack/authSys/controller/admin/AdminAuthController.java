@@ -5,7 +5,6 @@ import com.techStack.authSys.dto.response.ApiResponse;
 import com.techStack.authSys.dto.response.AuthResponse;
 import com.techStack.authSys.dto.response.BootstrapResult;
 import com.techStack.authSys.dto.response.LoginResponse;
-import com.techStack.authSys.models.authorization.Permissions;
 import com.techStack.authSys.models.user.User;
 import com.techStack.authSys.service.auth.AuthenticationOrchestrator;
 import com.techStack.authSys.service.auth.DeviceVerificationService;

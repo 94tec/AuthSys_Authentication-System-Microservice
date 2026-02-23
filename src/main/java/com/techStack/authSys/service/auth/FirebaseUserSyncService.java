@@ -3,10 +3,7 @@ package com.techStack.authSys.service.auth;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseAuthException;
 import com.google.firebase.auth.UserRecord;
-import com.techStack.authSys.models.user.ApprovalLevel;
-import com.techStack.authSys.models.user.Roles;
-import com.techStack.authSys.models.user.User;
-import com.techStack.authSys.models.user.UserStatus;
+import com.techStack.authSys.models.user.*;
 import com.techStack.authSys.repository.authorization.FirestoreUserPermissionsRepository;
 import com.techStack.authSys.repository.user.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -20,33 +17,25 @@ import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 
 /**
- * Keeps Firebase Auth, Firestore, and PostgreSQL in sync.
+ * Keeps Firebase Auth, Firestore (UserDocument), and PostgreSQL (UserEntity) in sync.
  *
  * Called on every authenticated request via FirebaseTokenFilter.
  * Handles three cases:
- *   1. Brand new user    → create in Firestore + PostgreSQL + user_permissions
- *   2. Existing user     → update lastLogin only
+ *   1. Brand new user    → create UserDocument in Firestore
+ *                        + user_permissions document
+ *                        + UserEntity in PostgreSQL
+ *   2. Existing user     → update lastLoginAt in PostgreSQL only
  *   3. Deactivated user  → block login
  *
- * Threading note:
- *   This service runs in a servlet/blocking context (called from a filter).
- *   All Firestore calls block here deliberately — the filter chain is already
- *   on a bounded thread. Reactive wrappers are not used here; instead we
- *   call the *Blocking variants of our repositories where available.
+ * Model split (why this changed):
+ *   The old service called firestore.collection("users").set(user) where user
+ *   was the dual-annotated User class. Spring Data Firestore rejected this because
+ *   User contained Map<String,Object>, SecurityMetadata inner classes, and
+ *   Set<> fields — all illegal for Spring Data Firestore serialization.
  *
- * Clock note:
- *   Instant.now() has been replaced throughout with clock.instant() so
- *   that tests can control the current time without mocking static methods.
- *
- * Deactivation note:
- *   User.deactivate() does not exist on the User domain model. Deactivation
- *   is modelled as setting status=DEACTIVATED + enabled=false, which aligns
- *   with the existing User.lockAccount() / UserStatus enum pattern.
- *
- * UserJpaProjection note:
- *   The original saveUserToPostgres() built a UserJpaProjection that does
- *   not exist. User itself is the @Entity — we save it directly to JPA.
- *   Only the fields relevant to the relational anchor are populated.
+ *   UserDocument  → Firestore collection "users" (Firestore-safe types only)
+ *   UserEntity    → PostgreSQL table "users" (relational anchor, FK target)
+ *   User          → domain model (assembled by UserAssembler, not persisted here)
  */
 @Service
 @RequiredArgsConstructor
@@ -54,8 +43,8 @@ import java.util.concurrent.ExecutionException;
 public class FirebaseUserSyncService {
 
     private final FirebaseAuth firebaseAuth;
-    private final UserRepository userRepository;
-    private final FirestoreUserPermissionsRepository permissionsRepo;
+    private final UserRepository userRepository;                      // JPA → UserEntity
+    private final FirestoreUserPermissionsRepository permissionsRepo; // Firestore
     private final com.google.cloud.firestore.Firestore firestore;
     private final Clock clock;
 
@@ -66,39 +55,40 @@ public class FirebaseUserSyncService {
     /**
      * Main sync entry point — call this on every authenticated request.
      *
+     * Returns UserDocument from Firestore. Callers that need the full
+     * domain User object should pass this to UserAssembler.fromDocument().
+     *
      * @param firebaseUid the UID from the verified Firebase JWT
-     * @return the synced User object (read from Firestore)
-     * @throws IllegalStateException if the account is deactivated or pending
-     * @throws RuntimeException      if Firestore or Firebase is unreachable
+     * @return the synced UserDocument
      */
-    @Transactional  // covers the PostgreSQL write only
-    public User syncUser(String firebaseUid) {
+    @Transactional  // covers PostgreSQL write only
+    public UserDocument syncUser(String firebaseUid) {
         try {
-            Optional<User> existingUser = findInFirestore(firebaseUid);
+            Optional<UserDocument> existing = findDocumentInFirestore(firebaseUid);
 
-            if (existingUser.isPresent()) {
-                User user = existingUser.get();
+            if (existing.isPresent()) {
+                UserDocument doc = existing.get();
 
-                if (!user.isActive()) {
+                if (!doc.isActive()) {
                     log.warn("Blocked login for non-active user: {} (status={})",
-                            firebaseUid, user.getStatus());
+                            firebaseUid, doc.getStatus());
                     throw new IllegalStateException(
-                            "Account is not active. Status: " + user.getStatus());
+                            "Account is not active. Status: " + doc.getStatus());
                 }
 
-                // Lightweight update — PostgreSQL only, no Firestore write
+                // Lightweight update — PostgreSQL only, no Firestore write on every login
                 userRepository.updateLastLogin(firebaseUid, clock.instant());
                 log.debug("Returning existing user: {}", firebaseUid);
-                return user;
+                return doc;
             }
 
             log.info("New user detected, creating records for uid: {}", firebaseUid);
             return createNewUser(firebaseUid);
 
         } catch (IllegalStateException e) {
-            throw e; // re-throw account state errors as-is
+            throw e;
         } catch (InterruptedException e) {
-            Thread.currentThread().interrupt(); // restore interrupt flag
+            Thread.currentThread().interrupt();
             log.error("syncUser interrupted for uid: {}", firebaseUid, e);
             throw new RuntimeException("User sync interrupted. Please try again.", e);
         } catch (Exception e) {
@@ -110,30 +100,29 @@ public class FirebaseUserSyncService {
     /**
      * Called by Firebase webhook or admin action on account deletion.
      * Soft-deletes the user in both PostgreSQL and Firestore.
-     *
-     * @param firebaseUid the Firebase UID of the deleted account
      */
     @Transactional
     public void handleUserDeletion(String firebaseUid) {
         Instant now = clock.instant();
 
-        // Soft delete in PostgreSQL
-        userRepository.findByFirebaseUid(firebaseUid).ifPresent(user -> {
-            deactivateUser(user, now);
-            userRepository.save(user);
-            log.debug("Soft-deleted user in PostgreSQL: {}", firebaseUid);
+        // Soft delete in PostgreSQL — UserEntity.deactivate() exists
+        userRepository.findByFirebaseUid(firebaseUid).ifPresent(entity -> {
+            entity.deactivate();
+            userRepository.save(entity);
+            log.debug("Soft-deleted UserEntity for uid: {}", firebaseUid);
         });
 
-        // Soft delete in Firestore
-        findInFirestore(firebaseUid).ifPresent(user -> {
-            deactivateUser(user, now);
-            saveUserToFirestore(user);
-            log.debug("Soft-deleted user in Firestore: {}", firebaseUid);
+        // Soft delete in Firestore — mutate UserDocument directly
+        findDocumentInFirestore(firebaseUid).ifPresent(doc -> {
+            doc.setUserStatus(UserStatus.DEACTIVATED);
+            doc.setEnabled(false);
+            doc.setAccountDisabled(true);
+            doc.setUpdatedAt(now);
+            saveDocumentToFirestore(doc);
+            log.debug("Soft-deleted UserDocument for uid: {}", firebaseUid);
         });
 
-        // Remove permissions document
         permissionsRepo.deleteBlocking(firebaseUid);
-
         log.info("Deactivated user on deletion: {}", firebaseUid);
     }
 
@@ -145,199 +134,145 @@ public class FirebaseUserSyncService {
      * Creates all persistence records for a brand new user.
      *
      * Order matters:
-     *   1. Build User domain object
-     *   2. Save to Firestore (primary store)
-     *   3. Create user_permissions document (blocking — must complete before return)
-     *   4. Save lightweight anchor to PostgreSQL
+     *   1. Build UserDocument via factory method
+     *   2. Save UserDocument to Firestore (primary store)
+     *   3. Create user_permissions document (blocking — must exist before return)
+     *   4. Save UserEntity to PostgreSQL (relational anchor)
      */
-    private User createNewUser(String firebaseUid)
+    private UserDocument createNewUser(String firebaseUid)
             throws FirebaseAuthException, ExecutionException, InterruptedException {
 
         UserRecord firebaseUser = firebaseAuth.getUser(firebaseUid);
         Instant now = clock.instant();
 
-        // 1. Build User domain object
-        User newUser = User.builder()
-                .id(firebaseUid)
-                .firebaseUid(firebaseUid)
-                .email(firebaseUser.getEmail())
-                .firstName(extractFirstName(firebaseUser.getDisplayName()))
-                .lastName(extractLastName(firebaseUser.getDisplayName()))
-                .phoneNumber(firebaseUser.getPhoneNumber())
-                .profilePictureUrl(firebaseUser.getPhotoUrl())
-                .status(UserStatus.PENDING_APPROVAL)
-                .enabled(false)
-                .emailVerified(firebaseUser.isEmailVerified())
-                .approvalLevel(ApprovalLevel.PENDING_L1)
-                .createdAt(now)
-                .updatedAt(now)
-                .build();
+        // Build UserDocument using the factory — sets sensible defaults
+        UserDocument doc = UserDocument.defaultFor(
+                firebaseUid,
+                firebaseUser.getEmail(),
+                extractFirstName(firebaseUser.getDisplayName()),
+                extractLastName(firebaseUser.getDisplayName()),
+                now
+        );
 
-        newUser.addRole(Roles.USER);
+        // Populate additional fields available at registration time
+        doc.setPhoneNumber(firebaseUser.getPhoneNumber());
+        doc.setProfilePictureUrl(firebaseUser.getPhotoUrl());
+        doc.setEmailVerified(firebaseUser.isEmailVerified());
 
-        // 2. Save User document to Firestore
-        saveUserToFirestore(newUser);
+        // Save UserDocument to Firestore — Firestore-safe types only
+        saveDocumentToFirestore(doc);
 
-        // 3. Create default user_permissions document in Firestore.
-        //
-        //    Fix from original: permissionsRepo.createDefault() returns Mono<> —
-        //    the original called it without subscribing, meaning the write never
-        //    executed. We use the blocking variant here since we are already in
-        //    a blocking servlet context and need the document to exist before
-        //    this method returns.
+        // Create default user_permissions — blocking because we are in a
+        // servlet context and the document must exist before method returns
         permissionsRepo.createDefaultBlocking(firebaseUid);
 
-        // 4. Save relational anchor to PostgreSQL
-        saveUserToPostgres(newUser, now);
+        // Save lean relational anchor to PostgreSQL
+        saveEntityToPostgres(doc, now);
 
-        log.info("Created new user: {} ({})", firebaseUid, newUser.getEmail());
-        return newUser;
+        log.info("Created new user: {} ({})", firebaseUid, doc.getEmail());
+        return doc;
     }
 
     // -------------------------------------------------------------------------
-    // Private — persistence helpers
+    // Private — Firestore helpers
     // -------------------------------------------------------------------------
 
     /**
-     * Reads a User document from Firestore by Firebase UID.
-     *
-     * @param firebaseUid the document ID (= Firebase UID)
-     * @return Optional containing the User if found, empty if not
+     * Reads a UserDocument from Firestore by Firebase UID.
      */
-    private Optional<User> findInFirestore(String firebaseUid) {
+    private Optional<UserDocument> findDocumentInFirestore(String firebaseUid) {
         try {
-            var doc = firestore
+            var snapshot = firestore
                     .collection("users")
                     .document(firebaseUid)
                     .get()
                     .get();
 
-            if (!doc.exists()) return Optional.empty();
+            if (!snapshot.exists()) return Optional.empty();
 
-            User user = doc.toObject(User.class);
-            if (user == null) {
-                log.warn("Firestore returned null deserialization for uid: {}", firebaseUid);
+            // toObject(UserDocument.class) — Firestore-safe types, no Spring Data rejection
+            UserDocument doc = snapshot.toObject(UserDocument.class);
+            if (doc == null) {
+                log.warn("Firestore deserialized null UserDocument for uid: {}", firebaseUid);
                 return Optional.empty();
             }
 
-            return Optional.of(user);
+            return Optional.of(doc);
 
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            log.error("Interrupted reading user from Firestore: {}", firebaseUid, e);
             throw new RuntimeException("Firestore read interrupted for uid: " + firebaseUid, e);
-
         } catch (ExecutionException e) {
             log.error("Firestore read failed for uid: {}", firebaseUid, e);
-            throw new RuntimeException("Failed to read user from Firestore", e);
+            throw new RuntimeException("Failed to read UserDocument from Firestore", e);
         }
     }
 
     /**
-     * Writes a User document to Firestore using a full set() (not merge).
-     *
-     * @param user the user to persist
+     * Writes a UserDocument to Firestore using full set() — not merge.
      */
-    private void saveUserToFirestore(User user) {
+    private void saveDocumentToFirestore(UserDocument doc) {
         try {
             firestore
                     .collection("users")
-                    .document(user.getFirebaseUid())
-                    .set(user) // full replace — not merge
+                    .document(doc.getId())
+                    .set(doc)
                     .get();
-
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            log.error("Interrupted saving user to Firestore: {}", user.getFirebaseUid(), e);
             throw new RuntimeException(
-                    "Firestore write interrupted for uid: " + user.getFirebaseUid(), e);
-
+                    "Firestore write interrupted for uid: " + doc.getId(), e);
         } catch (ExecutionException e) {
-            log.error("Failed to save user to Firestore: {}", user.getFirebaseUid(), e);
-            throw new RuntimeException("Firestore write failed", e);
+            log.error("Failed to save UserDocument to Firestore: {}", doc.getId(), e);
+            throw new RuntimeException("Firestore write failed for uid: " + doc.getId(), e);
         }
     }
 
+    // -------------------------------------------------------------------------
+    // Private — PostgreSQL helpers
+    // -------------------------------------------------------------------------
+
     /**
-     * Saves a relational anchor record to PostgreSQL.
+     * Saves a relational anchor UserEntity to PostgreSQL.
      *
-     * The full user object lives in Firestore. PostgreSQL holds only the
-     * fields needed for relational joins (orders, projects, audit logs, etc.).
-     *
-     * Fix from original: the original built a non-existent UserJpaProjection.
-     * User is the @Entity — we save it directly. Only relational-relevant
-     * fields are set; Firestore-only fields are left at their defaults.
-     *
-     * Idempotent — no-ops if a record for this firebaseUid already exists.
-     *
-     * @param user the user domain object (already saved to Firestore)
-     * @param now  current instant for audit timestamps
+     * Only relational fields are populated — full state lives in Firestore.
+     * Idempotent — no-ops if the firebaseUid already has a record.
      */
-    private void saveUserToPostgres(User user, Instant now) {
-        if (userRepository.existsByFirebaseUid(user.getFirebaseUid())) {
-            log.debug("PostgreSQL record already exists for uid: {} — skipping",
-                    user.getFirebaseUid());
+    private void saveEntityToPostgres(UserDocument doc, Instant now) {
+        if (userRepository.existsByFirebaseUid(doc.getId())) {
+            log.debug("UserEntity already exists for uid: {} — skipping", doc.getId());
             return;
         }
 
-        // Build a minimal JPA-persisted User with only the relational fields.
-        // The full user state (roles, permissions, security metadata) lives in Firestore.
-        User pgUser = User.builder()
-                .firebaseUid(user.getFirebaseUid())
-                .email(user.getEmail())
-                .firstName(user.getFirstName())
-                .lastName(user.getLastName())
-                .username(user.getUsername())
-                .phoneNumber(user.getPhoneNumber())
-                .status(user.getStatus())
-                .enabled(user.isEnabled())
-                .approvalLevel(user.getApprovalLevel())
+        UserEntity entity = UserEntity.builder()
+                .firebaseUid(doc.getId())
+                .email(doc.getEmail())
+                .firstName(doc.getFirstName())
+                .lastName(doc.getLastName())
+                .username(doc.getUsername())
+                .phoneNumber(doc.getPhoneNumber())
+                .profilePictureUrl(doc.getProfilePictureUrl())
+                .status(doc.getUserStatus())
+                .approvalLevel(doc.getApprovalLevelEnum())
+                .enabled(doc.isEnabled())
+                .emailVerified(doc.isEmailVerified())
                 .createdAt(now)
                 .updatedAt(now)
                 .build();
 
-        userRepository.save(pgUser);
-        log.debug("Saved PostgreSQL anchor for uid: {}", user.getFirebaseUid());
-    }
-
-    // -------------------------------------------------------------------------
-    // Private — domain state helpers
-    // -------------------------------------------------------------------------
-
-    /**
-     * Applies deactivation state to a User object.
-     *
-     * Fix from original: User.deactivate() does not exist. Deactivation is
-     * modelled as status=DEACTIVATED + enabled=false, consistent with
-     * the UserStatus enum and the existing lockAccount() pattern.
-     *
-     * @param user the user to deactivate (mutated in place)
-     * @param now  current instant for the updatedAt timestamp
-     */
-    private void deactivateUser(User user, Instant now) {
-        user.setStatus(UserStatus.DEACTIVATED);
-        user.setEnabled(false);
-        user.setAccountDisabled(true);
-        user.setUpdatedAt(now);
+        userRepository.save(entity);
+        log.debug("Saved UserEntity for uid: {}", doc.getId());
     }
 
     // -------------------------------------------------------------------------
     // Private — utilities
     // -------------------------------------------------------------------------
 
-    /**
-     * Extracts the first name from a Firebase display name.
-     * e.g. "Jane Doe" → "Jane", "Madonna" → "Madonna", null → ""
-     */
     private String extractFirstName(String displayName) {
         if (displayName == null || displayName.isBlank()) return "";
         return displayName.trim().split("\\s+", 2)[0];
     }
 
-    /**
-     * Extracts the last name from a Firebase display name.
-     * e.g. "Jane Doe" → "Doe", "Madonna" → "", null → ""
-     */
     private String extractLastName(String displayName) {
         if (displayName == null || displayName.isBlank()) return "";
         String[] parts = displayName.trim().split("\\s+", 2);

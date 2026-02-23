@@ -1,6 +1,5 @@
 package com.techStack.authSys.controller.admin;
 
-import com.techStack.authSys.models.authorization.Permissions;
 import com.techStack.authSys.models.user.Roles;
 import com.techStack.authSys.repository.authorization.PermissionProvider;
 import com.techStack.authSys.service.auth.FirebaseServiceAuth;

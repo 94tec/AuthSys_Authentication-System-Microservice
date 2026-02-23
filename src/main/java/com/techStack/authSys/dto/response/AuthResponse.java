@@ -1,7 +1,5 @@
 package com.techStack.authSys.dto.response;
 
-import com.techStack.authSys.models.authorization.Permissions;
-import com.techStack.authSys.models.user.Roles;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;

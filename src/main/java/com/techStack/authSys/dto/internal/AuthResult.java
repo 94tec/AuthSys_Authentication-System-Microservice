@@ -1,13 +1,10 @@
 package com.techStack.authSys.dto.internal;
 
-import com.techStack.authSys.models.auth.TokenPair;
-import com.techStack.authSys.models.authorization.Permissions;
 import com.techStack.authSys.models.user.Roles;
 import com.techStack.authSys.models.user.User;
 import lombok.*;
 
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -27,7 +24,7 @@ public class AuthResult {
     private Instant accessTokenExpiry;
     private Instant refreshTokenExpiry;
     private List<Roles> roles;
-    private List<Permissions> permissions;
+    private List<String> permissions;
     private boolean mfaRequired;
     private int loginAttempts;
     private Instant lastLogin;
