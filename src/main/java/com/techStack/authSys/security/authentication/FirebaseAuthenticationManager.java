@@ -38,6 +38,23 @@ import static com.techStack.authSys.constants.SecurityConstants.*;
  *
  * Handles authentication for both Firebase tokens and Custom JWT tokens.
  * Uses Clock for timestamp tracking and duration metrics.
+ *
+ * Fixes from original:
+ *
+ *   A. createAuthenticationToken() — called firebaseServiceAuth.findByEmail().block()
+ *      inside a reactive flatMap chain. block() inside a reactive operator can deadlock
+ *      on bounded thread pools and is forbidden in WebFlux. Removed the second load
+ *      entirely — the user object already in scope is the freshly loaded one from
+ *      buildAuthentication(). The "reload" was redundant and dangerous.
+ *
+ *   B. extractClaimSet() — applied .toUpperCase() to all claim values, including
+ *      permission strings. Permission full names are lowercase namespace:action format
+ *      e.g. "portfolio:publish". Uppercasing corrupts them so hasAuthority() checks
+ *      against "PORTFOLIO:PUBLISH" never match the stored "portfolio:publish".
+ *      Roles are correctly uppercased (ROLE_ADMIN). Permissions are now left as-is.
+ *      The split is done by extractRoles() calling extractRoleClaimSet() and
+ *      extractPermissions() calling extractPermissionClaimSet() — separate helpers
+ *      with appropriate case handling for each.
  */
 @Slf4j
 @Primary
@@ -45,16 +62,16 @@ import static com.techStack.authSys.constants.SecurityConstants.*;
 @RequiredArgsConstructor
 public class FirebaseAuthenticationManager implements ReactiveAuthenticationManager {
 
-    /* =========================
-       Constants
-       ========================= */
+    // -------------------------------------------------------------------------
+    // Constants
+    // -------------------------------------------------------------------------
 
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static final Duration AUTHENTICATION_TIMEOUT = Duration.ofSeconds(5);
 
-    /* =========================
-       Dependencies
-       ========================= */
+    // -------------------------------------------------------------------------
+    // Dependencies
+    // -------------------------------------------------------------------------
 
     private final JwtService jwtService;
     private final FirebaseTokenCacheService firebaseTokenCacheService;
@@ -62,9 +79,9 @@ public class FirebaseAuthenticationManager implements ReactiveAuthenticationMana
     private final RedisUserCacheService redisCacheService;
     private final Clock clock;
 
-    /* =========================
-       Main Authentication
-       ========================= */
+    // -------------------------------------------------------------------------
+    // Main Authentication
+    // -------------------------------------------------------------------------
 
     @Override
     public Mono<Authentication> authenticate(Authentication authentication) {
@@ -76,28 +93,18 @@ public class FirebaseAuthenticationManager implements ReactiveAuthenticationMana
                 .flatMap(this::extractAndValidateToken)
                 .flatMap(this::processToken)
                 .doOnSuccess(auth -> {
-                    Instant authEnd = clock.instant();
-                    Duration authDuration = Duration.between(authStart, authEnd);
-
-                    logSuccessfulAuthentication(auth, authEnd, authDuration);
+                    Duration authDuration = Duration.between(authStart, clock.instant());
+                    logSuccessfulAuthentication(auth, clock.instant(), authDuration);
                 })
-                .doOnError(e -> {
-                    Instant errorTime = clock.instant();
-                    Duration errorDuration = Duration.between(authStart, errorTime);
-
-                    log.error("❌ Authentication failed at {} after {}: {}",
-                            errorTime, errorDuration, e.getMessage());
-                })
+                .doOnError(e -> log.error("❌ Authentication failed after {}: {}",
+                        Duration.between(authStart, clock.instant()), e.getMessage()))
                 .onErrorResume(this::handleAuthenticationError);
     }
 
-    /* =========================
-       Token Extraction
-       ========================= */
+    // -------------------------------------------------------------------------
+    // Token Extraction
+    // -------------------------------------------------------------------------
 
-    /**
-     * Extract and validate token from authentication object
-     */
     private Mono<String> extractAndValidateToken(Authentication authentication) {
         Instant extractStart = clock.instant();
 
@@ -106,78 +113,49 @@ public class FirebaseAuthenticationManager implements ReactiveAuthenticationMana
                 .filter(token -> !token.isBlank())
                 .doOnSuccess(token -> {
                     if (token != null) {
-                        Instant extractEnd = clock.instant();
-                        Duration duration = Duration.between(extractStart, extractEnd);
-
-                        log.debug("Token extracted at {} in {}", extractEnd, duration);
+                        log.debug("Token extracted in {}",
+                                Duration.between(extractStart, clock.instant()));
                     }
                 })
                 .switchIfEmpty(Mono.error(
-                        new AuthenticationServiceException("Missing or empty token")
-                ));
+                        new AuthenticationServiceException("Missing or empty token")));
     }
 
-    /* =========================
-       Token Processing
-       ========================= */
+    // -------------------------------------------------------------------------
+    // Token Processing
+    // -------------------------------------------------------------------------
 
-    /**
-     * Process token based on its type
-     */
     private Mono<Authentication> processToken(String token) {
         Instant processStart = clock.instant();
 
         return determineTokenType(token)
                 .flatMap(tokenType -> {
                     log.debug("Processing {} token at {}", tokenType, clock.instant());
-
                     return switch (tokenType) {
-                        case FIREBASE -> authenticateFirebaseToken(token)
+                        case FIREBASE    -> authenticateFirebaseToken(token)
                                 .timeout(AUTHENTICATION_TIMEOUT);
-                        case CUSTOM_JWT -> authenticateCustomJwt(token)
+                        case CUSTOM_JWT  -> authenticateCustomJwt(token)
                                 .timeout(AUTHENTICATION_TIMEOUT);
                     };
                 })
-                .doOnSuccess(auth -> {
-                    Instant processEnd = clock.instant();
-                    Duration duration = Duration.between(processStart, processEnd);
-
-                    log.info("✅ Token processed successfully at {} in {}",
-                            processEnd, duration);
-                })
-                .doOnError(e -> {
-                    Instant errorTime = clock.instant();
-                    Duration duration = Duration.between(processStart, errorTime);
-
-                    log.error("❌ Token processing failed at {} after {}: {}",
-                            errorTime, duration, e.getMessage());
-                });
+                .doOnSuccess(__ -> log.info("✅ Token processed in {}",
+                        Duration.between(processStart, clock.instant())))
+                .doOnError(e -> log.error("❌ Token processing failed after {}: {}",
+                        Duration.between(processStart, clock.instant()), e.getMessage()));
     }
 
-    /**
-     * Determine token type (Firebase or Custom JWT)
-     */
     public Mono<TokenType> determineTokenType(String token) {
-        Instant determineStart = clock.instant();
-
+        Instant start = clock.instant();
         return Mono.fromCallable(() -> {
                     if (isFirebaseToken(token)) return TokenType.FIREBASE;
-                    if (isCustomJwt(token)) return TokenType.CUSTOM_JWT;
+                    if (isCustomJwt(token))     return TokenType.CUSTOM_JWT;
                     throw new AuthenticationServiceException("Unsupported token type");
                 })
                 .subscribeOn(Schedulers.boundedElastic())
-                .doOnSuccess(type -> {
-                    Instant determineEnd = clock.instant();
-                    Duration duration = Duration.between(determineStart, determineEnd);
-
-                    log.debug("Token type determined as {} at {} in {}",
-                            type, determineEnd, duration);
-                });
+                .doOnSuccess(type -> log.debug("Token type {} determined in {}",
+                        type, Duration.between(start, clock.instant())));
     }
 
-    /**
-     * Check if token is a Firebase token
-     */
     private boolean isFirebaseToken(String token) {
         try {
             String[] parts = token.split("\\.");
@@ -194,9 +172,6 @@ public class FirebaseAuthenticationManager implements ReactiveAuthenticationMana
         }
     }
 
-    /**
-     * Check if token is a Custom JWT
-     */
     private boolean isCustomJwt(String token) {
         try {
             String[] parts = token.split("\\.");
@@ -213,61 +188,37 @@ public class FirebaseAuthenticationManager implements ReactiveAuthenticationMana
         }
     }
 
-    /* =========================
-       Firebase Token Authentication
-       ========================= */
+    // -------------------------------------------------------------------------
+    // Firebase Token Authentication
+    // -------------------------------------------------------------------------
 
-    /**
-     * Authenticate Firebase token
-     */
     private Mono<Authentication> authenticateFirebaseToken(String token) {
-        Instant authStart = clock.instant();
+        Instant start = clock.instant();
 
         return firebaseTokenCacheService.getCachedToken(token)
                 .switchIfEmpty(Mono.defer(() -> verifyAndCacheFirebaseToken(token)))
                 .map(this::createAuthentication)
-                .doOnSuccess(auth -> {
-                    Instant authEnd = clock.instant();
-                    Duration duration = Duration.between(authStart, authEnd);
-
-                    log.info("✅ Firebase token authenticated at {} in {}",
-                            authEnd, duration);
-                })
+                .doOnSuccess(__ -> log.info("✅ Firebase token authenticated in {}",
+                        Duration.between(start, clock.instant())))
                 .onErrorResume(e -> {
-                    Instant errorTime = clock.instant();
-
-                    log.error("❌ Firebase token validation failed at {}: {}",
-                            errorTime, e.getMessage());
-
+                    log.error("❌ Firebase token validation failed: {}", e.getMessage());
                     return Mono.error(new AuthenticationServiceException(
-                            "Firebase token validation failed: " + e.getMessage()
-                    ));
+                            "Firebase token validation failed: " + e.getMessage()));
                 });
     }
 
-    /**
-     * Verify and cache Firebase token
-     */
     public Mono<FirebaseToken> verifyAndCacheFirebaseToken(String token) {
-        Instant verifyStart = clock.instant();
+        Instant start = clock.instant();
 
         return Mono.fromCallable(() -> FirebaseAuth.getInstance().verifyIdToken(token))
                 .subscribeOn(Schedulers.boundedElastic())
-                .doOnSuccess(decoded -> {
-                    Instant verifyEnd = clock.instant();
-                    Duration duration = Duration.between(verifyStart, verifyEnd);
-
-                    log.info("Firebase token verified at {} in {} for UID: {}",
-                            verifyEnd, duration, decoded.getUid());
-                })
+                .doOnSuccess(decoded -> log.info("Firebase token verified in {} for UID: {}",
+                        Duration.between(start, clock.instant()), decoded.getUid()))
                 .flatMap(decoded -> firebaseTokenCacheService
                         .cacheToken(token, decoded)
                         .thenReturn(decoded));
     }
 
-    /**
-     * Create authentication from Firebase token
-     */
     private Authentication createAuthentication(FirebaseToken token) {
         return new UsernamePasswordAuthenticationToken(
                 token.getUid(),
@@ -276,114 +227,75 @@ public class FirebaseAuthenticationManager implements ReactiveAuthenticationMana
         );
     }
 
-    /* =========================
-       Custom JWT Authentication
-       ========================= */
+    // -------------------------------------------------------------------------
+    // Custom JWT Authentication
+    // -------------------------------------------------------------------------
 
-    /**
-     * Authenticate Custom JWT
-     */
     private Mono<Authentication> authenticateCustomJwt(String token) {
-        Instant authStart = clock.instant();
+        Instant start = clock.instant();
 
         return redisCacheService.getTokenClaims(token)
                 .flatMap(this::castToClaimsMap)
                 .switchIfEmpty(Mono.defer(() -> validateAndCacheFreshToken(token)))
                 .flatMap(this::buildAuthentication)
-                .doOnSuccess(auth -> {
-                    Instant authEnd = clock.instant();
-                    Duration duration = Duration.between(authStart, authEnd);
-
-                    log.info("✅ Custom JWT authenticated at {} in {}",
-                            authEnd, duration);
-                })
+                .doOnSuccess(__ -> log.info("✅ Custom JWT authenticated in {}",
+                        Duration.between(start, clock.instant())))
                 .onErrorResume(e -> {
-                    Instant errorTime = clock.instant();
-
-                    log.error("❌ JWT validation failed at {}: {}",
-                            errorTime, e.getMessage());
-
-                    Throwable ex = (e instanceof Throwable) ? (Throwable) e :
-                            new RuntimeException("Unknown error");
-
+                    log.error("❌ JWT validation failed: {}", e.getMessage());
                     return Mono.error(new AuthenticationServiceException(
-                            "JWT validation failed: " + ex.getMessage()
-                    ));
+                            "JWT validation failed: " + e.getMessage()));
                 });
     }
 
-    /**
-     * Validate and cache fresh token
-     */
     public Mono<Map<String, Object>> validateAndCacheFreshToken(String token) {
-        Instant validateStart = clock.instant();
+        Instant start = clock.instant();
 
         return jwtService.validateToken(token, CLAIM_TYPE_ACCESS)
-                .doOnSuccess(claims -> {
-                    Instant validateEnd = clock.instant();
-                    Duration duration = Duration.between(validateStart, validateEnd);
-
-                    log.debug("Token validated at {} in {}", validateEnd, duration);
-                })
+                .doOnSuccess(__ -> log.debug("Token validated in {}",
+                        Duration.between(start, clock.instant())))
                 .flatMap(claims -> cacheClaimsWithFallback(token, claims))
                 .onErrorResume(e -> {
-                    Instant errorTime = clock.instant();
-
-                    log.warn("Token validation failed at {}: {}", errorTime, e.getMessage());
-
+                    log.warn("Token validation failed: {}", e.getMessage());
                     return Mono.error(new AuthenticationServiceException("Invalid token"));
                 });
     }
 
-    /**
-     * Cast claims to Map type
-     */
     private Mono<Map<String, Object>> castToClaimsMap(Object claims) {
         return Mono.just(claims)
                 .filter(Map.class::isInstance)
                 .map(m -> (Map<String, Object>) m)
                 .switchIfEmpty(Mono.error(
-                        new AuthenticationServiceException("Invalid claims format")
-                ));
+                        new AuthenticationServiceException("Invalid claims format")));
     }
 
-
-    /**
-     * Cache claims with fallback
-     */
     private Mono<Map<String, Object>> cacheClaimsWithFallback(
-            String token,
-            Map<String, Object> claims) {
-
-        Instant cacheStart = clock.instant();
-
+            String token, Map<String, Object> claims) {
         return redisCacheService.cacheTokenClaims(token, claims)
-                .doOnSuccess(success -> {
-                    Instant cacheEnd = clock.instant();
-                    Duration duration = Duration.between(cacheStart, cacheEnd);
-
-                    log.debug("Claims cached at {} in {}", cacheEnd, duration);
-                })
                 .onErrorResume(e -> {
-                    Instant errorTime = clock.instant();
-
-                    log.warn("Failed to cache claims at {}: {} - Continuing with authentication",
-                            errorTime, e.getMessage());
-
+                    log.warn("Failed to cache claims: {} - continuing", e.getMessage());
                     return Mono.empty();
                 })
                 .thenReturn(claims);
     }
 
-    /* =========================
-       Authentication Building
-       ========================= */
+    // -------------------------------------------------------------------------
+    // Authentication Building
+    // -------------------------------------------------------------------------
 
     /**
-     * Build authentication from claims
+     * Build a full Authentication from JWT claims.
+     *
+     * Loads the user once via findByEmail(), then builds CustomUserDetails
+     * and the Authentication token directly from that loaded user.
+     *
+     * Fix from original:
+     *   The original called findByEmail(user.getEmail()).block() a second time
+     *   inside this method to get a "fresh" user. block() inside a reactive
+     *   operator can deadlock a WebFlux thread pool. The second load was redundant —
+     *   the user is already fresh from the flatMap above. Removed entirely.
      */
     private Mono<Authentication> buildAuthentication(Map<String, Object> claims) {
-        Instant buildStart = clock.instant();
+        Instant start = clock.instant();
 
         return Mono.fromCallable(() -> new TokenClaimsModel(claims))
                 .subscribeOn(Schedulers.boundedElastic())
@@ -391,90 +303,61 @@ public class FirebaseAuthenticationManager implements ReactiveAuthenticationMana
                     String userIdentifier = claimsModel.getEmail()
                             .orElseGet(claimsModel::getUsername);
 
-                    log.debug("Building authentication at {} for user: {}",
-                            clock.instant(), HelperUtils.maskEmail(userIdentifier));
+                    log.debug("Building authentication for user: {}",
+                            HelperUtils.maskEmail(userIdentifier));
 
                     return firebaseServiceAuth.findByEmail(userIdentifier)
                             .switchIfEmpty(Mono.error(new AuthenticationServiceException(
-                                    "User not found for identifier: " +
-                                            HelperUtils.maskEmail(userIdentifier)
-                            )))
+                                    "User not found: " + HelperUtils.maskEmail(userIdentifier))))
                             .map(user -> {
                                 // Sync forcePasswordChange from claims
                                 boolean forceChange = Boolean.TRUE.equals(
-                                        claims.get("forcePasswordChange")
-                                );
+                                        claims.get("forcePasswordChange"));
                                 user.setForcePasswordChange(forceChange);
 
-                                log.debug("User loaded - forcePasswordChange: {}",
+                                log.debug("User loaded: {} forcePasswordChange={}",
+                                        HelperUtils.maskEmail(user.getEmail()),
                                         user.isForcePasswordChange());
 
-                                return createAuthenticationToken(user, claimsModel);
+                                // Build authentication directly from the loaded user.
+                                // No second .block() needed — this user is already fresh.
+                                CustomUserDetails userDetails = new CustomUserDetails(
+                                        user,
+                                        claimsModel.getRoles(),
+                                        claimsModel.getPermissions()
+                                );
+
+                                return (Authentication) new UsernamePasswordAuthenticationToken(
+                                        userDetails,
+                                        null,
+                                        userDetails.getAuthorities()
+                                );
                             });
                 })
-                .doOnSuccess(auth -> {
-                    Instant buildEnd = clock.instant();
-                    Duration duration = Duration.between(buildStart, buildEnd);
-
-                    log.debug("Authentication built at {} in {}", buildEnd, duration);
-                });
+                .doOnSuccess(__ -> log.debug("Authentication built in {}",
+                        Duration.between(start, clock.instant())));
     }
 
-    /**
-     * Create authentication token from user and claims
-     */
-    private Authentication createAuthenticationToken(User user, TokenClaimsModel claims) {
-        Instant createStart = clock.instant();
-
-        // Reload user to ensure fresh data
-        User freshUser = firebaseServiceAuth.findByEmail(user.getEmail()).block();
-
-        if (freshUser == null) {
-            log.error("Failed to reload user: {}", HelperUtils.maskEmail(user.getEmail()));
-            throw new AuthenticationServiceException("User reload failed");
-        }
-
-        log.debug("Creating authentication token at {} for user: {} - Roles: {} - forcePasswordChange: {}",
-                clock.instant(),
-                HelperUtils.maskEmail(freshUser.getEmail()),
-                freshUser.getRoles(),
-                freshUser.isForcePasswordChange());
-
-        CustomUserDetails userDetails = new CustomUserDetails(
-                freshUser,
-                claims.getRoles(),
-                claims.getPermissions()
-        );
-
-        Authentication auth = new UsernamePasswordAuthenticationToken(
-                userDetails,
-                null,
-                userDetails.getAuthorities()
-        );
-
-        Instant createEnd = clock.instant();
-        Duration duration = Duration.between(createStart, createEnd);
-
-        log.debug("Authentication token created at {} in {}", createEnd, duration);
-
-        return auth;
-    }
-
-    /* =========================
-       Authority Extraction
-       ========================= */
+    // -------------------------------------------------------------------------
+    // Authority Extraction
+    // -------------------------------------------------------------------------
 
     /**
-     * Extract authorities from claims
+     * Extract Spring Security authorities from a claims map.
+     *
+     * Roles are prefixed with ROLE_ and uppercased — Spring Security convention.
+     * Permissions are left exactly as stored: lowercase namespace:action strings
+     * e.g. "portfolio:publish". Uppercasing permissions would break hasAuthority()
+     * checks since the stored strings are lowercase.
      */
     public Collection<GrantedAuthority> extractAuthorities(Map<String, Object> claims) {
         Set<GrantedAuthority> authorities = new HashSet<>();
 
-        // Process roles
+        // Roles → ROLE_ADMIN style (uppercase is correct for roles)
         extractRoles(claims).forEach(role ->
                 authorities.add(new SimpleGrantedAuthority(ROLE_PREFIX + role)));
 
-        // Process permissions
+        // Permissions → "portfolio:publish" style (lowercase, must NOT be uppercased)
         extractPermissions(claims).forEach(perm ->
                 authorities.add(new SimpleGrantedAuthority(PERM_PREFIX + perm)));
 
@@ -483,93 +366,81 @@ public class FirebaseAuthenticationManager implements ReactiveAuthenticationMana
                 : authorities;
     }
 
-    /**
-     * Extract roles from claims
-     */
     private Set<String> extractRoles(Map<String, Object> claims) {
-        Set<String> roles = extractClaimSet(claims.get(CLAIM_ROLE));
-        roles.addAll(extractClaimSet(claims.get(CLAIM_ROLES)));
+        Set<String> roles = extractRoleClaimSet(claims.get(CLAIM_ROLE));
+        roles.addAll(extractRoleClaimSet(claims.get(CLAIM_ROLES)));
         return roles;
     }
 
-    /**
-     * Extract permissions from claims
-     */
     private Set<String> extractPermissions(Map<String, Object> claims) {
-        Object raw = claims.get(CLAIM_PERMISSIONS);
-        return extractClaimSet(raw);
+        return extractPermissionClaimSet(claims.get(CLAIM_PERMISSIONS));
     }
 
     /**
-     * Extract claim set from various formats
+     * Extract role claim values and uppercase them.
+     * Roles are stored as names (ADMIN, USER) or may come in lowercase — normalise to upper.
      */
-    private Set<String> extractClaimSet(Object claim) {
+    private Set<String> extractRoleClaimSet(Object claim) {
+        return extractRawClaimSet(claim).stream()
+                .map(String::toUpperCase)
+                .collect(Collectors.toSet());
+    }
+
+    /**
+     * Extract permission claim values WITHOUT uppercasing.
+     * Permissions are "portfolio:publish" format — case must be preserved exactly.
+     */
+    private Set<String> extractPermissionClaimSet(Object claim) {
+        return extractRawClaimSet(claim);
+    }
+
+    /**
+     * Extract string values from a claim that may be a comma-delimited String or a Collection.
+     * Does NOT apply any case transformation — callers are responsible for case.
+     */
+    private Set<String> extractRawClaimSet(Object claim) {
         if (claim instanceof String s) {
             return Arrays.stream(s.split(","))
                     .map(String::trim)
                     .filter(str -> !str.isEmpty())
-                    .map(String::toUpperCase)
                     .collect(Collectors.toSet());
-        } else if (claim instanceof List<?> list) {
+        }
+        if (claim instanceof Collection<?> list) {
             return list.stream()
                     .filter(Objects::nonNull)
                     .map(Object::toString)
-                    .map(String::toUpperCase)
                     .collect(Collectors.toSet());
         }
         return Collections.emptySet();
     }
 
-    /* =========================
-       Logging & Error Handling
-       ========================= */
+    // -------------------------------------------------------------------------
+    // Logging & Error Handling
+    // -------------------------------------------------------------------------
 
-    /**
-     * Log successful authentication
-     */
     private void logSuccessfulAuthentication(
-            Authentication auth,
-            Instant authTime,
-            Duration authDuration) {
-
+            Authentication auth, Instant authTime, Duration authDuration) {
         String authorities = auth.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
                 .collect(Collectors.joining(", "));
 
-        log.info("✅ Authenticated user at {} in {}: {} with authorities: {}",
-                authTime,
-                authDuration,
-                auth.getName(),
-                authorities);
+        log.info("✅ Authenticated {} at {} in {} — authorities: {}",
+                auth.getName(), authTime, authDuration, authorities);
     }
 
-    /**
-     * Handle authentication errors
-     */
     private Mono<Authentication> handleAuthenticationError(Throwable e) {
-        Instant errorTime = clock.instant();
-
         if (e instanceof AuthenticationServiceException) {
-            log.error("Authentication service exception at {}: {}",
-                    errorTime, e.getMessage());
+            log.error("Authentication service exception: {}", e.getMessage());
             return Mono.error(e);
         }
-
-        log.error("Unexpected authentication error at {}: {}",
-                errorTime, e.getMessage(), e);
-
-        return Mono.error(new AuthenticationServiceException(
-                "Authentication failed", e
-        ));
+        log.error("Unexpected authentication error: {}", e.getMessage(), e);
+        return Mono.error(new AuthenticationServiceException("Authentication failed", e));
     }
 
-    /* =========================
-       Inner Classes
-       ========================= */
+    // -------------------------------------------------------------------------
+    // Inner Types
+    // -------------------------------------------------------------------------
 
-    /**
-     * Token type enumeration
-     */
     private enum TokenType {
         FIREBASE,
         CUSTOM_JWT
