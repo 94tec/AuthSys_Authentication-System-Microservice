@@ -10,6 +10,10 @@ import com.techStack.authSys.models.user.UserStatus;
 import com.techStack.authSys.repository.metrics.MetricsService;
 import com.techStack.authSys.repository.user.FirestoreUserRepository;
 import com.techStack.authSys.service.auth.FirebaseServiceAuth;
+import com.techStack.authSys.service.auth.RegistrationEmailGate;
+import com.techStack.authSys.service.bootstrap.BootstrapNotificationService;
+import com.techStack.authSys.service.bootstrap.BootstrapStateService;
+import com.techStack.authSys.service.bootstrap.TransactionalBootstrapService;
 import com.techStack.authSys.service.cache.RedisUserCacheService;
 import com.techStack.authSys.service.observability.AuditLogService;
 import com.techStack.authSys.service.security.EmailValidationService;
@@ -64,7 +68,7 @@ class TransactionalBootstrapServiceTest {
     @Mock private MetricsService metricsService;
     @Mock private Firestore firestore;
     @Mock private FirestoreUserRepository firestoreUserRepository;
-    @Mock private EmailValidationService emailValidationService;
+    @Mock private RegistrationEmailGate registrationEmailGate;
     @Mock private FirebaseAuth firebaseAuth;
 
     private TransactionalBootstrapService transactionalService;
@@ -90,7 +94,7 @@ class TransactionalBootstrapServiceTest {
                 metricsService,
                 firestore,
                 firestoreUserRepository,
-                emailValidationService,
+                registrationEmailGate,
                 fixedClock
         );
     }
@@ -106,7 +110,7 @@ class TransactionalBootstrapServiceTest {
         User mockUser = createMockSuperAdmin();
 
         // Email validation passes
-        when(emailValidationService.validateEmailForRegistration(any()))
+        when(registrationEmailGate.validate(any()))
                 .thenReturn(Mono.empty());
 
         // Step 0: Check existing - none found
@@ -157,7 +161,7 @@ class TransactionalBootstrapServiceTest {
         // Given
         User existingUser = createMockSuperAdmin();
 
-        when(emailValidationService.validateEmailForRegistration(any()))
+        when(registrationEmailGate.validate(any()))
                 .thenReturn(Mono.empty());
 
         // Admin already exists
@@ -197,7 +201,7 @@ class TransactionalBootstrapServiceTest {
     @DisplayName("Should validate email before any database operations")
     void createSuperAdminTransactionally_EmailValidationFirst() {
         // Given
-        when(emailValidationService.validateEmailForRegistration(any()))
+        when(registrationEmailGate.validate(any()))
                 .thenReturn(Mono.error(new IllegalArgumentException("Invalid email")));
 
         // When
@@ -248,7 +252,7 @@ class TransactionalBootstrapServiceTest {
     @DisplayName("Should rollback when Step 1 (Firebase creation) fails")
     void createSuperAdminTransactionally_Step1Failure_NoRollbackNeeded() {
         // Given
-        when(emailValidationService.validateEmailForRegistration(any()))
+        when(registrationEmailGate.validate(any()))
                 .thenReturn(Mono.empty());
 
         when(firebaseServiceAuth.existsByEmail(TEST_EMAIL))
@@ -282,7 +286,7 @@ class TransactionalBootstrapServiceTest {
         // Given
         User mockUser = createMockSuperAdmin();
 
-        when(emailValidationService.validateEmailForRegistration(any()))
+        when(registrationEmailGate.validate(any()))
                 .thenReturn(Mono.empty());
 
         when(firebaseServiceAuth.existsByEmail(TEST_EMAIL))
@@ -322,7 +326,7 @@ class TransactionalBootstrapServiceTest {
         // Given
         User mockUser = createMockSuperAdmin();
 
-        when(emailValidationService.validateEmailForRegistration(any()))
+        when(registrationEmailGate.validate(any()))
                 .thenReturn(Mono.empty());
 
         when(firebaseServiceAuth.existsByEmail(TEST_EMAIL))
@@ -366,7 +370,7 @@ class TransactionalBootstrapServiceTest {
         // Given
         User mockUser = createMockSuperAdmin();
 
-        when(emailValidationService.validateEmailForRegistration(any()))
+        when(registrationEmailGate.validate(any()))
                 .thenReturn(Mono.empty());
 
         when(firebaseServiceAuth.existsByEmail(TEST_EMAIL))
@@ -410,7 +414,7 @@ class TransactionalBootstrapServiceTest {
     @DisplayName("Should handle Firebase auth email conflict")
     void createSuperAdminTransactionally_EmailConflict() throws Exception {
         // Given
-        when(emailValidationService.validateEmailForRegistration(any()))
+        when(registrationEmailGate.validate(any()))
                 .thenReturn(Mono.empty());
 
         when(firebaseServiceAuth.existsByEmail(TEST_EMAIL))
@@ -448,7 +452,7 @@ class TransactionalBootstrapServiceTest {
     @DisplayName("Should retry on retryable errors")
     void createSuperAdminTransactionally_RetryableError() {
         // Given
-        when(emailValidationService.validateEmailForRegistration(any()))
+        when(registrationEmailGate.validate(any()))
                 .thenReturn(Mono.empty());
 
         // First call fails with retryable error, second succeeds
@@ -488,7 +492,7 @@ class TransactionalBootstrapServiceTest {
     @DisplayName("Should timeout after 60 seconds")
     void createSuperAdminTransactionally_Timeout() {
         // Given
-        when(emailValidationService.validateEmailForRegistration(any()))
+        when(registrationEmailGate.validate(any()))
                 .thenReturn(Mono.empty());
 
         when(firebaseServiceAuth.existsByEmail(TEST_EMAIL))
@@ -520,7 +524,7 @@ class TransactionalBootstrapServiceTest {
         String unnormalizedEmail = "  Admin@EXAMPLE.COM  ";
         User mockUser = createMockSuperAdmin();
 
-        when(emailValidationService.validateEmailForRegistration(any()))
+        when(registrationEmailGate.validate(any()))
                 .thenReturn(Mono.empty());
 
         when(firebaseServiceAuth.existsByEmail("admin@example.com"))
@@ -554,7 +558,7 @@ class TransactionalBootstrapServiceTest {
         String unnormalizedPhone = "0712345678"; // Kenyan format
         User mockUser = createMockSuperAdmin();
 
-        when(emailValidationService.validateEmailForRegistration(any()))
+        when(registrationEmailGate.validate(any()))
                 .thenReturn(Mono.empty());
 
         when(firebaseServiceAuth.existsByEmail(TEST_EMAIL))
@@ -594,7 +598,7 @@ class TransactionalBootstrapServiceTest {
         // Given
         User mockUser = createMockSuperAdmin();
 
-        when(emailValidationService.validateEmailForRegistration(any()))
+        when(registrationEmailGate.validate(any()))
                 .thenReturn(Mono.empty());
 
         when(firebaseServiceAuth.existsByEmail(TEST_EMAIL))
@@ -628,7 +632,7 @@ class TransactionalBootstrapServiceTest {
         // Given
         User existingUser = createMockSuperAdmin();
 
-        when(emailValidationService.validateEmailForRegistration(any()))
+        when(registrationEmailGate.validate(any()))
                 .thenReturn(Mono.empty());
 
         when(firebaseServiceAuth.existsByEmail(TEST_EMAIL))

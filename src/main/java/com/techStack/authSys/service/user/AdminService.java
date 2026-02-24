@@ -4,7 +4,6 @@ import com.techStack.authSys.dto.request.UserRegistrationDTO;
 import com.techStack.authSys.exception.account.UserNotFoundException;
 import com.techStack.authSys.exception.authorization.AccessDeniedException;
 import com.techStack.authSys.models.audit.ActionType;
-import com.techStack.authSys.models.authorization.Permissions;
 import com.techStack.authSys.models.user.*;
 import com.techStack.authSys.repository.authorization.PermissionProvider;
 import com.techStack.authSys.repository.user.FirestoreUserRepository;

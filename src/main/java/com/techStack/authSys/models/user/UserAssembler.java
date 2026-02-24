@@ -147,4 +147,54 @@ public class UserAssembler {
                     new ArrayList<>(meta.getKnownDeviceFingerprints()));
         }
     }
+    public User assembleFromDocumentOnly(UserDocument doc) {
+        User user = User.builder()
+                .id(doc.getId())
+                .firebaseUid(doc.getId())
+                .email(doc.getEmail())
+                .firstName(doc.getFirstName())
+                .lastName(doc.getLastName())
+                .username(doc.getUsername())
+                .identityNo(doc.getIdentityNo())
+                .phoneNumber(doc.getPhoneNumber())
+                .profilePictureUrl(doc.getProfilePictureUrl())
+                .bio(doc.getBio())
+                .userProfileId(doc.getUserProfileId())
+                .department(doc.getDepartment())
+                .roleNames(new ArrayList<>(doc.getRoleNames()))
+                .additionalPermissions(new ArrayList<>(doc.getAdditionalPermissions()))
+                .requestedRoleNames(new ArrayList<>(doc.getRequestedRoleNames()))
+                .attributes(doc.getAttributes())
+                .status(doc.getUserStatus())
+                .enabled(doc.isEnabled())
+                .accountLocked(doc.isAccountLocked())
+                .accountDisabled(doc.isAccountDisabled())
+                .emailVerified(doc.isEmailVerified())
+                .phoneVerified(doc.isPhoneVerified())
+                .forcePasswordChange(doc.isForcePasswordChange())
+                .approvalLevel(doc.getApprovalLevelEnum())
+                .approvedAt(doc.getApprovedAt())
+                .approvedBy(doc.getApprovedBy())
+                .rejectedAt(doc.getRejectedAt())
+                .rejectedBy(doc.getRejectedBy())
+                .rejectionReason(doc.getRejectionReason())
+                .mfaEnabled(doc.isMfaEnabled())
+                .mfaRequired(doc.isMfaRequired())
+                .failedLoginAttempts(doc.getFailedLoginAttempts())
+                .loginAttempts(doc.getLoginAttempts())
+                .lastLogin(doc.getLastLogin())
+                .lastLoginIp(doc.getLastLoginIp())
+                .lastLoginUserAgent(doc.getLastLoginUserAgent())
+                .passwordLastChanged(doc.getPasswordLastChanged())
+                .passwordExpiresAt(doc.getPasswordExpiresAt())
+                .firstTimeSetupCompleted(doc.isFirstTimeSetupCompleted())
+                .temporaryPasswordLocked(doc.isTemporaryPasswordLocked())
+                .createdAt(doc.getCreatedAt())
+                .createdBy(doc.getCreatedBy())
+                .updatedAt(doc.getUpdatedAt())
+                .build();
+
+        user.setSecurityMetadata(buildSecurityMetadata(doc));
+        return user;
+    }
 }

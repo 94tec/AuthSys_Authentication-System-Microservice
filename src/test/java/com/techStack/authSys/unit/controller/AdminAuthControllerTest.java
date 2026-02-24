@@ -7,14 +7,12 @@ import com.techStack.authSys.dto.request.UserRegistrationDTO;
 import com.techStack.authSys.dto.response.ApiResponse;
 import com.techStack.authSys.dto.response.AuthResponse;
 import com.techStack.authSys.dto.response.BootstrapResult;
-import com.techStack.authSys.models.authorization.Permissions;
 import com.techStack.authSys.models.user.Roles;
 import com.techStack.authSys.models.user.User;
 import com.techStack.authSys.service.auth.AuthenticationOrchestrator;
 import com.techStack.authSys.service.auth.DeviceVerificationService;
-import com.techStack.authSys.service.auth.LoginResponseBuilder;
-import com.techStack.authSys.service.bootstrap.AdminUserManagementService;
 import com.techStack.authSys.service.bootstrap.TransactionalBootstrapService;
+import com.techStack.authSys.service.user.AdminService;
 import com.techStack.authSys.service.verification.EmailVerificationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -33,7 +31,6 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
@@ -53,14 +50,12 @@ class AdminAuthControllerTest {
     @Mock
     private AuthenticationOrchestrator authenticationOrchestrator;
 
-    @Mock
-    private LoginResponseBuilder loginResponseBuilder;
 
     @Mock
     private TransactionalBootstrapService transactionalBootstrapService;
 
     @Mock
-    private AdminUserManagementService adminUserManagementService;
+    private AdminService adminUserManagementService;
 
     @Mock
     private DeviceVerificationService deviceVerificationService;

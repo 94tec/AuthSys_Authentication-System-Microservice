@@ -30,7 +30,7 @@ public class AuthResponse {
     private Instant accessTokenExpiry;
     private Instant refreshTokenExpiry;
     private UserInfo userInfo;
-    private List<Permissions> permissions;
+        private List<String> permissions;
 
     @Builder.Default
     private Date timestamp = new Date();
@@ -68,7 +68,7 @@ public class AuthResponse {
             Instant accessTokenExpiry,
             Instant refreshTokenExpiry,
             UserInfo userInfo,
-            List<Permissions> permissions) {
+            List<String> permissions) {
 
         return AuthResponse.builder()
                 .success(true)

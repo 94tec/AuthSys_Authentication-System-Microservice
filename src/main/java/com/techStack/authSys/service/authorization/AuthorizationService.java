@@ -1,7 +1,5 @@
 package com.techStack.authSys.service.authorization;
 
-import com.techStack.authSys.config.security.PermissionsConfig;
-import com.techStack.authSys.models.authorization.Permissions;
 import com.techStack.authSys.models.user.Roles;
 import lombok.RequiredArgsConstructor;
 import org.springframework.scheduling.annotation.Scheduled;

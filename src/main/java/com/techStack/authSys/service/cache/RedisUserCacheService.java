@@ -2,7 +2,6 @@ package com.techStack.authSys.service.cache;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.techStack.authSys.models.authorization.Permissions;
 import com.techStack.authSys.models.user.Roles;
 import com.techStack.authSys.models.user.User;
 import com.techStack.authSys.constants.SecurityConstants.CacheKey;
@@ -20,29 +19,34 @@ import reactor.core.scheduler.Schedulers;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 
 /**
- * Unified cache service for user data and authentication tokens
- * Handles: user profiles, roles, permissions, email registration, and token claims
+ * Unified cache service for user data and authentication tokens.
+ * Handles: user profiles, roles, permissions, email registration, and token claims.
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class RedisUserCacheService {
 
-    // ==================== Dependencies ====================
+    // -------------------------------------------------------------------------
+    // Dependencies
+    // -------------------------------------------------------------------------
+
     private final RedisTemplate<String, String> blockingRedisTemplate;
     private final ReactiveRedisTemplate<String, Object> reactiveRedisTemplate;
     private final ObjectMapper objectMapper;
 
-    // ==================== LOCK OPERATIONS ====================
+    // -------------------------------------------------------------------------
+    // LOCK OPERATIONS
+    // -------------------------------------------------------------------------
 
     /**
-     * Acquires a distributed lock with timeout
-     * @param lockKey Lock identifier
-     * @param lockValue Unique value for this lock holder
-     * @param timeout Lock timeout duration
+     * Acquires a distributed lock with timeout.
+     *
+     * @param lockKey   lock identifier
+     * @param lockValue unique value for this lock holder
+     * @param timeout   lock timeout duration
      * @return Mono<Boolean> true if lock acquired
      */
     public Mono<Boolean> acquireLock(String lockKey, String lockValue, Duration timeout) {
@@ -63,27 +67,27 @@ public class RedisUserCacheService {
     }
 
     /**
-     * Releases a lock safely using Lua script (only if value matches)
-     * @param lockKey Lock identifier
-     * @param lockValue Expected lock value
+     * Releases a lock safely using Lua script (only if value matches).
+     *
+     * @param lockKey   lock identifier
+     * @param lockValue expected lock value
      * @return Mono<Boolean> true if lock was released
      */
     public Mono<Boolean> releaseLockSafely(String lockKey, String lockValue) {
         String luaScript = """
-            if redis.call("get", KEYS[1]) == ARGV[1] then
-                return redis.call("del", KEYS[1])
-            else
-                return 0
-            end
-        """;
+                if redis.call("get", KEYS[1]) == ARGV[1] then
+                    return redis.call("del", KEYS[1])
+                else
+                    return 0
+                end
+                """;
 
         RedisScript<Long> script = RedisScript.of(luaScript, Long.class);
 
         return reactiveRedisTemplate.execute(
                         script,
                         Collections.singletonList(lockKey),
-                        Collections.singletonList(lockValue)
-                )
+                        Collections.singletonList(lockValue))
                 .next()
                 .map(result -> result != null && result > 0)
                 .doOnNext(success -> {
@@ -100,9 +104,7 @@ public class RedisUserCacheService {
     }
 
     /**
-     * Basic lock release without ownership check
-     * @param lockKey Lock identifier
-     * @return Mono<Void> completing when released
+     * Basic lock release without ownership check.
      */
     public Mono<Void> releaseLock(String lockKey) {
         return reactiveRedisTemplate.delete(lockKey)
@@ -110,17 +112,15 @@ public class RedisUserCacheService {
                 .then();
     }
 
-    // ==================== EMAIL REGISTRATION CACHE ====================
+    // -------------------------------------------------------------------------
+    // EMAIL REGISTRATION CACHE
+    // -------------------------------------------------------------------------
 
     /**
-     * Checks if an email is already registered
-     * @param email Email address to check
-     * @return Mono<Boolean> true if registered
+     * Checks if an email is already registered in cache.
      */
     public Mono<Boolean> isEmailRegistered(String email) {
-        if (!StringUtils.hasText(email)) {
-            return Mono.just(false);
-        }
+        if (!StringUtils.hasText(email)) return Mono.just(false);
 
         String key = buildEmailKey(email);
         return reactiveRedisTemplate.hasKey(key)
@@ -132,9 +132,7 @@ public class RedisUserCacheService {
     }
 
     /**
-     * Caches a registered email address
-     * @param email Email to mark as registered
-     * @return Mono<Void> completing when cached
+     * Caches a registered email address.
      */
     public Mono<Void> cacheRegisteredEmail(String email) {
         if (!StringUtils.hasText(email)) {
@@ -143,7 +141,6 @@ public class RedisUserCacheService {
         }
 
         String key = buildEmailKey(email);
-
         return reactiveRedisTemplate.opsForValue()
                 .set(key, "true", CacheTTL.EMAIL_REGISTRATION)
                 .doOnSuccess(__ -> log.debug("Cached registered email: {}", email))
@@ -155,22 +152,16 @@ public class RedisUserCacheService {
     }
 
     /**
-     * Removes an email from registration cache
-     * @param email Email to remove
-     * @return Mono<Boolean> true if removed
+     * Removes an email from registration cache.
      */
     public Mono<Boolean> removeRegisteredEmail(String email) {
-        if (!StringUtils.hasText(email)) {
-            return Mono.just(false);
-        }
+        if (!StringUtils.hasText(email)) return Mono.just(false);
 
         String key = buildEmailKey(email);
         return reactiveRedisTemplate.delete(key)
                 .map(count -> count > 0)
                 .doOnSuccess(removed -> {
-                    if (removed) {
-                        log.debug("🗑️ Removed registered email: {}", email);
-                    }
+                    if (removed) log.debug("🗑️ Removed registered email: {}", email);
                 })
                 .onErrorResume(e -> {
                     log.error("Failed to remove email: {}", email, e);
@@ -178,27 +169,22 @@ public class RedisUserCacheService {
                 });
     }
 
-    // ==================== USER PROFILE CACHE ====================
+    // -------------------------------------------------------------------------
+    // USER PROFILE CACHE
+    // -------------------------------------------------------------------------
 
     /**
-     * Caches user profile data
-     * @param user User to cache
-     * @return Mono<Boolean> true if cached successfully
+     * Caches user profile data.
      */
     public Mono<Boolean> cacheUserProfile(User user) {
-        if (user == null || !StringUtils.hasText(user.getId())) {
-            return Mono.just(false);
-        }
+        if (user == null || !StringUtils.hasText(user.getId())) return Mono.just(false);
 
         return Mono.fromCallable(() -> {
-                    String key = CacheKey.USER_PROFILE + user.getId();
+                    String key      = CacheKey.USER_PROFILE + user.getId();
                     String userJson = objectMapper.writeValueAsString(user);
                     blockingRedisTemplate.opsForValue().set(
-                            key,
-                            userJson,
-                            CacheTTL.USER_DATA.toMinutes(),
-                            TimeUnit.MINUTES
-                    );
+                            key, userJson,
+                            CacheTTL.USER_DATA.toMinutes(), TimeUnit.MINUTES);
                     return true;
                 })
                 .subscribeOn(Schedulers.boundedElastic())
@@ -210,19 +196,17 @@ public class RedisUserCacheService {
     }
 
     /**
-     * Retrieves cached user profile
-     * @param userId User ID
-     * @return Mono<User> user if found, empty otherwise
+     * Retrieves cached user profile.
      */
     public Mono<User> getUserProfile(String userId) {
-        if (!StringUtils.hasText(userId)) {
-            return Mono.empty();
-        }
+        if (!StringUtils.hasText(userId)) return Mono.empty();
 
         return Mono.fromCallable(() -> {
-                    String key = CacheKey.USER_PROFILE + userId;
+                    String key      = CacheKey.USER_PROFILE + userId;
                     String userJson = blockingRedisTemplate.opsForValue().get(key);
-                    return userJson != null ? objectMapper.readValue(userJson, User.class) : null;
+                    return userJson != null
+                            ? objectMapper.readValue(userJson, User.class)
+                            : null;
                 })
                 .subscribeOn(Schedulers.boundedElastic())
                 .doOnNext(user -> log.trace("Retrieved user profile: {}", userId))
@@ -233,22 +217,16 @@ public class RedisUserCacheService {
     }
 
     /**
-     * Invalidates user profile cache only
-     * @param userId User ID
-     * @return Mono<Boolean> true if invalidated
+     * Invalidates user profile cache.
      */
     public Mono<Boolean> invalidateUserProfile(String userId) {
-        if (!StringUtils.hasText(userId)) {
-            return Mono.just(false);
-        }
+        if (!StringUtils.hasText(userId)) return Mono.just(false);
 
         String key = CacheKey.USER_PROFILE + userId;
         return reactiveRedisTemplate.delete(key)
                 .map(count -> count > 0)
                 .doOnSuccess(deleted -> {
-                    if (deleted) {
-                        log.debug("Invalidated user profile: {}", userId);
-                    }
+                    if (deleted) log.debug("Invalidated user profile: {}", userId);
                 })
                 .onErrorResume(e -> {
                     log.error("Failed to invalidate user profile: {}", userId, e);
@@ -257,14 +235,11 @@ public class RedisUserCacheService {
     }
 
     /**
-     * Invalidates both user profile and email registration
-     * @param userId User ID
-     * @param email Email address
-     * @return Mono<Boolean> true if both invalidated
+     * Invalidates both user profile and email registration.
      */
     public Mono<Boolean> invalidateUserAndEmail(String userId, String email) {
         Mono<Boolean> profileInvalidation = invalidateUserProfile(userId);
-        Mono<Boolean> emailInvalidation = StringUtils.hasText(email)
+        Mono<Boolean> emailInvalidation   = StringUtils.hasText(email)
                 ? removeRegisteredEmail(email)
                 : Mono.just(true);
 
@@ -283,13 +258,15 @@ public class RedisUserCacheService {
                 });
     }
 
-    // ==================== USER ROLES CACHE ====================
+    // -------------------------------------------------------------------------
+    // USER ROLES CACHE
+    // -------------------------------------------------------------------------
 
     /**
-     * Caches user roles
-     * @param userId User ID
-     * @param roles Set of roles
-     * @return Mono<Boolean> true if cached successfully
+     * Caches user roles as a JSON-serialized Set<Roles>.
+     *
+     * @param userId user ID
+     * @param roles  set of Roles enum values
      */
     public Mono<Boolean> cacheUserRoles(String userId, Set<Roles> roles) {
         if (!StringUtils.hasText(userId)) {
@@ -302,11 +279,8 @@ public class RedisUserCacheService {
                 .flatMap(rolesJson -> reactiveRedisTemplate.opsForValue()
                         .set(CacheKey.USER_ROLES + userId, rolesJson, CacheTTL.USER_DATA)
                         .doOnSuccess(success -> {
-                            if (success) {
-                                log.debug("Cached roles for user: {}", userId);
-                            }
-                        })
-                )
+                            if (success) log.debug("Cached roles for user: {}", userId);
+                        }))
                 .onErrorResume(e -> {
                     log.error("Failed to cache roles: {}", userId, e);
                     return Mono.just(false);
@@ -314,23 +288,18 @@ public class RedisUserCacheService {
     }
 
     /**
-     * Retrieves cached user roles
-     * @param userId User ID
-     * @return Mono<Set<Roles>> roles or empty set
+     * Retrieves cached user roles.
      */
     public Mono<Set<Roles>> getUserRoles(String userId) {
-        if (!StringUtils.hasText(userId)) {
-            return Mono.just(Collections.emptySet());
-        }
+        if (!StringUtils.hasText(userId)) return Mono.just(Collections.emptySet());
 
         return reactiveRedisTemplate.opsForValue()
                 .get(CacheKey.USER_ROLES + userId)
                 .flatMap(rolesJson -> Mono.fromCallable(() ->
-                        objectMapper.readValue(
+                        objectMapper.<Set<Roles>>readValue(
                                 (String) rolesJson,
                                 new TypeReference<Set<Roles>>() {}
-                        )
-                ).subscribeOn(Schedulers.boundedElastic()))
+                        )).subscribeOn(Schedulers.boundedElastic()))
                 .doOnNext(roles -> log.trace("Retrieved roles for user: {}", userId))
                 .onErrorResume(e -> {
                     log.error("Failed to get roles: {}", userId, e);
@@ -339,32 +308,34 @@ public class RedisUserCacheService {
     }
 
     /**
-     * Invalidates user roles cache
-     * @param userId User ID
-     * @return Mono<Boolean> true if invalidated
+     * Invalidates user roles cache.
      */
     public Mono<Boolean> invalidateUserRoles(String userId) {
         return reactiveRedisTemplate.delete(CacheKey.USER_ROLES + userId)
                 .map(count -> count > 0)
                 .doOnSuccess(deleted ->
                         log.debug("Roles cache {} for user: {}",
-                                deleted ? "invalidated" : "not found", userId)
-                )
+                                deleted ? "invalidated" : "not found", userId))
                 .onErrorResume(e -> {
                     log.error("Failed to invalidate roles: {}", userId, e);
                     return Mono.just(false);
                 });
     }
 
-    // ==================== USER PERMISSIONS CACHE ====================
+    // -------------------------------------------------------------------------
+    // USER PERMISSIONS CACHE
+    // -------------------------------------------------------------------------
 
     /**
-     * Caches user permissions
-     * @param userId User ID
-     * @param permissions Set of permissions
-     * @return Mono<Boolean> true if cached successfully
+     * Caches user permissions as a JSON-serialized List<String>.
+     *
+     * Permissions are stored as full name strings e.g. "portfolio:publish".
+     * No enum conversion — strings are the canonical format.
+     *
+     * @param userId      user ID
+     * @param permissions list of permission full name strings
      */
-    public Mono<Boolean> cacheUserPermissions(String userId, Set<Permissions> permissions) {
+    public Mono<Boolean> cacheUserPermissions(String userId, List<String> permissions) {
         if (!StringUtils.hasText(userId)) {
             log.warn("Invalid userId provided for permissions caching");
             return Mono.just(false);
@@ -375,11 +346,8 @@ public class RedisUserCacheService {
                 .flatMap(permsJson -> reactiveRedisTemplate.opsForValue()
                         .set(CacheKey.USER_PERMISSIONS + userId, permsJson, CacheTTL.USER_DATA)
                         .doOnSuccess(success -> {
-                            if (success) {
-                                log.debug("Cached permissions for user: {}", userId);
-                            }
-                        })
-                )
+                            if (success) log.debug("Cached permissions for user: {}", userId);
+                        }))
                 .onErrorResume(e -> {
                     log.error("Failed to cache permissions: {}", userId, e);
                     return Mono.just(false);
@@ -387,76 +355,82 @@ public class RedisUserCacheService {
     }
 
     /**
-     * Retrieves cached user permissions
-     * @param userId User ID
-     * @return Mono<Set<Permissions>> permissions or empty set
+     * Retrieves cached user permissions.
+     *
+     * Fix from original:
+     *   Return type is Mono<List<String>>. The error path returned
+     *   Collections.emptySet() which is a Set, not a List — compile error.
+     *   Fixed to Collections.emptyList().
+     *
+     * @param userId user ID
+     * @return Mono<List<String>> list of permission full name strings, or empty list
      */
-    public Mono<Set<Permissions>> getUserPermissions(String userId) {
-        if (!StringUtils.hasText(userId)) {
-            return Mono.just(Collections.emptySet());
-        }
+    public Mono<List<String>> getUserPermissions(String userId) {
+        if (!StringUtils.hasText(userId)) return Mono.just(Collections.emptyList());
 
         return reactiveRedisTemplate.opsForValue()
                 .get(CacheKey.USER_PERMISSIONS + userId)
                 .flatMap(permsJson -> Mono.fromCallable(() ->
-                        objectMapper.readValue(
+                        objectMapper.<List<String>>readValue(
                                 (String) permsJson,
-                                new TypeReference<Set<Permissions>>() {}
-                        )
-                ).subscribeOn(Schedulers.boundedElastic()))
+                                new TypeReference<List<String>>() {}
+                        )).subscribeOn(Schedulers.boundedElastic()))
                 .doOnNext(perms -> log.trace("Retrieved permissions for user: {}", userId))
                 .onErrorResume(e -> {
                     log.error("Failed to get permissions: {}", userId, e);
-                    return invalidateUserPermissions(userId).thenReturn(Collections.emptySet());
+                    // Fix: was Collections.emptySet() — wrong type for Mono<List<String>>
+                    return invalidateUserPermissions(userId).thenReturn(Collections.emptyList());
                 });
     }
 
     /**
-     * Invalidates user permissions cache
-     * @param userId User ID
-     * @return Mono<Boolean> true if invalidated
+     * Invalidates user permissions cache.
      */
     public Mono<Boolean> invalidateUserPermissions(String userId) {
         return reactiveRedisTemplate.delete(CacheKey.USER_PERMISSIONS + userId)
                 .map(count -> count > 0)
                 .doOnSuccess(deleted ->
                         log.debug("Permissions cache {} for user: {}",
-                                deleted ? "invalidated" : "not found", userId)
-                )
+                                deleted ? "invalidated" : "not found", userId))
                 .onErrorResume(e -> {
                     log.error("Failed to invalidate permissions: {}", userId, e);
                     return Mono.just(false);
                 });
     }
+
     /**
-     * Cache user with roles and permissions
-     * Handles conversion from User.getAdditionalPermissions() (List<String>) to Set<Permissions>
+     * Caches user roles and permissions together in one zip.
      *
-     * @param user User with roles and permissions
-     * @return Mono<Boolean> true if cached successfully
+     * Fix from original:
+     *   The original called convertToPermissionsSet(user.getAdditionalPermissions())
+     *   which did Permissions.valueOf() on each string — the Permissions enum is gone.
+     *   Permissions are already List<String>. We pass them directly to
+     *   cacheUserPermissions() with no conversion needed.
+     *
+     * @param user User with roles and additionalPermissions populated
+     * @return Mono<Boolean> true if both cached successfully
      */
     public Mono<Boolean> cacheUserWithRolesAndPermissions(User user) {
         if (user == null || !StringUtils.hasText(user.getId())) {
-            log.warn("Cannot cache user - null or missing ID");
+            log.warn("Cannot cache user — null or missing ID");
             return Mono.just(false);
         }
 
-        // Extract roles
-        Set<Roles> roles = user.getRoles();
-
-        // Convert additionalPermissions (List<String>) to Set<Permissions>
-        Set<Permissions> permissions = convertToPermissionsSet(user.getAdditionalPermissions());
+        Set<Roles>   roles       = user.getRoles();
+        List<String> permissions = user.getAdditionalPermissions() != null
+                ? user.getAdditionalPermissions()
+                : Collections.emptyList();
 
         log.debug("Caching user {} with {} roles and {} permissions",
                 user.getId(), roles.size(), permissions.size());
 
         return Mono.zip(
                         cacheUserRoles(user.getId(), roles),
-                        cacheUserPermissions(user.getId(), permissions)
-                ).map(tuple -> tuple.getT1() && tuple.getT2())
+                        cacheUserPermissions(user.getId(), permissions))
+                .map(tuple -> tuple.getT1() && tuple.getT2())
                 .doOnSuccess(success -> {
                     if (success) {
-                        log.info("✅ Successfully cached user with roles and permissions: {}", user.getId());
+                        log.info("✅ Cached roles and permissions for user: {}", user.getId());
                     } else {
                         log.warn("⚠️ Partial cache failure for user: {}", user.getId());
                     }
@@ -467,39 +441,12 @@ public class RedisUserCacheService {
                 });
     }
 
-    /**
-     * Convert permission strings to Permissions enum set
-     * Handles null/empty lists safely
-     *
-     * @param permissionStrings List of permission string names
-     * @return Set of Permissions enums
-     */
-    private Set<Permissions> convertToPermissionsSet(List<String> permissionStrings) {
-        if (permissionStrings == null || permissionStrings.isEmpty()) {
-            return Collections.emptySet();
-        }
-
-        return permissionStrings.stream()
-                .filter(StringUtils::hasText)
-                .map(permStr -> {
-                    try {
-                        return Permissions.valueOf(permStr.toUpperCase());
-                    } catch (IllegalArgumentException e) {
-                        log.warn("⚠️ Invalid permission string: {}", permStr);
-                        return null;
-                    }
-                })
-                .filter(Objects::nonNull)
-                .collect(Collectors.toSet());
-    }
-
-
-    // ==================== TOKEN CLAIMS CACHE ====================
+    // -------------------------------------------------------------------------
+    // TOKEN CLAIMS CACHE
+    // -------------------------------------------------------------------------
 
     /**
-     * Retrieves cached token claims
-     * @param token JWT token
-     * @return Mono<Map<String, Object>> claims if found
+     * Retrieves cached token claims.
      */
     public Mono<Map<String, Object>> getTokenClaims(String token) {
         if (!StringUtils.hasText(token)) {
@@ -507,7 +454,8 @@ public class RedisUserCacheService {
         }
 
         String key = CacheKey.TOKEN_CLAIMS + token;
-        return reactiveRedisTemplate.opsForValue().get(key)
+        return reactiveRedisTemplate.opsForValue()
+                .get(key)
                 .flatMap(claims -> {
                     if (claims instanceof Map) {
                         @SuppressWarnings("unchecked")
@@ -524,15 +472,10 @@ public class RedisUserCacheService {
     }
 
     /**
-     * Caches token claims
-     * @param token JWT token
-     * @param claims Token claims to cache
-     * @return Mono<Boolean> true if cached successfully
+     * Caches token claims.
      */
     public Mono<Boolean> cacheTokenClaims(String token, Map<String, Object> claims) {
-        if (!StringUtils.hasText(token) || claims == null) {
-            return Mono.just(false);
-        }
+        if (!StringUtils.hasText(token) || claims == null) return Mono.just(false);
 
         String key = CacheKey.TOKEN_CLAIMS + token;
         return reactiveRedisTemplate.opsForValue()
@@ -545,22 +488,16 @@ public class RedisUserCacheService {
     }
 
     /**
-     * Invalidates (revokes) a token
-     * @param token JWT token to invalidate
-     * @return Mono<Boolean> true if invalidated
+     * Invalidates (revokes) a token from cache.
      */
     public Mono<Boolean> revokeToken(String token) {
-        if (!StringUtils.hasText(token)) {
-            return Mono.just(false);
-        }
+        if (!StringUtils.hasText(token)) return Mono.just(false);
 
         String key = CacheKey.TOKEN_CLAIMS + token;
         return reactiveRedisTemplate.delete(key)
                 .map(count -> count > 0)
                 .doOnSuccess(revoked -> {
-                    if (revoked) {
-                        log.debug("Revoked token");
-                    }
+                    if (revoked) log.debug("Revoked token from cache");
                 })
                 .onErrorResume(e -> {
                     log.error("Failed to revoke token", e);
@@ -568,29 +505,30 @@ public class RedisUserCacheService {
                 });
     }
 
-    // ==================== BULK OPERATIONS ====================
+    // -------------------------------------------------------------------------
+    // BULK OPERATIONS
+    // -------------------------------------------------------------------------
 
     /**
-     * Caches all user-related data in one operation
-     * @param user User profile
-     * @param roles User roles
-     * @param permissions User permissions
-     * @return Mono<Boolean> true if all cached successfully
+     * Caches all user-related data in one operation.
+     *
+     * @param user        user profile
+     * @param roles       user roles
+     * @param permissions list of permission full name strings
      */
-    public Mono<Boolean> cacheAllUserData(User user, Set<Roles> roles, Set<Permissions> permissions) {
-        if (user == null || !StringUtils.hasText(user.getId())) {
-            return Mono.just(false);
-        }
+    public Mono<Boolean> cacheAllUserData(
+            User user, Set<Roles> roles, List<String> permissions) {
+        if (user == null || !StringUtils.hasText(user.getId())) return Mono.just(false);
 
         return Mono.zip(
                         cacheUserProfile(user),
                         cacheUserRoles(user.getId(), roles),
                         cacheUserPermissions(user.getId(), permissions),
-                        cacheRegisteredEmail(user.getEmail()).thenReturn(true)
-                ).map(tuple -> tuple.getT1() && tuple.getT2() && tuple.getT3() && tuple.getT4())
+                        cacheRegisteredEmail(user.getEmail()).thenReturn(true))
+                .map(tuple -> tuple.getT1() && tuple.getT2() && tuple.getT3() && tuple.getT4())
                 .doOnSuccess(success -> {
                     if (success) {
-                        log.info("Successfully cached all data for user: {}", user.getId());
+                        log.info("Cached all data for user: {}", user.getId());
                     } else {
                         log.warn("Partial cache failure for user: {}", user.getId());
                     }
@@ -598,33 +536,30 @@ public class RedisUserCacheService {
     }
 
     /**
-     * Invalidates all user-related data
-     * @param userId User ID
-     * @param email User email
-     * @return Mono<Boolean> true if all invalidated successfully
+     * Invalidates all user-related data.
      */
     public Mono<Boolean> invalidateAllUserData(String userId, String email) {
         return Mono.zip(
                         invalidateUserProfile(userId),
                         invalidateUserRoles(userId),
                         invalidateUserPermissions(userId),
-                        removeRegisteredEmail(email)
-                ).map(tuple -> tuple.getT1() && tuple.getT2() && tuple.getT3() && tuple.getT4())
+                        removeRegisteredEmail(email))
+                .map(tuple -> tuple.getT1() && tuple.getT2() && tuple.getT3() && tuple.getT4())
                 .doOnSuccess(success -> {
                     if (success) {
-                        log.info("Successfully invalidated all data for user: {}", userId);
+                        log.info("Invalidated all data for user: {}", userId);
                     } else {
                         log.warn("Partial invalidation for user: {}", userId);
                     }
                 });
     }
 
-    // ==================== UTILITY METHODS ====================
+    // -------------------------------------------------------------------------
+    // UTILITY
+    // -------------------------------------------------------------------------
 
     /**
-     * Checks if a key exists in cache
-     * @param key Cache key
-     * @return Mono<Boolean> true if exists
+     * Checks if a key exists in cache.
      */
     public Mono<Boolean> keyExists(String key) {
         return reactiveRedisTemplate.hasKey(key)
@@ -632,7 +567,9 @@ public class RedisUserCacheService {
                 .onErrorReturn(false);
     }
 
-    // ==================== PRIVATE HELPERS ====================
+    // -------------------------------------------------------------------------
+    // PRIVATE HELPERS
+    // -------------------------------------------------------------------------
 
     private String buildEmailKey(String email) {
         return CacheKey.REGISTERED_EMAIL + email.toLowerCase();

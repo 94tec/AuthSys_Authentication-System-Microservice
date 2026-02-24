@@ -372,7 +372,7 @@ public class AdminAuthController {
                         userAgent,
                         "ADMIN_LOGIN",
                         this,
-                        Set.of()
+                        List.of()
                 )
                 .map(authResult -> {
                     // ✅ Normal login success — full tokens
@@ -392,7 +392,7 @@ public class AdminAuthController {
                             .profilePictureUrl(user.getProfilePictureUrl())
                             .build();
 
-                    List<Permissions> permissions = new ArrayList<>(user.getAllPermissions());
+                    List<String> permissions = new ArrayList<>(user.getAllPermissions());
 
                     AuthResponse authResponse = AuthResponse.success(
                             authResult.getAccessToken(),

@@ -1,7 +1,6 @@
 package com.techStack.authSys.security.authentication;
 
 import com.techStack.authSys.config.security.RateLimitProperties;
-import com.techStack.authSys.service.auth.FirebaseAuthenticationManager;
 import io.github.bucket4j.Bandwidth;
 import io.github.bucket4j.Bucket;
 import io.github.bucket4j.Refill;

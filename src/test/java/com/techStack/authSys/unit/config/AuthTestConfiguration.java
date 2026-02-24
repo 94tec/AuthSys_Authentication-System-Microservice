@@ -3,10 +3,10 @@ package com.techStack.authSys.unit.config;
 import com.techStack.authSys.config.core.LoginOtpProperties;
 import com.techStack.authSys.repository.security.RateLimiterService;
 import com.techStack.authSys.service.auth.*;
-import com.techStack.authSys.service.bootstrap.AdminUserManagementService;
 import com.techStack.authSys.service.bootstrap.TransactionalBootstrapService;
 import com.techStack.authSys.service.token.JwtService;
 import com.techStack.authSys.service.token.TokenGenerationService;
+import com.techStack.authSys.service.user.AdminService;
 import com.techStack.authSys.service.validation.CredentialValidationService;
 import com.techStack.authSys.service.verification.EmailVerificationService;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -178,14 +178,6 @@ public class AuthTestConfiguration {
         return mock;
     }
 
-    /**
-     * Mock login response builder
-     */
-    @Bean
-    @Primary
-    public LoginResponseBuilder mockLoginResponseBuilder() {
-        return Mockito.mock(LoginResponseBuilder.class);
-    }
 
     /**
      * Mock authentication orchestrator
@@ -223,8 +215,8 @@ public class AuthTestConfiguration {
      */
     @Bean
     @Primary
-    public AdminUserManagementService mockAdminUserManagementService() {
-        return Mockito.mock(AdminUserManagementService.class);
+    public AdminService mockAdminUserManagementService() {
+        return Mockito.mock(AdminService.class);
     }
 
     /* =========================

@@ -1,8 +1,9 @@
 
-package com.techStack.authSys.service.bootstrap;
+package com.techStack.authSys.unit.service.bootstrap;
 
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseAuthException;
+import com.techStack.authSys.service.bootstrap.BootstrapPasswordRecoveryService;
 import com.techStack.authSys.service.notification.EmailServiceInstance;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;

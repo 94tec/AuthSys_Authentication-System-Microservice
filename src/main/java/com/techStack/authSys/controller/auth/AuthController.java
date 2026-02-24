@@ -29,6 +29,7 @@ import reactor.core.publisher.Mono;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -507,7 +508,7 @@ public class AuthController {
                         userAgent,
                         "USER_LOGIN",
                         this,
-                        Set.of()
+                        List.of()
                 )
                 .map(authResult -> {
                     Set<String> roleNames = authResult.getUser().getRoles().stream()

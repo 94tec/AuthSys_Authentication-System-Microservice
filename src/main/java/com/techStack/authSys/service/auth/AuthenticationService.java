@@ -24,6 +24,7 @@ import reactor.util.retry.Retry;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.List;
 import java.util.Set;
 
 import static com.techStack.authSys.constants.SecurityConstants.*;
@@ -81,7 +82,7 @@ public class AuthenticationService {
             String userAgent,
             String reason,
             Object source,
-            Set<Permissions> permissions) {
+            List<String> permissions) {
 
         Timer.Sample timer = Timer.start(meterRegistry);
 
@@ -140,7 +141,7 @@ public class AuthenticationService {
             String ipAddress,
             String deviceFingerprint,
             String userAgent,
-            Set<Permissions> permissions) {
+            List<String> permissions) {
 
         return rateLimiterService.checkAuthRateLimit(ipAddress, email)
                 .then(credentialValidationService.validateAndFetchUser(email, password))

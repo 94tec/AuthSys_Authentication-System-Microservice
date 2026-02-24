@@ -1,6 +1,5 @@
 package com.techStack.authSys.security.authentication;
 
-import com.techStack.authSys.service.auth.FirebaseAuthenticationManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.core.Authentication;

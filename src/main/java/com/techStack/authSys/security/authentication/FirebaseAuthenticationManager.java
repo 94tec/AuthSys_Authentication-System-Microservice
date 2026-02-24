@@ -1,4 +1,4 @@
-package com.techStack.authSys.service.auth;
+package com.techStack.authSys.security.authentication;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -7,6 +7,7 @@ import com.google.firebase.auth.FirebaseToken;
 import com.techStack.authSys.models.auth.TokenClaimsModel;
 import com.techStack.authSys.models.user.User;
 import com.techStack.authSys.security.context.CustomUserDetails;
+import com.techStack.authSys.service.auth.FirebaseServiceAuth;
 import com.techStack.authSys.service.cache.RedisUserCacheService;
 import com.techStack.authSys.service.firebase.FirebaseTokenCacheService;
 import com.techStack.authSys.service.token.JwtService;
