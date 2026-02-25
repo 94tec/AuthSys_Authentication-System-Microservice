@@ -25,7 +25,7 @@ public class UserFactory {
     /**
      * Common builder initialization for all user creation flows.
      */
-    private static User.Builder baseBuilder(
+    private static User.UserBuilder baseBuilder(
             @NotNull String email,
             @NotNull String firstName,
             @NotNull String lastName,
@@ -45,6 +45,8 @@ public class UserFactory {
                 .username(email.toLowerCase().trim())
                 .roleNames(new ArrayList<>())
                 .additionalPermissions(new ArrayList<>())
+                .requestedRoleNames(new ArrayList<>())
+                .customPermissions(new HashSet<>())
                 .attributes(new HashMap<>())
                 .status(UserStatus.PENDING_APPROVAL)
                 .enabled(false)
@@ -57,7 +59,6 @@ public class UserFactory {
                 .mfaRequired(false)
                 .loginAttempts(0)
                 .failedLoginAttempts(0)
-                .knownDeviceFingerprints("")
                 .passwordHistoryEntries(new ArrayList<>())
                 .createdAt(now)
                 .updatedAt(now);
@@ -139,16 +140,10 @@ public class UserFactory {
        Administrative Users
        ========================= */
 
-    /**
-     * Create admin user with default clock
-     */
     public static User createAdminUser(String email, String firstName, String lastName) {
         return createAdminUser(email, firstName, lastName, DEFAULT_CLOCK, null);
     }
 
-    /**
-     * Create admin user with custom clock
-     */
     public static User createAdminUser(
             String email,
             String firstName,
@@ -158,9 +153,6 @@ public class UserFactory {
         return createAdminUser(email, firstName, lastName, clock, null);
     }
 
-    /**
-     * Create admin user with custom clock and validation message
-     */
     public static User createAdminUser(
             String email,
             String firstName,
@@ -382,7 +374,11 @@ public class UserFactory {
         return user;
     }
 
-    public static User withAttributes(User user, Map<String, Object> attributes) {
+    /**
+     * Applies string-keyed attributes to the user.
+     * User.attributes is Map<String, String> — Object values are converted via toString().
+     */
+    public static User withAttributes(User user, Map<String, String> attributes) {
         user.getAttributes().putAll(attributes);
         return user;
     }
@@ -406,7 +402,7 @@ public class UserFactory {
         private boolean mfaEnabled = false;
         private boolean mfaRequired = false;
         private String createdBy;
-        private final Map<String, Object> attributes = new HashMap<>();
+        private final Map<String, String> attributes = new HashMap<>();
         private Clock clock = DEFAULT_CLOCK;
         private String message;
 
@@ -490,12 +486,12 @@ public class UserFactory {
             return this;
         }
 
-        public FactoryBuilder attribute(String key, Object value) {
+        public FactoryBuilder attribute(String key, String value) {
             this.attributes.put(key, value);
             return this;
         }
 
-        public FactoryBuilder attributes(Map<String, Object> attributes) {
+        public FactoryBuilder attributes(Map<String, String> attributes) {
             this.attributes.putAll(attributes);
             return this;
         }
@@ -517,13 +513,18 @@ public class UserFactory {
 
             Instant now = clock.instant();
 
-            User.Builder builder = User.builder()
+            User.UserBuilder builder = User.builder()
                     .email(email.toLowerCase().trim())
                     .firstName(firstName.trim())
                     .lastName(lastName.trim())
                     .username(email.toLowerCase().trim())
                     .phoneNumber(phoneNumber)
                     .identityNo(identityNo)
+                    .roleNames(new ArrayList<>())
+                    .additionalPermissions(new ArrayList<>())
+                    .requestedRoleNames(new ArrayList<>())
+                    .customPermissions(new HashSet<>())
+                    .passwordHistoryEntries(new ArrayList<>())
                     .status(status)
                     .approvalLevel(approvalLevel)
                     .enabled(status == UserStatus.ACTIVE)

@@ -11,6 +11,7 @@ import jakarta.validation.constraints.Pattern;
 import lombok.*;
 
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -189,7 +190,7 @@ public class UserDTO {
                     .rejectedBy(user.getRejectedBy())
                     .rejectionReason(user.getRejectionReason())
                     .createdBy(user.getCreatedBy())
-                    .attributes(user.getAttributes());
+                    .attributes(new HashMap<>(user.getAttributes()));
         }
 
         return builder.build();
