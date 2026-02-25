@@ -338,7 +338,7 @@ public class AdminAuthController {
             )
     })
     @PostMapping("/login")
-    public Mono<ResponseEntity<ApiResponse<?>>> login(  // ✅ Wildcard for polymorphic responses
+    public Mono<ResponseEntity<ApiResponse<?>>> login(
                                                         @Parameter(
                                                                 description = "Login credentials",
                                                                 required = true,

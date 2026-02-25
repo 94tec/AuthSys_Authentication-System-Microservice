@@ -351,7 +351,7 @@ public class GoogleAuthServiceImpl implements GoogleAuthService {
         // Add Google-specific attributes
         newUser.getAttributes().put(OAUTH_ATTRIBUTE_PICTURE, picture);
         newUser.setEmailVerified(payload.getEmailVerified());
-        newUser.setKnownDeviceFingerprints(deviceFingerprint);
+        //newUser.setKnownDeviceFingerprints(deviceFingerprint);
 
         // Prepare permissions
         Set<String> permissions = permissionService.resolveEffectivePermissions(newUser);

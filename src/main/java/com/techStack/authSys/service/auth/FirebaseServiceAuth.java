@@ -7,6 +7,7 @@ import com.techStack.authSys.dto.internal.RequesterContext;
 import com.techStack.authSys.dto.internal.SecurityContext;
 import com.techStack.authSys.dto.response.PendingUserResponse;
 import com.techStack.authSys.exception.account.UserNotFoundException;
+import com.techStack.authSys.models.audit.AuditEntry;
 import com.techStack.authSys.models.user.PermissionData;
 import com.techStack.authSys.models.user.Roles;
 import com.techStack.authSys.models.user.User;
@@ -181,21 +182,22 @@ public class FirebaseServiceAuth {
                 .email(user.getEmail())
                 .roles(new ArrayList<>(user.getRoleNames()))
                 .permissions(new ArrayList<>(permissions))
-                .status(user.getStatus() != null ? user.getStatus() : UserStatus.PENDING_APPROVAL)
+                .status(user.getStatus() != null
+                        ? user.getStatus()
+                        : UserStatus.PENDING_APPROVAL)
                 .approvedBy(approverId)
                 .approvedAt(now)
                 .grantedAt(now)
                 .version(1)
                 .active(true)
                 .permissionMetadata(Map.of(
-                        "source", "role-based",
-                        "resolvedAt", now.toString(),
-                        "totalPermissions", permissions.size()
+                        "source",           "role-based",
+                        "resolvedAt",       now.toString(),
+                        "totalPermissions", String.valueOf(permissions.size())
                 ))
-                .auditTrail(List.of(Map.of(
-                        "action", "USER_CREATED",
-                        "performedBy", approverId,
-                        "timestamp", now.toString()
+                // ← CHANGED: typed AuditEntry instead of Map<String, String>
+                .auditTrail(new ArrayList<>(List.of(
+                        AuditEntry.userCreated(approverId, now)
                 )))
                 .build();
     }

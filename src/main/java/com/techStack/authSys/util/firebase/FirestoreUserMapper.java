@@ -13,8 +13,23 @@ import java.util.*;
 /**
  * Firestore User Mapper
  *
- * Enhanced Firestore-to-User mapper that handles all timestamp formats.
  * Maps between Firestore documents and User domain objects.
+ *
+ * Fix summary:
+ *   1. knownDeviceFingerprints — User has no such field. That field belongs to
+ *      UserDocument (flat List<String>) and SecurityMetadata (in-memory). Removed
+ *      from mapToUser() and userToMap() entirely. Callers that need device
+ *      fingerprints should read them from UserDocument via UserAssembler.
+ *
+ *   2. getMapObject() returned Map<String,Object> but User.attributes is
+ *      Map<String,String>. Replaced with getStringMap() which casts each value
+ *      via toString(), matching Firestore's own constraint that attribute maps
+ *      must be Map<String,String>.
+ *
+ *   3. parseTimestampToInstant() had a duplicate branch: "Case 1: Firestore Timestamp"
+ *      and "Case 2: com.google.cloud.Timestamp" tested the same class because
+ *      com.google.cloud.Timestamp IS Timestamp (same import). Case 2 was dead code
+ *      and is removed.
  */
 @Slf4j
 public class FirestoreUserMapper {
@@ -24,7 +39,7 @@ public class FirestoreUserMapper {
        ========================= */
 
     /**
-     * Maps Firestore document data to User object with safe type conversions
+     * Maps Firestore document data to User object with safe type conversions.
      */
     public static User mapToUser(Map<String, Object> data) {
         if (data == null || data.isEmpty()) {
@@ -86,7 +101,7 @@ public class FirestoreUserMapper {
             user.setRejectedBy(getString(data, "rejectedBy"));
             user.setRejectionReason(getString(data, "rejectionReason"));
 
-            // ==================== TIMESTAMPS (Instant) ====================
+            // ==================== TIMESTAMPS ====================
             user.setCreatedAt(parseTimestampToInstant(data, "createdAt"));
             user.setUpdatedAt(parseTimestampToInstant(data, "updatedAt"));
             user.setLastLogin(parseTimestampToInstant(data, "lastLogin"));
@@ -98,8 +113,9 @@ public class FirestoreUserMapper {
             user.setRejectedAt(parseTimestampToInstant(data, "rejectedAt"));
 
             // ==================== COLLECTIONS ====================
-            user.setKnownDeviceFingerprints(getString(data, "knownDeviceFingerprints"));
-            user.setAttributes(getMapObject(data, "attributes"));
+            // Fix: User.attributes is Map<String,String> — use getStringMap(), not getMapObject()
+            // Fix: User has no knownDeviceFingerprints field — removed entirely
+            user.setAttributes(getStringMap(data, "attributes"));
 
             log.debug("Successfully mapped user with ID: {}", user.getId());
             return user;
@@ -111,7 +127,7 @@ public class FirestoreUserMapper {
     }
 
     /**
-     * Maps DocumentSnapshot to User object
+     * Maps DocumentSnapshot to User object.
      */
     public static User documentToUser(DocumentSnapshot doc) {
         if (doc == null || !doc.exists()) {
@@ -122,7 +138,6 @@ public class FirestoreUserMapper {
         try {
             User user = mapToUser(doc.getData());
             if (user != null && user.getId() == null) {
-                // Fallback to document ID if not in data
                 user.setId(doc.getId());
             }
             return user;
@@ -134,7 +149,7 @@ public class FirestoreUserMapper {
     }
 
     /**
-     * Batch mapping utility
+     * Batch mapping utility.
      */
     public static List<User> mapToUsers(List<DocumentSnapshot> documents) {
         if (documents == null || documents.isEmpty()) {
@@ -156,7 +171,7 @@ public class FirestoreUserMapper {
        ========================= */
 
     /**
-     * Reverse mapper: User to Map (for save/update operations)
+     * Reverse mapper: User to Map (for save/update operations).
      */
     public static Map<String, Object> userToMap(User user) {
         if (user == null) {
@@ -193,10 +208,10 @@ public class FirestoreUserMapper {
         }
 
         // ==================== ROLES & PERMISSIONS ====================
-        data.put("roleNames", user.getRoleNames() != null ?
-                user.getRoleNames() : new ArrayList<>());
-        data.put("additionalPermissions", user.getAdditionalPermissions() != null ?
-                user.getAdditionalPermissions() : new ArrayList<>());
+        data.put("roleNames", user.getRoleNames() != null
+                ? user.getRoleNames() : new ArrayList<>());
+        data.put("additionalPermissions", user.getAdditionalPermissions() != null
+                ? user.getAdditionalPermissions() : new ArrayList<>());
 
         // ==================== NUMERIC FIELDS ====================
         data.put("loginAttempts", user.getLoginAttempts());
@@ -222,7 +237,7 @@ public class FirestoreUserMapper {
         putIfNotNull(data, "rejectedBy", user.getRejectedBy());
         putIfNotNull(data, "rejectionReason", user.getRejectionReason());
 
-        // ==================== TIMESTAMPS (Convert Instant → Timestamp) ====================
+        // ==================== TIMESTAMPS ====================
         putTimestamp(data, "createdAt", user.getCreatedAt());
         putTimestamp(data, "updatedAt", user.getUpdatedAt());
         putTimestamp(data, "lastLogin", user.getLastLogin());
@@ -234,9 +249,7 @@ public class FirestoreUserMapper {
         putTimestamp(data, "rejectedAt", user.getRejectedAt());
 
         // ==================== COLLECTIONS ====================
-        if (user.getKnownDeviceFingerprints() != null) {
-            data.put("knownDeviceFingerprints", user.getKnownDeviceFingerprints());
-        }
+        // Fix: User has no getKnownDeviceFingerprints() — removed entirely
         if (user.getAttributes() != null) {
             data.put("attributes", user.getAttributes());
         }
@@ -250,7 +263,7 @@ public class FirestoreUserMapper {
 
     private static String getString(Map<String, Object> data, String key) {
         Object value = data.get(key);
-        return (value != null) ? value.toString() : null;
+        return value != null ? value.toString() : null;
     }
 
     private static boolean getBoolean(Map<String, Object> data, String key, boolean defaultValue) {
@@ -272,78 +285,56 @@ public class FirestoreUserMapper {
     @SuppressWarnings("unchecked")
     private static List<String> getStringList(Map<String, Object> data, String key) {
         Object value = data.get(key);
-
-        if (value == null) {
-            return new ArrayList<>();
-        }
+        if (value == null) return new ArrayList<>();
 
         if (value instanceof List) {
             try {
                 List<Object> list = (List<Object>) value;
-                List<String> stringList = new ArrayList<>();
+                List<String> result = new ArrayList<>();
                 for (Object item : list) {
-                    if (item != null) {
-                        stringList.add(item.toString());
-                    }
+                    if (item != null) result.add(item.toString());
                 }
-                return stringList;
+                return result;
             } catch (ClassCastException e) {
                 log.warn("⚠️ Failed to cast {} to List: {}", key, e.getMessage());
-                return new ArrayList<>();
             }
         }
-
         return new ArrayList<>();
     }
 
+    /**
+     * Extracts a Map<String,String> from Firestore data.
+     *
+     * Fix: replaces the old getMapObject() which returned Map<String,Object>.
+     * User.attributes is Map<String,String> (Firestore constraint — no Object values).
+     * Each value is converted via toString() to satisfy the type, matching
+     * how UserDocument.attributes is declared and how the ABAC system reads it.
+     */
     @SuppressWarnings("unchecked")
-    private static Set<String> getStringSet(Map<String, Object> data, String key) {
+    private static Map<String, String> getStringMap(Map<String, Object> data, String key) {
         Object value = data.get(key);
-
-        if (value == null) {
-            return new HashSet<>();
-        }
-
-        if (value instanceof Collection) {
-            try {
-                Collection<Object> collection = (Collection<Object>) value;
-                Set<String> stringSet = new HashSet<>();
-                for (Object item : collection) {
-                    if (item != null) {
-                        stringSet.add(item.toString());
-                    }
-                }
-                return stringSet;
-            } catch (ClassCastException e) {
-                log.warn("⚠️ Failed to cast {} to Collection: {}", key, e.getMessage());
-                return new HashSet<>();
-            }
-        }
-
-        return new HashSet<>();
-    }
-
-    @SuppressWarnings("unchecked")
-    private static Map<String, Object> getMapObject(Map<String, Object> data, String key) {
-        Object value = data.get(key);
+        if (value == null) return new HashMap<>();
 
         if (value instanceof Map) {
             try {
-                return (Map<String, Object>) value;
+                Map<Object, Object> raw = (Map<Object, Object>) value;
+                Map<String, String> result = new HashMap<>();
+                raw.forEach((k, v) -> {
+                    if (k != null && v != null) {
+                        result.put(k.toString(), v.toString());
+                    }
+                });
+                return result;
             } catch (ClassCastException e) {
                 log.warn("⚠️ Failed to cast {} to Map: {}", key, e.getMessage());
-                return new HashMap<>();
             }
         }
-
         return new HashMap<>();
     }
 
     private static UserStatus getUserStatus(Map<String, Object> data, String key) {
         String statusStr = getString(data, key);
-        if (statusStr == null) {
-            return UserStatus.PENDING_APPROVAL;
-        }
+        if (statusStr == null) return UserStatus.PENDING_APPROVAL;
 
         try {
             return UserStatus.valueOf(statusStr.toUpperCase());
@@ -355,9 +346,7 @@ public class FirestoreUserMapper {
 
     private static ApprovalLevel getApprovalLevel(Map<String, Object> data, String key) {
         String levelStr = getString(data, key);
-        if (levelStr == null) {
-            return null;
-        }
+        if (levelStr == null) return null;
 
         try {
             return ApprovalLevel.valueOf(levelStr.toUpperCase());
@@ -372,50 +361,42 @@ public class FirestoreUserMapper {
        ========================= */
 
     /**
-     * Parse Firestore Timestamp to Instant
+     * Parse Firestore Timestamp to Instant.
+     *
+     * Fix: removed duplicate "Case 2: com.google.cloud.Timestamp" branch —
+     * com.google.cloud.Timestamp IS the same class as the imported Timestamp,
+     * so the second instanceof check was unreachable dead code.
      */
     private static Instant parseTimestampToInstant(Map<String, Object> data, String key) {
         Object value = data.get(key);
+        if (value == null) return null;
 
-        if (value == null) {
-            return null;
-        }
-
-        // Case 1: Firestore Timestamp (primary format)
-        if (value instanceof Timestamp) {
-            Timestamp ts = (Timestamp) value;
+        // Firestore Timestamp (com.google.cloud.Timestamp)
+        if (value instanceof Timestamp ts) {
             return Instant.ofEpochSecond(ts.getSeconds(), ts.getNanos());
         }
 
-        // Case 2: com.google.cloud.Timestamp (alternative)
-        if (value instanceof com.google.cloud.Timestamp) {
-            com.google.cloud.Timestamp ts = (com.google.cloud.Timestamp) value;
-            return Instant.ofEpochSecond(ts.getSeconds(), ts.getNanos());
+        // Already an Instant
+        if (value instanceof Instant instant) {
+            return instant;
         }
 
-        // Case 3: Already an Instant
-        if (value instanceof Instant) {
-            return (Instant) value;
-        }
-
-        // Case 4: String (ISO format - for backward compatibility)
-        if (value instanceof String) {
+        // ISO-8601 String (backward compatibility)
+        if (value instanceof String str) {
             try {
-                return Instant.parse((String) value);
+                return Instant.parse(str);
             } catch (Exception e) {
                 log.debug("⚠️ Failed to parse Instant from string for {}: {}", key, value);
                 return null;
             }
         }
 
-        // Case 5: Long (epoch milliseconds)
-        if (value instanceof Long) {
-            return Instant.ofEpochMilli((Long) value);
+        // Epoch milliseconds as Long or Number
+        if (value instanceof Long l) {
+            return Instant.ofEpochMilli(l);
         }
-
-        // Case 6: Number (epoch milliseconds)
-        if (value instanceof Number) {
-            return Instant.ofEpochMilli(((Number) value).longValue());
+        if (value instanceof Number n) {
+            return Instant.ofEpochMilli(n.longValue());
         }
 
         log.debug("⚠️ Unsupported timestamp type for {}: {}", key, value.getClass().getName());
@@ -423,7 +404,7 @@ public class FirestoreUserMapper {
     }
 
     /**
-     * Convert Instant to Firestore Timestamp for saving
+     * Convert Instant to Firestore Timestamp for saving.
      */
     private static void putTimestamp(Map<String, Object> data, String key, Instant instant) {
         if (instant != null) {
@@ -434,9 +415,6 @@ public class FirestoreUserMapper {
         }
     }
 
-    /**
-     * Put value only if not null
-     */
     private static void putIfNotNull(Map<String, Object> data, String key, Object value) {
         if (value != null) {
             data.put(key, value);

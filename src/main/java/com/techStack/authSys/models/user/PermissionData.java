@@ -1,5 +1,6 @@
 package com.techStack.authSys.models.user;
 
+import com.techStack.authSys.models.audit.AuditEntry;
 import lombok.Builder;
 import lombok.Data;
 
@@ -205,10 +206,13 @@ public class PermissionData {
             String action,
             String performedBy,
             Instant timestamp,
-            String detail
+            String userId,
+            String detail,
+            String metadata
+
     ) {
         if (auditTrail == null) auditTrail = new ArrayList<>();
-        auditTrail.add(new AuditEntry(action, performedBy, timestamp, detail));
+        auditTrail.add(new AuditEntry(action, performedBy, timestamp, userId, detail, metadata));
     }
 
     // -------------------------------------------------------------------------
@@ -288,41 +292,8 @@ public class PermissionData {
     public static PermissionData empty(String userId, String email, List<String> roles) {
         return pending(userId, email, roles);
     }
-
-    // -------------------------------------------------------------------------
-    // Inner: AuditEntry
-    // -------------------------------------------------------------------------
-
-    /**
-     * A single audit trail entry recording a permission-related change event.
-     *
-     * Replaces the original Map<String, String> approach which could not hold
-     * typed Instant timestamps without string conversion and had no schema.
-     */
-    public record AuditEntry(
-            /** What happened. e.g. "ROLE_ASSIGNED", "PERMISSION_GRANTED", "APPROVAL_GRANTED" */
-            String action,
-
-            /** Who performed the action. userId or "SYSTEM". */
-            String performedBy,
-
-            /** When the action occurred. */
-            Instant timestamp,
-
-            /** Optional additional context. e.g. "role=MANAGER", "permission=portfolio:publish" */
-            String detail
-    ) {
-        /** Compact constructor — guards against null required fields. */
-        public AuditEntry {
-            if (action == null || action.isBlank()) {
-                throw new IllegalArgumentException("AuditEntry action must not be null or blank");
-            }
-            if (performedBy == null || performedBy.isBlank()) {
-                throw new IllegalArgumentException("AuditEntry performedBy must not be null or blank");
-            }
-            if (timestamp == null) {
-                throw new IllegalArgumentException("AuditEntry timestamp must not be null");
-            }
-        }
-    }
 }
+
+// -------------------------------------------------------------------------
+// Inner: AuditEntry
+// -------------------------------------------------------------------------

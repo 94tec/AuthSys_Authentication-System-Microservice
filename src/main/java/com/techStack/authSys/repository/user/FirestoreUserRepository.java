@@ -24,6 +24,8 @@ import java.net.SocketException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.ExecutionException;
+import java.util.stream.Collectors;
 
 /**
  * Repository for Firestore User Operations
@@ -216,6 +218,28 @@ public class FirestoreUserRepository {
                     .doOnError(error -> logger.error("❌ Failed to update permissions: {}", error.getMessage()))
                     .then();
         }).subscribeOn(Schedulers.boundedElastic());
+    }
+    /**
+     * Fetch all permission documents from the permissions/ collection.
+     * Returns sorted list of fullName strings.
+     */
+    public List<String> findAllPermissionNames() {
+        try {
+            var docs = firestore.collection("permissions")
+                    .get().get()
+                    .getDocuments();
+
+            return docs.stream()
+                    .map(doc -> doc.getString("fullName"))
+                    .filter(Objects::nonNull)
+                    .sorted()
+                    .collect(Collectors.toList());
+
+        } catch (InterruptedException | ExecutionException e) {
+            logger.error("Failed to load all permissions from Firestore", e);
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Firestore read failed", e);
+        }
     }
 
     // ============================================================================

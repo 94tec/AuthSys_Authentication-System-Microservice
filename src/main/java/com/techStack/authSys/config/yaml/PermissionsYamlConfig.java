@@ -39,7 +39,7 @@ import java.util.Map;
 @Data
 @Validated
 @Configuration
-@ConfigurationProperties(prefix = "app")
+@ConfigurationProperties(prefix = "application")
 public class PermissionsYamlConfig {
 
     /**

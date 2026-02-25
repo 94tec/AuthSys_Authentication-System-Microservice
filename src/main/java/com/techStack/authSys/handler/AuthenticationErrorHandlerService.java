@@ -1,6 +1,6 @@
 package com.techStack.authSys.handler;
 
-import com.auth0.jwt.exceptions.TokenExpiredException;
+
 import com.google.firebase.auth.FirebaseAuthException;
 import com.techStack.authSys.constants.SecurityConstants;
 import com.techStack.authSys.dto.response.ErrorResponse;
@@ -8,6 +8,7 @@ import com.techStack.authSys.exception.account.AccountDisabledException;
 import com.techStack.authSys.exception.account.AccountLockedException;
 import com.techStack.authSys.exception.auth.AuthException;
 import com.techStack.authSys.exception.auth.InvalidTokenException;
+import com.techStack.authSys.exception.auth.TokenExpiredException;
 import com.techStack.authSys.exception.auth.TransientAuthenticationException;
 import com.techStack.authSys.exception.data.DatabaseException;
 import com.techStack.authSys.exception.data.NetworkException;

@@ -7,10 +7,7 @@ import com.techStack.authSys.models.user.UserStatus;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
-import java.util.Collections;
-import java.util.List;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.TimeoutException;
 
 /**
@@ -280,8 +277,8 @@ public class HelperUtils {
        User Builders
        ========================= */
 
-    /**
-     * Builds a super admin user for bootstrap
+     /**
+     * Builds a super admin user for bootstrap.
      */
     public static User buildSuperAdminUser(String email, String phone, String password) {
         Instant now = Instant.now();
@@ -301,8 +298,14 @@ public class HelperUtils {
         admin.setFirstName("Super");
         admin.setLastName("Admin");
         admin.setUsername("superadmin");
-        admin.setKnownDeviceFingerprints(DEVICE_FINGERPRINT);
-        admin.setRoleNames(List.of("SUPER_ADMIN"));
+        admin.setRoleNames(new ArrayList<>(List.of("SUPER_ADMIN")));
+
+        // Register the bootstrap device fingerprint on SecurityMetadata,
+        // which is the correct in-memory owner of knownDeviceFingerprints on User.
+        admin.getOrCreateSecurityMetadata()
+                .getKnownDeviceFingerprints()
+                .add(DEVICE_FINGERPRINT);
+
         return admin;
     }
 }
