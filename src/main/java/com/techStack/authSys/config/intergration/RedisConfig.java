@@ -40,33 +40,33 @@ public class RedisConfig {
        Redis Connection Settings
        ========================= */
 
-    @Value("${spring.redis.host}")
+    @Value("${spring.data.redis.host}")
     private String redisHost;
 
-    @Value("${spring.redis.port}")
+    @Value("${spring.data.redis.port}")
     private int redisPort;
 
-    @Value("${spring.redis.password:}")
+    @Value("${spring.data.redis.password:}")
     private String redisPassword;
 
     /* =========================
        Pool Configuration
        ========================= */
 
-    @Value("${spring.redis.lettuce.pool.max-active}")
+    @Value("${spring.data.redis.lettuce.pool.max-active}")
     private int maxTotal;
 
-    @Value("${spring.redis.lettuce.pool.max-idle}")
+    @Value("${spring.data.redis.lettuce.pool.max-idle}")
     private int maxIdle;
 
-    @Value("${spring.redis.lettuce.pool.min-idle}")
+    @Value("${spring.data.redis.lettuce.pool.min-idle}")
     private int minIdle;
 
     /* =========================
        Timeout Configuration
        ========================= */
 
-    @Value("${spring.redis.timeout:2000}")
+    @Value("${spring.data.redis.timeout:2000}")
     private long commandTimeoutMs;
 
     /* =========================

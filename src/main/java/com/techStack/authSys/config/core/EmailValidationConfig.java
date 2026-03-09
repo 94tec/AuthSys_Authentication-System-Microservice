@@ -54,6 +54,7 @@ public class EmailValidationConfig {
 
     @PostConstruct
     public void validate() {
+        log.info("Raw email regex string: [{}]", emailRegex.pattern());
         if (CollectionUtils.isEmpty(knownProviders)) {
             log.warn("No known providers configured for email validation");
         }
@@ -66,6 +67,25 @@ public class EmailValidationConfig {
             log.error("Email regex pattern is not configured!");
             throw new IllegalStateException("Email regex pattern must be configured");
         }
+        // Normalize all sets to trim whitespace and lowercase
+        if (knownProviders != null) {
+            knownProviders = knownProviders.stream()
+                    .map(String::trim)
+                    .map(String::toLowerCase)
+                    .collect(java.util.stream.Collectors.toSet());
+        }
+        if (blockedDomains != null) {
+            blockedDomains = blockedDomains.stream()
+                    .map(String::trim)
+                    .map(String::toLowerCase)
+                    .collect(java.util.stream.Collectors.toSet());
+        }
+        if (rolePrefixes != null) {
+            rolePrefixes = rolePrefixes.stream()
+                    .map(String::trim)
+                    .map(String::toLowerCase)
+                    .collect(java.util.stream.Collectors.toSet());
+        }
 
         log.info("Email validation configuration loaded successfully:");
         log.info("- {} known providers", knownProviders != null ? knownProviders.size() : 0);
@@ -73,4 +93,5 @@ public class EmailValidationConfig {
         log.info("- {} role prefixes", rolePrefixes != null ? rolePrefixes.size() : 0);
         log.info("- {} TLD typos", tldTypos != null ? tldTypos.size() : 0);
     }
+
 }

@@ -58,6 +58,8 @@ public class RegistrationEmailGate {
      * Convert different exception types to appropriate CustomException
      */
     private Mono<Void> handleValidationError(Throwable error) {
+        log.error("❌ Validation error type: {} | message: {}",
+                error.getClass().getSimpleName(), error.getMessage(), error);
         if (error instanceof com.techStack.authSys.exception.email.EmailAlreadyExistsException) {
             return Mono.error(new CustomException(
                     HttpStatus.CONFLICT,

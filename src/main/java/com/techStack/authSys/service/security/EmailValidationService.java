@@ -171,17 +171,24 @@ public class EmailValidationService {
        Step 6 — Typo Detection
        ========================= */
 
+    private static final String NO_TYPO = "";  // sentinel: empty string = "checked, no typo"
+
     private void detectAndSuggestTypos(String domain) {
+        log.debug("🔍 Checking domain '{}' against {} known providers: {}",
+                domain,
+                emailValidationConfig.getKnownProviders().size(),
+                emailValidationConfig.getKnownProviders());
+
         // Cache hit
         if (typoCache.containsKey(domain)) {
             String suggestion = typoCache.get(domain);
-            if (suggestion != null) throwTypoException(domain, suggestion);
+            if (!suggestion.isEmpty()) throwTypoException(domain, suggestion);
             return;
         }
 
         // Exact match in known providers — definitely correct
         if (emailValidationConfig.getKnownProviders().contains(domain)) {
-            typoCache.put(domain, null);
+            typoCache.put(domain, NO_TYPO);  // ✅ was: null
             return;
         }
 
@@ -202,7 +209,7 @@ public class EmailValidationService {
             throwTypoException(domain, closest.get());
         }
 
-        typoCache.put(domain, null); // No typo found
+        typoCache.put(domain, NO_TYPO);  // ✅ was: null — no typo found
     }
 
     private Optional<String> checkTldTypo(String domain) {

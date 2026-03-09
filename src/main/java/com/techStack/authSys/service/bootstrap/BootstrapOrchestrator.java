@@ -166,10 +166,14 @@ public class BootstrapOrchestrator implements CommandLineRunner {
     /* =========================
        Retry Classification
        ========================= */
-
     private boolean isRetryableError(Throwable error) {
-        if (error instanceof BootstrapInitializationException) {
-            return ((BootstrapInitializationException) error).isRetryable();
+        // Validation errors are never retryable — retrying won't fix bad config
+        if (error instanceof BootstrapInitializationException bie) {
+            // Errors from registration validation gate = not retryable
+            if (bie.getMessage() != null && bie.getMessage().contains("Registration validation")) {
+                return false;
+            }
+            return bie.isRetryable();
         }
         return com.techStack.authSys.util.validation.HelperUtils.isRetryableError(error);
     }
