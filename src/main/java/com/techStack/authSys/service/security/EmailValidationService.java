@@ -145,6 +145,8 @@ public class EmailValidationService {
        ========================= */
 
     private void validateSyntax(String email) {
+        log.debug("🔍 Syntax check — email: '{}', regex null? {}",
+                email, emailValidationConfig.getEmailRegex() == null);
         if (!emailValidationConfig.getEmailRegex().matcher(email).matches()) {
             throw new CustomException(HttpStatus.BAD_REQUEST,
                     "Email address has invalid format",
