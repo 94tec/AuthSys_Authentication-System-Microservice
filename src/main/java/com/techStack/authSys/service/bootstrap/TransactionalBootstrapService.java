@@ -6,6 +6,8 @@ import com.google.firebase.auth.FirebaseAuthException;
 import com.techStack.authSys.dto.request.UserRegistrationDTO;
 import com.techStack.authSys.dto.response.BootstrapResult;
 import com.techStack.authSys.exception.bootstrap.BootstrapInitializationException;
+import com.techStack.authSys.exception.email.EmailAlreadyExistsException;
+import com.techStack.authSys.handler.RegistrationErrorHandlerService;
 import com.techStack.authSys.models.user.User;
 import com.techStack.authSys.repository.metrics.MetricsService;
 import com.techStack.authSys.repository.user.FirestoreUserRepository;
@@ -49,6 +51,7 @@ public class TransactionalBootstrapService {
     private final Firestore firestore;
     private final FirestoreUserRepository firestoreUserRepository;
     private final RegistrationEmailGate registrationEmailGate;
+    //private final RegistrationErrorHandlerService errorHandlerService;
     private final Clock clock;
 
     private static final int MAX_RETRIES = 3;
@@ -396,14 +399,25 @@ public class TransactionalBootstrapService {
 
         String failurePoint = ctx.failurePoint != null ? ctx.failurePoint : "UNKNOWN";
 
-        if (e instanceof com.google.firebase.auth.FirebaseAuthException) {
-            com.google.firebase.auth.FirebaseAuthException fbEx =
-                    (com.google.firebase.auth.FirebaseAuthException) e;
+        // ✅ Handle application-level duplicate email
+        if (e instanceof EmailAlreadyExistsException || isEmailAlreadyExistsCause(e)) {
+            log.warn("⚠️ Email already registered — marking bootstrap complete and recovering");
+            return stateService.markBootstrapComplete()
+                    .then(firebaseServiceAuth.findByEmail(email))
+                    .map(user -> BootstrapResult.alreadyExists(user.getId()))
+                    .onErrorResume(ex -> Mono.error(
+                            new BootstrapInitializationException(
+                                    "Email exists but cannot mark bootstrap complete",
+                                    "EMAIL_CONFLICT_RECOVERY", ex, false)));
+        }
+
+        // ✅ Handle Firebase-level duplicate email
+        if (e instanceof FirebaseAuthException fbEx) {
             String code = fbEx.getAuthErrorCode() != null
                     ? fbEx.getAuthErrorCode().name() : "UNKNOWN";
 
             if ("EMAIL_EXISTS".equals(code) || "EMAIL_ALREADY_EXISTS".equals(code)) {
-                log.warn("⚠️ Email conflict — marking bootstrap complete");
+                log.warn("⚠️ Firebase email conflict — marking bootstrap complete");
                 return stateService.markBootstrapComplete()
                         .then(firebaseServiceAuth.findByEmail(email))
                         .map(user -> BootstrapResult.alreadyExists(user.getId()))
@@ -419,6 +433,15 @@ public class TransactionalBootstrapService {
                 failurePoint, e, HelperUtils.isRetryableError(e)));
     }
 
+    // ✅ Unwraps wrapped exceptions (CustomException inside BootstrapInitializationException, etc.)
+    private boolean isEmailAlreadyExistsCause(Throwable e) {
+        Throwable cause = e.getCause();
+        while (cause != null) {
+            if (cause instanceof EmailAlreadyExistsException) return true;
+            cause = cause.getCause();
+        }
+        return false;
+    }
     /* =========================
        Helpers
        ========================= */

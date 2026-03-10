@@ -192,12 +192,44 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(BootstrapInitializationException.class)
     public Mono<ResponseEntity<Map<String, Object>>> handleBootstrapException(
-            BootstrapInitializationException ex) {
+            BootstrapInitializationException ex, ServerWebExchange exchange) {
 
         Instant now = clock.instant();
+        String email = extractEmailFromRequest(exchange);
 
-        log.error("🚨 FATAL BOOTSTRAP ERROR at {} - Application should not have started: {}",
-                now, ex.getMessage(), ex);
+        // Unwrap to the real root cause
+        Throwable rootCause = unwrapCause(ex);
+
+        log.error("🚨 FATAL BOOTSTRAP ERROR at {} - {}: {}",
+                now, rootCause.getClass().getSimpleName(), rootCause.getMessage());
+
+        // EmailAlreadyExistsException → delegate to registration handler (409 Conflict)
+        if (rootCause instanceof EmailAlreadyExistsException
+                || rootCause instanceof com.techStack.authSys.exception.service.CustomException customEx
+                && customEx.getMessage() != null
+                && customEx.getMessage().toLowerCase().contains("already")) {
+            return registrationErrorHandler
+                    .handleRegistrationError(rootCause, email)
+                    .map(this::buildErrorResponseEntity);
+        }
+
+        // FirebaseAuthException → delegate to registration handler
+        if (rootCause instanceof FirebaseAuthException) {
+            return registrationErrorHandler
+                    .handleRegistrationError(rootCause, email)
+                    .map(this::buildErrorResponseEntity);
+        }
+
+        // CustomException with known status → delegate to registration handler
+        if (rootCause instanceof com.techStack.authSys.exception.service.CustomException) {
+            return registrationErrorHandler
+                    .handleRegistrationError(rootCause, email)
+                    .map(this::buildErrorResponseEntity);
+        }
+
+        // True fatal bootstrap failure — keep the 500
+        log.error("💥 Unrecoverable bootstrap failure at {}: failurePoint={} retryable={}",
+                now, ex.getFailurePoint(), ex.isRetryable());
 
         Map<String, Object> response = new HashMap<>();
         response.put("success", false);
@@ -212,6 +244,15 @@ public class GlobalExceptionHandler {
         return Mono.just(ResponseEntity
                 .status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(response));
+    }
+
+    /* Walks the full cause chain to find the real root exception */
+    private Throwable unwrapCause(Throwable ex) {
+        Throwable cause = ex;
+        while (cause.getCause() != null && cause.getCause() != cause) {
+            cause = cause.getCause();
+        }
+        return cause;
     }
 
     /* =========================

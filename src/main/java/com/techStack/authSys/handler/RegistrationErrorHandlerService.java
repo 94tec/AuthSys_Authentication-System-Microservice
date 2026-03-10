@@ -41,8 +41,15 @@ public class RegistrationErrorHandlerService {
 
     private ErrorResponse determineErrorResponse(Throwable error, String email) {
         Instant now = clock.instant();
+        // ✅ Unwrap nested causes first
+        Throwable rootCause = unwrapCause(error);
 
-        if (error instanceof EmailAlreadyExistsException) {
+        // ✅ Check both the direct error AND the root cause for EmailAlreadyExistsException
+        if (error instanceof EmailAlreadyExistsException
+                || rootCause instanceof EmailAlreadyExistsException
+                || isEmailAlreadyExistsMessage(error)
+                || isEmailAlreadyExistsMessage(rootCause)) {
+
             return ErrorResponse.builder()
                     .status(HttpStatus.CONFLICT)
                     .errorCode(EMAIL_ALREADY_EXISTS.getCode())
@@ -196,5 +203,20 @@ public class RegistrationErrorHandlerService {
 
     private String generateTraceId() {
         return java.util.UUID.randomUUID().toString();
+    }
+    private Throwable unwrapCause(Throwable ex) {
+        Throwable cause = ex;
+        while (cause.getCause() != null && cause.getCause() != cause) {
+            cause = cause.getCause();
+        }
+        return cause;
+    }
+
+    private boolean isEmailAlreadyExistsMessage(Throwable ex) {
+        if (ex == null || ex.getMessage() == null) return false;
+        String msg = ex.getMessage().toLowerCase();
+        return msg.contains("already registered")
+                || msg.contains("already exists")
+                || msg.contains("email already");
     }
 }
