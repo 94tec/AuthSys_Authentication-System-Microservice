@@ -24,6 +24,7 @@ src/main/resources/*.key
 src/main/resources/spring-data-a3ebb-firebase-adminsdk-fbsvc-2c7014e914.json
 src/main/resources/application.properties
 src/main/resources/application.yml
+pom.xml
 
 ### NetBeans ###
 /nbproject/private/
