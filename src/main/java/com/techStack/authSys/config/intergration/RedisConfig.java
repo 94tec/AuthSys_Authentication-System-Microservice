@@ -140,7 +140,7 @@ public class RedisConfig {
 
         // Create and configure factory
         LettuceConnectionFactory factory = new LettuceConnectionFactory(redisConfig, clientConfig);
-        factory.setValidateConnection(true);
+        factory.setValidateConnection(false);
 
         Instant endTime = clock.instant();
         Duration duration = Duration.between(startTime, endTime);

@@ -59,5 +59,5 @@ public interface EmailService {
      * @param sentAt Timestamp when OTP was sent
      * @return Mono<Void> completing when email sent
      */
-    Mono<Void> sendOtpNotification(String email, String fullName, String purpose, Instant sentAt);
+    Mono<Void> sendOtpNotification(String email, String fullName, String purpose,String otp, Instant sentAt);
 }

@@ -132,6 +132,12 @@ public class UserAssembler {
         doc.setRejectedBy(user.getRejectedBy());
         doc.setRejectionReason(user.getRejectionReason());
 
+        doc.setForcePasswordChange(user.isForcePasswordChange());
+        doc.setPhoneVerified(user.isPhoneVerified());
+        doc.setFirstTimeSetupCompleted(user.isFirstTimeSetupCompleted());
+        doc.setFirstTimeSetupCompletedAt(user.getFirstTimeSetupCompletedAt());
+        doc.setPasswordLastChanged(user.getPasswordLastChanged());
+
         // Sync SecurityMetadata flat fields back to document
         SecurityMetadata meta = user.getSecurityMetadata();
         if (meta != null) {

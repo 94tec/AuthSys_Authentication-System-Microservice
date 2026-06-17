@@ -89,14 +89,13 @@ public class OtpService {
                     if (isDevEnv) {
                         log.debug("Generated OTP for {}: {}", userId, otp);
                     }
-
                     return storeOtp(SETUP_OTP_KEY + userId, otp, validity)
                             .then(smsService.sendOtp(phoneNumber, otp))
                             .then(incrementRateLimit(SETUP_RATE_LIMIT_KEY + userId))
-                            .thenReturn(OtpResult.sent("First-time setup OTP"))
+                            .thenReturn(OtpResult.sent("First-time setup OTP", otp))
                             .onErrorResume(ex -> {
                                 log.error("❌ Failed to generate/send OTP for user {}: {}", userId, ex.getMessage(), ex);
-                                return Mono.just(new OtpResult(false, false, "Failed to send OTP. Try again."));
+                                return Mono.just(OtpResult.failed("Failed to send OTP. Try again."));
                             });
                 });
     }
@@ -136,7 +135,7 @@ public class OtpService {
                     return storeOtp(LOGIN_OTP_KEY + userId, otp, validity)
                             .then(smsService.sendOtp(phoneNumber, otp))
                             .then(incrementRateLimit(LOGIN_RATE_LIMIT_KEY + userId))
-                            .thenReturn(OtpResult.sent("Login authentication OTP"));
+                            .thenReturn(OtpResult.sent("Login authentication OTP", otp));
                 });
     }
 

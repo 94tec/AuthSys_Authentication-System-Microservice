@@ -1,5 +1,6 @@
 package com.techStack.authSys.dto.response;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -23,12 +24,16 @@ public class OtpResult {
     private boolean rateLimited;
     private String message;
 
+    @JsonIgnore
+    private String otp;
+
     // Static factory methods
-    public static OtpResult sent(String type) {
+    public static OtpResult sent(String type, String otp) {
         return OtpResult.builder()
                 .sent(true)
                 .rateLimited(false)
                 .message(type + " sent successfully. Check your phone.")
+                .otp(otp)
                 .build();
     }
 

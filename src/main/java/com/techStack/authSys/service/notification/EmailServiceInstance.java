@@ -49,7 +49,7 @@ public class EmailServiceInstance implements EmailService {
     @Value("${spring.mail.from:${spring.mail.username}}")
     private String fromAddress;
 
-    @Value("${app.base-url:http://localhost:8080}")
+    @Value("${app.base-url}")
     private String baseUrl;
 
     private static final DateTimeFormatter EMAIL_TIMESTAMP_FORMATTER =
@@ -255,16 +255,16 @@ public class EmailServiceInstance implements EmailService {
         return sendEmailInternal(email, subject, body);
     }
     @Override
-    public Mono<Void> sendOtpNotification(String email, String fullName, String purpose, Instant sentAt) {
+    public Mono<Void> sendOtpNotification(String email, String fullName, String purpose, String otp, Instant sentAt) {
         String subject = "OTP for " + purpose;
         String message = String.format(
                 "Hi %s,\n\n" +
-                        "An OTP has been sent to your phone for: %s\n\n" +
+                        "Your OTP code is: %s\n\n" +
+                        "This OTP is for: %s\n\n" +
                         "The OTP is valid for 10 minutes.\n\n" +
                         "If you didn't request this, please contact support immediately.",
-                fullName, purpose
+                fullName, otp, purpose
         );
-
         return sendEmail(email, subject, message);
     }
 

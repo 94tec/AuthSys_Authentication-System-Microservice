@@ -1,5 +1,7 @@
 package com.techStack.authSys.service.auth;
 
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.UserRecord;
 import com.techStack.authSys.dto.request.ChangePasswordRequest;
 import com.techStack.authSys.dto.request.UserRegistrationDTO;
 import com.techStack.authSys.dto.request.VerifyOtpRequest;
@@ -16,6 +18,7 @@ import com.techStack.authSys.service.security.OtpService;
 import com.techStack.authSys.service.token.JwtService;
 import com.techStack.authSys.service.user.PasswordPolicyService;
 import com.techStack.authSys.util.auth.TokenValidator;
+import com.techStack.authSys.util.firebase.FirestoreUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.ReactiveRedisTemplate;
@@ -23,6 +26,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
+import reactor.util.function.Tuple3;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -186,11 +190,12 @@ public class FirstTimeLoginSetupService {
                 })
                 .flatMap(user -> {
                     String hashedPassword = passwordEncoder.encode(request.newPassword());
+                    String plainPassword = request.newPassword();
 
                     log.info("💾 [STEP 1/3] STAGING password for user {} (NOT in DB yet)",
                             user.getId());
 
-                    return stagePasswordInRedis(user.getId(), hashedPassword)
+                    return stagePasswordInRedis(user.getId(), hashedPassword, plainPassword)
                             .then(Mono.just(user));
                 })
                 .flatMap(user -> {
@@ -227,18 +232,16 @@ public class FirstTimeLoginSetupService {
     /**
      * Stage password in Redis (encrypted, 15-min expiry)
      */
-    private Mono<Void> stagePasswordInRedis(String userId, String hashedPassword) {
-        String key = STAGED_PASSWORD_PREFIX + userId;
+    private Mono<Void> stagePasswordInRedis(String userId, String hashedPassword, String plainPassword) {
+        String hashKey = STAGED_PASSWORD_PREFIX + userId;
+        String plainKey = STAGED_PASSWORD_PREFIX + "plain:" + userId;
 
         return redisTemplate.opsForValue()
-                .set(key, hashedPassword, STAGED_PASSWORD_EXPIRY)
-                .flatMap(success -> {
-                    if (!success) {
-                        return Mono.error(new RuntimeException("Failed to stage password"));
-                    }
-                    log.info("✅ Password STAGED in Redis for user {} (expires in 15 min)", userId);
-                    return Mono.empty();
-                });
+                .set(hashKey, hashedPassword, STAGED_PASSWORD_EXPIRY)
+                .then(redisTemplate.opsForValue()
+                        .set(plainKey, plainPassword, STAGED_PASSWORD_EXPIRY))
+                .then()
+                .doOnSuccess(v -> log.info("✅ Password STAGED (hash+plain) for user {}", userId));
     }
 
     /**
@@ -277,6 +280,7 @@ public class FirstTimeLoginSetupService {
                         user.getEmail(),
                         user.getFirstName() + " " + user.getLastName(),
                         "Complete your first-time setup with OTP",
+                        otpResult.getOtp(),
                         clock.instant()
                 )
                 .thenReturn(true)
@@ -413,30 +417,38 @@ public class FirstTimeLoginSetupService {
                 .flatMap(userId ->
                         Mono.zip(
                                 firebaseServiceAuth.getUserById(userId),
-                                getStagedPassword(userId)
+                                getStagedPassword(userId),
+                                getStagedPlainPassword(userId)
                         )
                 )
-                .flatMap(tuple -> {
+                .flatMap((Tuple3<User, String, String> tuple) -> {
                     User user = tuple.getT1();
                     String stagedHashedPassword = tuple.getT2();
+                    String stagedPlainPassword = tuple.getT3();
 
-                    if (stagedHashedPassword == null) {
+                    if (stagedHashedPassword == null || stagedPlainPassword == null) {
                         return Mono.error(new IllegalStateException(
-                                "No staged password found. Please restart from Step 1."));
+                                "Missing staged password data. Please restart from Step 1."));
                     }
 
-                    log.info("💾 [STEP 3/3] COMMITTING password to database for user {}",
-                            user.getId());
+                    log.info("💾 [STEP 3/3] Updating Firebase Auth password for user {}", user.getId());
+                    // 1. Update Firebase Auth with the plain password
+                    return FirestoreUtils.<UserRecord>apiFutureToMono(
+                                    FirebaseAuth.getInstance().updateUserAsync(
+                                            new UserRecord.UpdateRequest(user.getId())
+                                                    .setPassword(stagedPlainPassword)))
+                            .then(Mono.defer(() -> {
+                                // 2. Update local DB (Firestore) with the hash and flags
+                                user.setPassword(stagedHashedPassword);
+                                user.setForcePasswordChange(false);
+                                user.setPhoneVerified(true);
+                                user.setFirstTimeSetupCompleted(true);
+                                user.setFirstTimeSetupCompletedAt(clock.instant());
+                                user.setPasswordLastChanged(clock.instant());
 
-                    user.setPassword(stagedHashedPassword);
-                    user.setForcePasswordChange(false);
-                    user.setPhoneVerified(true);
-                    user.setFirstTimeSetupCompleted(true);
-                    user.setFirstTimeSetupCompletedAt(clock.instant());
-                    user.setPasswordLastChanged(clock.instant());
-
-                    return firebaseServiceAuth.save(user)
-                            .thenReturn(user);
+                                return firebaseServiceAuth.save(user)
+                                        .thenReturn(user);
+                            }));
                 })
                 .flatMap(user -> {
                     log.warn("🔒 [STEP 3/3] Invalidating all sessions for user {}", user.getId());
@@ -482,6 +494,13 @@ public class FirstTimeLoginSetupService {
         String key = STAGED_PASSWORD_PREFIX + userId;
         return redisTemplate.opsForValue().get(key);
     }
+    /**
+     * Get staged plain password from Redis
+     */
+    private Mono<String> getStagedPlainPassword(String userId) {
+        String key = STAGED_PASSWORD_PREFIX + "plain:" + userId;
+        return redisTemplate.opsForValue().get(key);
+    }
 
     /**
      * Validate and consume verification token (single-use)
@@ -514,10 +533,10 @@ public class FirstTimeLoginSetupService {
     private Mono<Void> cleanupRedisKeys(String userId) {
         return Mono.when(
                 redisTemplate.delete(TEMP_PASSWORD_LOCK_PREFIX + userId),
-                redisTemplate.delete(STAGED_PASSWORD_PREFIX + userId)
+                redisTemplate.delete(STAGED_PASSWORD_PREFIX + userId),
+                redisTemplate.delete(STAGED_PASSWORD_PREFIX + "plain:" + userId)
         );
     }
-
     /**
      * Send completion email
      */

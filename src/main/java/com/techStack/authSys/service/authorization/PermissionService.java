@@ -81,11 +81,9 @@ public class PermissionService implements PermissionProvider {
      * @return set of permission full names e.g. {"portfolio:view", "user:read"}
      */
     @Override
-    @Cacheable(value = "rolePermissions", key = "#role.name()")
+    @Cacheable(value = "effectiveRolePermissions", key = "#role.name()")
     public Set<String> getPermissionsForRole(Roles role) {
-        List<String> permissions = rolePermissionsRepository
-                .findByRoleNameBlocking(role.name());
-
+        List<String> permissions = rolePermissionsRepository.findByRoleNameBlocking(role.name());
         logger.debug("Retrieved {} permissions for role {}", permissions.size(), role);
         return new HashSet<>(permissions);
     }
@@ -413,7 +411,7 @@ public class PermissionService implements PermissionProvider {
      * Call this after PermissionSeeder re-seeds Firestore.
      */
     @Override
-    @CacheEvict(value = {"rolePermissions", "effectivePermissions"}, allEntries = true)
+    @CacheEvict(value = {"rolePermissions", "effectiveRolePermissions", "effectivePermissions"}, allEntries = true)
     public void reloadPermissions() {
         userAttributes.clear();
         rolePermissionsRepository.evictCache();
