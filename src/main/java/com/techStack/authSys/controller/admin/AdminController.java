@@ -924,6 +924,49 @@ public class AdminController {
     }
 
     @Operation(
+            summary = "List Pending Users (Paginated)",
+            description = """
+                Get paginated list of users with PENDING_APPROVAL status.
+                
+                **Authorization: ADMIN & SUPER_ADMIN**
+                Same role-filtering rules as GET /users apply.
+                """,
+            security = @SecurityRequirement(name = "Bearer Authentication")
+    )
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "200",
+                    description = "Pending users retrieved successfully (role-filtered)"
+            )
+    })
+    @GetMapping("/users/pending")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
+    public Mono<ResponseEntity<ApiResponse<AdminService.PagedResult<User>>>> listPendingUsers(
+            @Parameter(description = "Zero-indexed page number", example = "0")
+            @RequestParam(defaultValue = "0") int page,
+
+            @Parameter(description = "Page size", example = "20")
+            @RequestParam(defaultValue = "20") int size,
+
+            Authentication authentication
+    ) {
+        Roles performerRole = extractRole(authentication);
+
+        log.info("📋 [LIST PENDING USERS] Request by {} - page={} size={}", performerRole, page, size);
+
+        return adminService.findUsersPaged(performerRole, UserStatus.PENDING_APPROVAL, page, size)
+                .map(result -> ResponseEntity.ok(
+                        ApiResponse.success("Pending users retrieved successfully", result, clock.instant())))
+                .onErrorResume(AccessDeniedException.class, e ->
+                        Mono.just(ResponseEntity.status(HttpStatus.FORBIDDEN)
+                                .body(ApiResponse.<AdminService.PagedResult<User>>error(e.getMessage(), "FORBIDDEN"))))
+                .onErrorResume(e ->
+                        Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                                .body(ApiResponse.<AdminService.PagedResult<User>>error(
+                                        "Failed to retrieve pending users", "SERVER_ERROR"))));
+    }
+
+    @Operation(
             summary = "Get User Statistics",
             description = """
                     Get user count statistics by status and role.

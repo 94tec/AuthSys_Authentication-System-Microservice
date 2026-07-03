@@ -49,4 +49,5 @@ public class AuthorizationService {
     public void reloadPermissions() {
         permissionProvider.reloadPermissions();
     }
+
 }

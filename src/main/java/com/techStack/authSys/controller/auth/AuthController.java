@@ -3,7 +3,7 @@ package com.techStack.authSys.controller.auth;
 import com.techStack.authSys.dto.request.LoginRequest;
 import com.techStack.authSys.dto.request.UserRegistrationDTO;
 import com.techStack.authSys.dto.response.ApiResponse;
-import com.techStack.authSys.dto.response.AuthResponse;
+import com.techStack.authSys.dto.response.LoginResponse;
 import com.techStack.authSys.models.user.User;
 import com.techStack.authSys.service.auth.*;
 import com.techStack.authSys.util.validation.HelperUtils;
@@ -30,8 +30,6 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Authentication Controller
@@ -400,7 +398,7 @@ public class AuthController {
                     description = "Login successful (normal flow)",
                     content = @Content(
                             mediaType = "application/json",
-                            schema = @Schema(implementation = AuthResponse.class),
+                            schema = @Schema(implementation = LoginResponse.class),
                             examples = @ExampleObject(
                                     value = """
                                             {
@@ -475,21 +473,21 @@ public class AuthController {
             )
     })
     @PostMapping("/login")
-    public Mono<ResponseEntity<ApiResponse<AuthResponse>>> login(
-                                                             @Parameter(
-                                                                     description = "Login credentials",
-                                                                     required = true,
-                                                                     schema = @Schema(implementation = LoginRequest.class)
-                                                             )
-                                                             @Valid @RequestBody LoginRequest loginRequest,
+    public Mono<ResponseEntity<ApiResponse<LoginResponse>>> login(
+            @Parameter(
+                    description = "Login credentials",
+                    required = true,
+                    schema = @Schema(implementation = LoginRequest.class)
+            )
+            @Valid @RequestBody LoginRequest loginRequest,
 
-                                                             @Parameter(
-                                                                     description = "User agent string for device tracking",
-                                                                     example = "Mozilla/5.0..."
-                                                             )
-                                                             @RequestHeader(value = "User-Agent", required = false) String userAgent,
+            @Parameter(
+                    description = "User agent string for device tracking",
+                    example = "Mozilla/5.0..."
+            )
+            @RequestHeader(value = "User-Agent", required = false) String userAgent,
 
-                                                             ServerWebExchange exchange) {
+            ServerWebExchange exchange) {
 
         Instant loginTime = clock.instant();
         String ipAddress = deviceVerificationService.extractClientIp(exchange);
@@ -511,37 +509,56 @@ public class AuthController {
                         List.of()
                 )
                 .map(authResult -> {
-                    Set<String> roleNames = authResult.getUser().getRoles().stream()
-                            .map(Enum::name)
-                            .collect(Collectors.toSet());
-
-                    AuthResponse.UserInfo userInfo = AuthResponse.UserInfo.builder()
-                            .userId(authResult.getUser().getId())
-                            .email(authResult.getUser().getEmail())
-                            .firstName(authResult.getUser().getFirstName())
-                            .lastName(authResult.getUser().getLastName())
-                            .roles(roleNames)
-                            .mfaRequired(authResult.getUser().isMfaRequired())
-                            .profilePictureUrl(authResult.getUser().getProfilePictureUrl())
-                            .build();
-
-                    AuthResponse authResponse = AuthResponse.success(
+                    LoginResponse response = LoginResponse.success(
                             authResult.getAccessToken(),
                             authResult.getRefreshToken(),
-                            authResult.getAccessTokenExpiry(),
-                            authResult.getRefreshTokenExpiry(),
-                            userInfo,
-                            authResult.getPermissions()
+                            authResult.getUser(),
+                            "Login successful"
                     );
 
                     return ResponseEntity.ok(
-                            new ApiResponse<>(true, "Login successful", authResponse)
+                            new ApiResponse<>(true, "Login successful", response)
+                    );
+                })
+                .onErrorResume(com.techStack.authSys.exception.auth.FirstTimeSetupRequiredException.class, e -> {
+                    log.warn("⚠️ First-time setup required for: {}",
+                            HelperUtils.maskEmail(loginRequest.getEmail()));
+
+                    LoginResponse response = LoginResponse.firstTimeLogin(
+                            e.getTemporaryToken(),
+                            e.getUserId(),
+                            e.getMessage()
+                    );
+
+                    return Mono.just(ResponseEntity.ok(
+                            new ApiResponse<>(true, e.getMessage(), response)
+                    ));
+                })
+                .onErrorResume(com.techStack.authSys.exception.auth.OtpVerificationRequiredException.class, e -> {
+                    log.info("📱 OTP verification required for: {}",
+                            HelperUtils.maskEmail(loginRequest.getEmail()));
+
+                    LoginResponse response = LoginResponse.loginOtpRequired(
+                            e.getTemporaryToken(),
+                            e.getUserId(),
+                            e.getMessage()
+                    );
+
+                    return Mono.just(ResponseEntity.ok(
+                            new ApiResponse<>(true, e.getMessage(), response)
+                    ));
+                })
+                .onErrorResume(com.techStack.authSys.exception.auth.AuthException.class, e -> {
+                    log.error("❌ Auth error: {}", e.getMessage());
+                    return Mono.just(
+                            ResponseEntity.status(e.getHttpStatus())
+                                    .body(new ApiResponse<>(false, e.getMessage(), null))
                     );
                 })
                 .doOnSuccess(res -> {
                     Instant completionTime = clock.instant();
                     Duration duration = Duration.between(loginTime, completionTime);
-                    log.info("✅ Login successful at {} in {} for: {}",
+                    log.info("✅ Login processed at {} in {} for: {}",
                             completionTime, duration, HelperUtils.maskEmail(loginRequest.getEmail()));
                 });
     }
@@ -597,16 +614,13 @@ public class AuthController {
     })
     @PostMapping("/logout")
     public Mono<ResponseEntity<ApiResponse<Void>>> logout(
-            @Parameter(
-                    description = "JWT access token",
-                    required = true,
-                    example = "Bearer eyJhbGciOiJIUzUxMiJ9..."
-            )
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authHeader,
-            WebRequest request) {
+            ServerWebExchange exchange) {
 
         Instant logoutTime = clock.instant();
-        String ipAddress = extractClientIp(request);
+
+        String ipAddress = deviceVerificationService.extractClientIp(exchange);
+
         String token = extractToken(authHeader);
 
         log.info("Logout request at {} from IP: {}", logoutTime, ipAddress);
@@ -707,18 +721,6 @@ public class AuthController {
     /* =========================
        Private Helper Methods
        ========================= */
-
-    /**
-     * Extract client IP from WebRequest
-     */
-    private String extractClientIp(WebRequest request) {
-        String xForwardedFor = request.getHeader("X-Forwarded-For");
-        if (xForwardedFor != null && !xForwardedFor.isEmpty()) {
-            return xForwardedFor.split(",")[0].trim();
-        }
-        return "UNKNOWN";
-    }
-
     /**
      * Extract JWT token from Authorization header
      */

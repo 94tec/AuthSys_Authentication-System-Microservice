@@ -12,29 +12,90 @@ import java.util.List;
 import java.util.Map;
 
 /**
+
  * Typed representation of permissions.yaml.
  *
- * Bound via Spring Boot's @ConfigurationProperties under the "app" prefix.
- * This avoids clashing with Spring's own root-level properties (server.*, spring.*, etc.)
+ * Loads Tour Management System permissions and role mappings.
  *
- * Your permissions.yaml (or application.yaml) must use:
+ * Example:
  *
- *   app:
- *     permissions:
- *       portfolio:
- *         category: PORTFOLIO
- *         actions:
- *           - action: view
- *             description: "View portfolio items"
- *     role-permissions:
- *       ADMIN:
- *         - "portfolio:view"
- *         - "portfolio:create"
- *       USER:
- *         - "portfolio:view"
+ * application:
+ * permissions:
+ * ```
+ booking:
+ ```
+ * ```
+ category: BOOKINGS
+ ```
+ * ```
+ actions:
+ ```
+ * ```
+ - action: create
+ ```
+ * ```
+ description: "Create booking"
+ ```
+ * ```
+ - action: approve
+ ```
+ * ```
+ description: "Approve booking"
+ ```
  *
- * @Validated ensures that @NotNull / @Valid constraints are evaluated at startup.
- * A bad YAML will throw a BindException on context load rather than an NPE at runtime.
+ * ```
+ tour:
+ ```
+ * ```
+ category: TOURS
+ ```
+ * ```
+ actions:
+ ```
+ * ```
+ - action: view
+ ```
+ * ```
+ description: "View tour packages"
+ ```
+ * ```
+ - action: create
+ ```
+ * ```
+ description: "Create tour package"
+ ```
+ *
+ * role_permissions:
+ * ```
+ MANAGER:
+ ```
+ * ```
+ - "booking:*"
+ ```
+ * ```
+ - "tour:view"
+ ```
+ *
+ * ```
+ USER:
+ ```
+ * ```
+ - "booking:create"
+ ```
+ * ```
+ - "booking:view_own"
+ ```
+ *
+ * Supported permission formats:
+ *
+ * *:*                     -> Full system access
+ * booking:*               -> All booking permissions
+ * booking:create          -> Single permission
+ * booking:view_own        -> Scoped permission
+ *
+ * Validation is performed at application startup.
+ * Invalid YAML causes application startup failure,
+ * preventing inconsistent permission data from being seeded.
  */
 @Data
 @Validated
@@ -43,65 +104,124 @@ import java.util.Map;
 public class PermissionsYamlConfig {
 
     /**
-     * Namespace map: namespace key (e.g. "portfolio") → namespace config.
-     * Must be present — without permissions the seeder has nothing to write.
+
+     * Permission namespaces.
+     *
+     * Examples:
+     * * booking
+     * * tour
+     * * destination
+     * * itinerary
+     * * traveler
+     * * guide
+     * * vehicle
+     * * supplier
+     * * payment
+     * * review
+     * * report
+     * * user
+     * * system
      */
-    @NotNull(message = "app.permissions must be defined in YAML")
+    @NotNull(message = "application.permissions must be defined")
     @Valid
     private Map<String, NamespaceConfig> permissions;
 
     /**
-     * Role → permission list map.
-     * Must be present — without this no role has any permissions.
-     * Supports wildcards: "*:*", "portfolio:*", or exact strings like "portfolio:view".
+
+     * Role → Permission mappings.
+     *
+     * Example:
+     *
+     * ADMIN:
+     * * "booking:*"
+     * * "tour:*"
+     *
+     * USER:
+     * * "booking:create"
+     * * "booking:view_own"
      */
-    @NotNull(message = "app.role-permissions must be defined in YAML")
+    @NotNull(message = "application.role_permissions must be defined")
     private Map<String, List<String>> rolePermissions;
 
-    // -------------------------------------------------------------------------
-    // Inner: NamespaceConfig
-    // -------------------------------------------------------------------------
+    // ---------------------------------------------------------------------
+    // Namespace Configuration
+    // ---------------------------------------------------------------------
 
     @Data
     @Validated
     public static class NamespaceConfig {
 
         /**
-         * Logical grouping category for this namespace.
-         * e.g. "PORTFOLIO", "USER_MANAGEMENT", "SYSTEM"
+         * Business category for grouping permissions.
+         *
+         * Examples:
+         *  BOOKINGS
+         *  TOURS
+         *  DESTINATIONS
+         *  OPERATIONS
+         *  CUSTOMER
+         *  FINANCE
+         *  ANALYTICS
+         *  ADMINISTRATION
+         *  SYSTEM
          */
-        @NotBlank(message = "Each permission namespace must declare a category")
+        @NotBlank(message = "Permission namespace category is required")
         private String category;
 
         /**
-         * List of actions within this namespace.
-         * At least one action must be defined per namespace.
+         * Actions available within the namespace.
+         *
+         * Example:
+         *
+         * booking:
+         *   actions:
+         *     - create
+         *     - approve
+         *     - cancel
          */
-        @NotNull(message = "Each permission namespace must declare at least one action")
+        @NotNull(message = "Permission namespace must define actions")
         @Valid
         private List<ActionConfig> actions;
+
     }
 
-    // -------------------------------------------------------------------------
-    // Inner: ActionConfig
-    // -------------------------------------------------------------------------
+    // ---------------------------------------------------------------------
+    // Action Configuration
+    // ---------------------------------------------------------------------
 
     @Data
     @Validated
     public static class ActionConfig {
 
         /**
-         * Action name — the second segment of the permission full name.
-         * e.g. "view" in "portfolio:view"
+         * Action identifier.
+         *
+         * Examples:
+         *  view
+         *  create
+         *  update
+         *  delete
+         *  approve
+         *  cancel
+         *  assign_guide
+         *  assign_vehicle
+         *  refund
          */
-        @NotBlank(message = "Each action must have a non-blank action name")
+        @NotBlank(message = "Action name is required")
         private String action;
 
         /**
-         * Human-readable description of what this permission allows.
-         * Stored in Firestore and used in admin UIs.
+         * Human-readable description.
+         *
+         * Used for:
+         *  - Admin UI
+         *  - Permission management screens
+         *  - Audit displays
+         *  - Role management
+         *  - Permission seeding
          */
-        @NotBlank(message = "Each action must have a description")
+        @NotBlank(message = "Action description is required")
         private String description;
+
     }
 }

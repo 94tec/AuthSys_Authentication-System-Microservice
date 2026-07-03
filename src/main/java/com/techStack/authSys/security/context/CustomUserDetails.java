@@ -79,4 +79,13 @@ public class CustomUserDetails implements UserDetails {
     public String getUserId() {
         return user.getId();
     }
+
+    /**
+     * Get user display name
+     */
+    public String getDisplayName() {
+        // Adjust this based on your User entity structure
+        return user.getFullName();
+    }
+
 }

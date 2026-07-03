@@ -26,9 +26,9 @@ public enum Roles {
 
     SUPER_ADMIN("Super Administrator", 100),
     ADMIN("Administrator",             90),
-    DESIGNER("Fashion Designer",       70),
+    DESIGNER("Tour Package Designer",       70),
     MANAGER("Manager",                 50),
-    USER("Standard User",              10),
+    USER("Traveller / Customer",              10),
     GUEST("Guest Visitor",              1);
 
     private final String description;

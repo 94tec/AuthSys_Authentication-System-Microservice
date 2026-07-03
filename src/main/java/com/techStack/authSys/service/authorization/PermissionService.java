@@ -38,7 +38,7 @@ import java.util.concurrent.ConcurrentHashMap;
  *   ABAC user attributes are retained in-memory (ConcurrentHashMap) because
  *   they are ephemeral session-scoped data, not persisted state.
  *
- *   The PermissionProvider interface methods that referenced the old
+ *   The PermissionProvider interface methods that referenced the old,
  *   Permissions enum are implemented here via string-based equivalents.
  *   Callers that still use the enum-based API should migrate to strings.
  */
@@ -80,12 +80,15 @@ public class PermissionService implements PermissionProvider {
      * @param role the role enum value
      * @return set of permission full names e.g. {"portfolio:view", "user:read"}
      */
+
     @Override
-    @Cacheable(value = "effectiveRolePermissions", key = "#role.name()")
     public Set<String> getPermissionsForRole(Roles role) {
-        List<String> permissions = rolePermissionsRepository.findByRoleNameBlocking(role.name());
-        logger.debug("Retrieved {} permissions for role {}", permissions.size(), role);
-        return new HashSet<>(permissions);
+        return new HashSet<>(getPermissionsForRoleListCached(role));
+    }
+
+    @Cacheable(value = "effectiveRolePermissions", key = "#role.name()")
+    public List<String> getPermissionsForRoleListCached(Roles role) {
+        return rolePermissionsRepository.findByRoleNameBlocking(role.name());
     }
 
     /**
@@ -413,9 +416,14 @@ public class PermissionService implements PermissionProvider {
     @Override
     @CacheEvict(value = {"rolePermissions", "effectiveRolePermissions", "effectivePermissions"}, allEntries = true)
     public void reloadPermissions() {
-        userAttributes.clear();
         rolePermissionsRepository.evictCache();
         logger.info("✅ Permission caches evicted — next reads will reload from Firestore");
+    }
+
+    // Call this separately, NOT on the 30s scheduled tick —
+// only when permissions.yaml is re-seeded, or never automatically at all.
+    public void clearUserAttributes() {
+        userAttributes.clear();
     }
 
     /**

@@ -703,4 +703,20 @@ public class AdminService {
             Optional<Instant> createdAfter,
             Optional<Instant> createdBefore
     ) {}
+
+    public record PagedResult<T>(List<T> items, long total, int page, int size) {}
+
+    // ── Add this method near findUsers ──
+    public Mono<PagedResult<User>> findUsersPaged(Roles performerRole, UserStatus status, int page, int size) {
+        if (!AdminAuthorizationUtils.canViewUsers(performerRole)) {
+            return Mono.error(AccessDeniedException.operationNotAllowed(
+                    "view users", performerRole.name()));
+        }
+
+        return userRepository.findByStatusPaged(status, page, size)
+                .filter(user -> AdminAuthorizationUtils.canViewUser(user, performerRole))
+                .collectList()
+                .zipWith(userRepository.countByStatus(status))
+                .map(tuple -> new PagedResult<>(tuple.getT1(), tuple.getT2(), page, size));
+    }
 }

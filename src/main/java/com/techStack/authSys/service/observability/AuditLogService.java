@@ -386,7 +386,7 @@ public class AuditLogService {
         logEntry.put("email", HelperUtils.maskEmail(email));
         logEntry.put("requestedRoles", roles.stream()
                 .map(Roles::name)
-                .collect(Collectors.toSet()));
+                .collect(Collectors.toList()));
         logEntry.put("ipAddress", ipAddress);
 
         saveAuditLog(logEntry, now);
@@ -410,7 +410,7 @@ public class AuditLogService {
         logEntry.put("email", HelperUtils.maskEmail(email));
         logEntry.put("roles", roles.stream()
                 .map(Roles::name)
-                .collect(Collectors.toSet()));
+                .collect(Collectors.toList()));
         logEntry.put("status", status.name());
         logEntry.put("ipAddress", ipAddress);
 

@@ -343,6 +343,48 @@ public class FirestoreUserRepository {
                 });
     }
 
+    /**
+     * Paginated query by status, ordered by creation date (newest first).
+     * Mirrors findByStatus but applies Firestore's native offset/limit so we
+     * don't pull the entire collection into memory just to discard most of it.
+     */
+    public Flux<User> findByStatusPaged(UserStatus status, int page, int size) {
+        int offset = page * size;
+
+        return Mono.fromCallable(() -> firestore.collection(SecurityConstants.COLLECTION_USERS)
+                        .whereEqualTo("status", status.name())
+                        .orderBy("createdAt", Query.Direction.DESCENDING)
+                        .offset(offset)
+                        .limit(size)
+                        .get())
+                .flatMap(future -> Mono.fromFuture(FirestoreUtil.toCompletableFuture(future)))
+                .subscribeOn(Schedulers.boundedElastic())
+                .flatMapMany(querySnapshot -> {
+                    if (querySnapshot.isEmpty()) {
+                        return Flux.empty();
+                    }
+
+                    return Flux.fromIterable(querySnapshot.getDocuments())
+                            .map(FirestoreUserMapper::documentToUser)
+                            .filter(Objects::nonNull);
+                });
+    }
+
+    /**
+     * Total count of users with a given status, for pagination metadata.
+     * Uses Firestore's server-side count() aggregation rather than fetching
+     * and counting documents client-side.
+     */
+    public Mono<Long> countByStatus(UserStatus status) {
+        return Mono.fromCallable(() -> firestore.collection(SecurityConstants.COLLECTION_USERS)
+                        .whereEqualTo("status", status.name())
+                        .count()
+                        .get())
+                .flatMap(future -> Mono.fromFuture(FirestoreUtil.toCompletableFuture(future)))
+                .subscribeOn(Schedulers.boundedElastic())
+                .map(result -> result.getCount());
+    }
+
     public Flux<User> findAll() {
         return Flux.defer(() -> {
             CollectionReference usersCollection = firestore.collection(SecurityConstants.COLLECTION_USERS);

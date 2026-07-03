@@ -4,6 +4,7 @@ import com.techStack.authSys.dto.request.ChangePasswordRequest;
 import com.techStack.authSys.dto.request.CompleteSetupRequest;
 import com.techStack.authSys.dto.request.VerifyOtpRequest;
 import com.techStack.authSys.dto.response.ApiResponse;
+import com.techStack.authSys.dto.response.OtpResult;
 import com.techStack.authSys.dto.response.OtpVerificationResult;
 import com.techStack.authSys.exception.auth.AuthException;
 import com.techStack.authSys.service.auth.FirstTimeLoginSetupService;
@@ -172,7 +173,7 @@ public class FirstTimeSetupController {
                     )
             )
     )
-    public Mono<ResponseEntity<ApiResponse<Void>>> changePassword(
+    public Mono<ResponseEntity<ApiResponse<OtpResult>>> changePassword(
             @RequestHeader("Authorization") String tempToken,
             @Valid @RequestBody ChangePasswordRequest request) {
 
@@ -180,44 +181,44 @@ public class FirstTimeSetupController {
         log.info("🔑 [STEP 1/3] Password change + staging at {}", startTime);
 
         return setupService.changePasswordFirstTime(tempToken, request)
-                .<ResponseEntity<ApiResponse<Void>>>map(result -> {
+                .<ResponseEntity<ApiResponse<OtpResult>>>map(result -> {
                     if (result.isRateLimited()) {
                         log.warn("⚠️ Rate limited at {}", clock.instant());
                         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
-                                .body(ApiResponse.<Void>error(
+                                .body(ApiResponse.<OtpResult>error(
                                         result.getMessage(),
-                                        "RATE_LIMIT_EXCEEDED"
+                                        result
                                 ));
                     }
 
                     if (!result.isSent()) {
                         log.warn("⚠️ OTP send failed at {}", clock.instant());
                         return ResponseEntity.status(HttpStatus.MULTI_STATUS)
-                                .body(ApiResponse.<Void>error(
+                                .body(ApiResponse.<OtpResult>error(
                                         result.getMessage(),
-                                        "OTP_SEND_FAILED"
+                                        result
                                 ));
                     }
 
                     log.info("✅ [STEP 1/3] Password STAGED + OTP sent at {}", clock.instant());
 
-                    return ResponseEntity.ok(ApiResponse.<Void>success(
+                    return ResponseEntity.ok(ApiResponse.<OtpResult>success(
                             "Password staged successfully. OTP sent to your phone.",
-                            clock.instant()
+                            result
                     ));
                 })
                 .onErrorResume(IllegalStateException.class, e -> {
                     log.warn("❌ Invalid state: {}", e.getMessage());
-                    return Mono.just(ResponseEntity.<ApiResponse<Void>>badRequest()
-                            .body(ApiResponse.<Void>error(
+                    return Mono.just(ResponseEntity.<ApiResponse<OtpResult>>badRequest()
+                            .body(ApiResponse.<OtpResult>error(
                                     e.getMessage(),
                                     "INVALID_STATE"
                             )));
                 })
                 .onErrorResume(Exception.class, e -> {
                     log.error("❌ [STEP 1/3] Failed: {}", e.getMessage());
-                    return Mono.just(ResponseEntity.<ApiResponse<Void>>status(HttpStatus.INTERNAL_SERVER_ERROR)
-                            .body(ApiResponse.<Void>error(
+                    return Mono.just(ResponseEntity.<ApiResponse<OtpResult>>status(HttpStatus.INTERNAL_SERVER_ERROR)
+                            .body(ApiResponse.<OtpResult>error(
                                     "Failed to process request. Please try again.",
                                     "SERVER_ERROR"
                             )));

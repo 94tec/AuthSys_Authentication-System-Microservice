@@ -5,6 +5,8 @@ import com.google.api.core.ApiFutures;
 import com.google.cloud.firestore.Firestore;
 import com.google.cloud.firestore.WriteResult;
 import com.techStack.authSys.models.firestore.FirestorePermission;
+import com.techStack.authSys.models.user.Roles;
+import com.techStack.authSys.service.authorization.PermissionCacheWarmupService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.ApplicationArguments;
@@ -14,44 +16,61 @@ import org.springframework.stereotype.Component;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 
 /**
- * Permission Seeder
+ * Tour Permission Seeder
  *
- * Writes permissions and role_permissions to Firestore at application startup,
- * based on the contents of permissions.yaml (bound via PermissionsYamlConfig).
+ * Seeds Tour Management System permissions and role mappings
+ * into Firestore during application startup.
  *
- * This runs once per startup. It is idempotent — re-seeding overwrites existing
- * documents with the current YAML state, which is the desired behaviour after
- * a permission schema change.
+ * Sources:
+ *   application.permissions
+ *   application.role_permissions
  *
- * Execution order:
- *   1. seedPermissions()      — writes permissions/{id} documents
- *   2. seedRolePermissions()  — writes role_permissions/{roleName} documents
+ * Example namespaces:
  *
- * Both phases complete fully before run() returns, so any service that reads
- * from Firestore at startup is guaranteed to see the seeded data.
+ *   traveler
+ *   booking
+ *   tour
+ *   destination
+ *   itinerary
+ *   guide
+ *   vehicle
+ *   supplier
+ *   payment
+ *   review
+ *   report
+ *   user
+ *   system
  *
- * Fire-and-forget fix:
- *   The original used addListener() with Runnable::run and discarded the
- *   ApiFuture<WriteResult>. This meant run() returned before any write
- *   completed, leaving Firestore empty for the duration of startup.
- *   We now collect all ApiFutures and call ApiFutures.allAsList(...).get()
- *   to block until every write has been acknowledged by Firestore.
+ * Example permissions:
  *
- * Save strategy:
- *   We use set() WITHOUT SetOptions.merge() for role_permissions documents.
- *   Merge cannot remove stale permissions from the list — a full set() is
- *   required to ensure the Firestore state matches the YAML exactly.
- *   For permissions/{id} documents we also use full set() so that
- *   description/category changes in YAML are reflected in Firestore.
+ *   booking:create
+ *   booking:approve
+ *   tour:create
+ *   tour:publish
+ *   payment:refund
  *
- * Document ID scheme:
- *   Uses FirestorePermission.toDocumentId() which produces double-underscore
- *   separated IDs ("portfolio__publish") to avoid ambiguity with snake_case
- *   action names. See FirestorePermission for full rationale.
+ * Example role mappings:
+ *
+ *   USER
+ *      booking:create
+ *      booking:view_own
+ *
+ *   DESIGNER
+ *      tour:create
+ *      tour:update
+ *
+ *   MANAGER
+ *      booking:approve
+ *      guide:assign
+ *
+ * Startup will fail if permission seeding fails.
+ * This prevents the application from running with
+ * incomplete RBAC configuration.
  */
 @Component
 @RequiredArgsConstructor
@@ -59,10 +78,33 @@ import java.util.concurrent.Executors;
 public class PermissionSeeder implements ApplicationRunner {
 
     private final Firestore firestore;
-    private final PermissionYamlLoader yamlLoader;
 
-    private static final String PERMISSIONS_COLLECTION      = "permissions";
-    private static final String ROLE_PERMISSIONS_COLLECTION = "role_permissions";
+    private final PermissionYamlLoader permissionsYamlLoader;
+    private final SecurityBootstrapValidator validator;
+    private final PermissionCacheWarmupService  cacheWarmupService;
+
+    private static final String PERMISSIONS_COLLECTION =
+            "permissions";
+
+    private static final String ROLE_PERMISSIONS_COLLECTION =
+            "role_permissions";
+
+    private static final Set<String> VALID_NAMESPACES =
+            Set.of(
+                    "traveler",
+                    "booking",
+                    "tour",
+                    "destination",
+                    "itinerary",
+                    "guide",
+                    "vehicle",
+                    "supplier",
+                    "payment",
+                    "review",
+                    "report",
+                    "user",
+                    "system"
+            );
 
     // Executor for ApiFutures callbacks — keeps listener threads off the main thread
     private static final Executor CALLBACK_EXECUTOR =
@@ -84,13 +126,21 @@ public class PermissionSeeder implements ApplicationRunner {
      */
     @Override
     public void run(ApplicationArguments args) throws Exception {
-        log.info("▶ PermissionSeeder starting...");
+        log.info("▶ Starting Tour RBAC Permission Seeder...");
+
+        validator.validate();
 
         int permCount = seedPermissions();
         int roleCount = seedRolePermissions();
 
-        log.info("✅ PermissionSeeder complete — {} permissions, {} role mappings seeded",
-                permCount, roleCount);
+        // Warm Redis after Firestore is seeded
+        cacheWarmupService.warmPermissions().block(); // blocking is fine here — startup thread
+
+        log.info(
+                "✅ Tour RBAC initialization complete. Seeded {} permissions and {} role mappings.",
+                permCount,
+                roleCount
+        );
     }
 
     // -------------------------------------------------------------------------
@@ -101,7 +151,10 @@ public class PermissionSeeder implements ApplicationRunner {
      * Writes one document per permission to the permissions/ collection.
      *
      * Document ID uses FirestorePermission.toDocumentId():
-     *   "portfolio:publish" → "portfolio__publish"
+     *
+     * "tour:publish"      → "tour__publish"
+     * "booking:create"    → "booking__create"
+     * "payment:refund"    → "payment__refund"
      *
      * Full set() is used — overwrites any stale description or category
      * from a previous YAML version.
@@ -110,7 +163,7 @@ public class PermissionSeeder implements ApplicationRunner {
      * @throws Exception if any Firestore write fails or is interrupted
      */
     private int seedPermissions() throws Exception {
-        PermissionsYamlConfig config = yamlLoader.load();
+        PermissionsYamlConfig config = permissionsYamlLoader.load();
 
         if (config.getPermissions() == null || config.getPermissions().isEmpty()) {
             log.warn("⚠ No permissions defined in YAML — skipping permissions seed");
@@ -120,8 +173,18 @@ public class PermissionSeeder implements ApplicationRunner {
         List<ApiFuture<WriteResult>> futures = new ArrayList<>();
 
         config.getPermissions().forEach((namespace, nsConfig) -> {
+            if (!VALID_NAMESPACES.contains(namespace)) {
+                log.warn(
+                        "Unknown permission namespace '{}' found in YAML",
+                        namespace
+                );
+            }
+
             if (nsConfig == null || nsConfig.getActions() == null) {
-                log.warn("Namespace '{}' has null config or actions — skipping", namespace);
+                log.warn(
+                        "Namespace '{}' has null config or actions — skipping",
+                        namespace
+                );
                 return;
             }
 
@@ -150,11 +213,14 @@ public class PermissionSeeder implements ApplicationRunner {
                         .collection(PERMISSIONS_COLLECTION)
                         .document(permission.getId())
                         .set(Map.of(
-                                "namespace",   permission.getNamespace(),
-                                "action",      permission.getAction(),
-                                "fullName",    permission.getFullName(),
+                                "namespace", permission.getNamespace(),
+                                "action", permission.getAction(),
+                                "fullName", permission.getFullName(),
                                 "description", permission.getDescription(),
-                                "category",    permission.getCategory()
+                                "category", permission.getCategory(),
+                                "active", true,
+                                "seeded", true,
+                                "version", 1
                         ));
 
                 futures.add(future);
@@ -188,7 +254,7 @@ public class PermissionSeeder implements ApplicationRunner {
      */
     private int seedRolePermissions() throws Exception {
         // resolveAllRolePermissions() handles wildcard expansion and null guards
-        Map<String, List<String>> allRolePermissions = yamlLoader.resolveAllRolePermissions();
+        Map<String, List<String>> allRolePermissions = permissionsYamlLoader.resolveAllRolePermissions();
 
         if (allRolePermissions.isEmpty()) {
             log.warn("⚠ No role permissions resolved from YAML — skipping role_permissions seed");
@@ -198,6 +264,11 @@ public class PermissionSeeder implements ApplicationRunner {
         List<ApiFuture<WriteResult>> futures = new ArrayList<>();
 
         allRolePermissions.forEach((roleName, permissions) -> {
+            Roles.fromName(roleName)
+                    .orElseThrow(() ->
+                            new IllegalStateException(
+                                    "Unknown role in permissions.yaml: " + roleName
+                            ));
             // Full set() — not merge — so stale permissions are overwritten
             ApiFuture<WriteResult> future = firestore
                     .collection(ROLE_PERMISSIONS_COLLECTION)

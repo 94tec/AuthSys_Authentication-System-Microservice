@@ -30,7 +30,7 @@ public class AuthResponse {
     private Instant accessTokenExpiry;
     private Instant refreshTokenExpiry;
     private UserInfo userInfo;
-        private List<String> permissions;
+    private List<String> permissions;
 
     @Builder.Default
     private Date timestamp = new Date();

@@ -22,9 +22,12 @@ import java.time.Instant;
 import java.util.List;
 
 /**
- * Force Password Change Filter with OTP Verification
+ * Force Password Change Filter
  *
- * Enforces both password change AND phone verification for first-time users.
+ * Enforces password change for users with forcePasswordChange=true.
+ * Phone/OTP verification is enforced once, at login time, by
+ * AuthenticationOrchestrator — NOT repeated here on every request.
+ *
  * Uses Clock for all timestamp operations.
  */
 @Component
@@ -102,14 +105,17 @@ public class ForcePasswordChangeFilter implements WebFilter {
                     Object principal = auth.getPrincipal();
 
                     if (principal instanceof CustomUserDetails user) {
-                        logger.debug("User: {}, forcePasswordChange: {}, phoneVerified: {} at {}",
+                        logger.debug("User: {}, forcePasswordChange: {} at {}",
                                 user.getUsername(),
                                 user.isForcePasswordChange(),
-                                user.getUser().isPhoneVerified(),
                                 now);
 
-                        // ✅ Check BOTH password change requirement AND phone verification
-                        if (user.isForcePasswordChange() || !user.getUser().isPhoneVerified()) {
+                        // Phone/OTP verification is enforced once at login by
+                        // AuthenticationOrchestrator. Only password-change is
+                        // re-checked on every request here, since a user can
+                        // keep using an already-issued access token across
+                        // multiple requests before they change their password.
+                        if (user.isForcePasswordChange()) {
                             return handleIncompleteSetup(exchange, user, now);
                         }
                     } else {
@@ -130,27 +136,42 @@ public class ForcePasswordChangeFilter implements WebFilter {
        ========================= */
 
     /**
-     * Handle incomplete setup (password change OR phone verification pending)
+     * Handle incomplete setup (password change pending).
+     *
+     * IMPORTANT: all header mutations happen BEFORE setStatusCode/setComplete
+     * triggers the response to commit. Mutating headers after commit throws
+     * UnsupportedOperationException on ReadOnlyHttpHeaders, which is what was
+     * causing the cascading "response already committed" crashes.
      */
     private Mono<Void> handleIncompleteSetup(
             ServerWebExchange exchange,
             CustomUserDetails user,
             Instant now
     ) {
-        String setupStatus = getSetupStatus(user);
+        String setupStatus = "PASSWORD_CHANGE_REQUIRED";
 
-        // For API requests, return 403 with setup requirements
         if (isApiRequest(exchange)) {
             ServerHttpResponse response = exchange.getResponse();
-            response.setStatusCode(HttpStatus.FORBIDDEN);
+
+            if (response.isCommitted()) {
+                logger.warn("Response already committed for {} — skipping header mutation at {}",
+                        user.getUsername(), now);
+                return Mono.empty();
+            }
+
             response.getHeaders().add("X-Setup-Required", "true");
             response.getHeaders().add("X-Setup-Status", setupStatus);
             response.getHeaders().add("X-Force-Password-Change",
                     String.valueOf(user.isForcePasswordChange()));
-            response.getHeaders().add("X-Phone-Verified",
-                    String.valueOf(user.getUser().isPhoneVerified()));
             response.getHeaders().add("X-Timestamp", now.toString());
             response.getHeaders().add("Location", "/api/auth/first-time-setup/change-password");
+
+            boolean statusSet = response.setStatusCode(HttpStatus.FORBIDDEN);
+            if (!statusSet) {
+                logger.warn("Could not set status code for {} — response likely already committed at {}",
+                        user.getUsername(), now);
+                return Mono.empty();
+            }
 
             logger.warn("Blocked API request from {} requiring setup ({}) at {}",
                     user.getUsername(), setupStatus, now);
@@ -158,27 +179,10 @@ public class ForcePasswordChangeFilter implements WebFilter {
             return response.setComplete();
         }
 
-        // For web requests, redirect to setup page
         logger.info("Redirecting web request from {} to setup ({}) at {}",
                 user.getUsername(), setupStatus, now);
 
         return redirectToSetup(exchange, now);
-    }
-
-    /**
-     * Get human-readable setup status
-     */
-    private String getSetupStatus(CustomUserDetails user) {
-        boolean needsPasswordChange = user.isForcePasswordChange();
-        boolean needsPhoneVerification = !user.getUser().isPhoneVerified();
-
-        if (needsPasswordChange && needsPhoneVerification) {
-            return "PASSWORD_AND_PHONE_REQUIRED";
-        } else if (needsPasswordChange) {
-            return "PASSWORD_CHANGE_REQUIRED";
-        } else {
-            return "PHONE_VERIFICATION_REQUIRED";
-        }
     }
 
     /**
@@ -193,9 +197,21 @@ public class ForcePasswordChangeFilter implements WebFilter {
      */
     private Mono<Void> redirectToSetup(ServerWebExchange exchange, Instant now) {
         ServerHttpResponse response = exchange.getResponse();
-        response.setStatusCode(HttpStatus.TEMPORARY_REDIRECT);
+
+        if (response.isCommitted()) {
+            logger.warn("Response already committed — skipping redirect at {}", now);
+            return Mono.empty();
+        }
+
         response.getHeaders().setLocation(URI.create("/first-time-setup"));
         response.getHeaders().add("X-Redirect-Timestamp", now.toString());
+
+        boolean statusSet = response.setStatusCode(HttpStatus.TEMPORARY_REDIRECT);
+        if (!statusSet) {
+            logger.warn("Could not set redirect status code — response likely already committed at {}", now);
+            return Mono.empty();
+        }
+
         return response.setComplete();
     }
 

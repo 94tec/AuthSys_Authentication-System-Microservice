@@ -245,27 +245,56 @@ public class FirebaseAuthFilter implements WebFilter {
     /* =========================
        Response Methods
        ========================= */
-
     /**
      * Respond with 429 Too Many Requests
+     *
+     * IMPORTANT: headers are set BEFORE the status code, and we bail out early
+     * if the response is already committed (e.g. another filter or the global
+     * exception handler already started writing a response for this exchange).
+     * Mutating headers after commit throws UnsupportedOperationException on
+     * the now-frozen ReadOnlyHttpHeaders.
      */
     private Mono<Void> respondWithTooManyRequests(ServerWebExchange exchange) {
-        exchange.getResponse().setStatusCode(HttpStatus.TOO_MANY_REQUESTS);
+        if (exchange.getResponse().isCommitted()) {
+            log.warn("Response already committed — skipping 429 write at {}", clock.instant());
+            return Mono.empty();
+        }
+
         exchange.getResponse().getHeaders().set("X-RateLimit-Exceeded", clock.instant().toString());
         exchange.getResponse().getHeaders().set(
                 "Retry-After",
                 String.valueOf(rateLimitProperties.getWindowMinutes() * 60)
         );
+
+        boolean statusSet = exchange.getResponse().setStatusCode(HttpStatus.TOO_MANY_REQUESTS);
+        if (!statusSet) {
+            log.warn("Could not set 429 status — response likely already committed at {}", clock.instant());
+            return Mono.empty();
+        }
+
         return exchange.getResponse().setComplete();
     }
 
     /**
      * Respond with 401 Unauthorized
+     *
+     * Same isCommitted()/setStatusCode-return-value guard as above.
      */
     private Mono<Void> respondWithUnauthorized(ServerWebExchange exchange) {
-        exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
+        if (exchange.getResponse().isCommitted()) {
+            log.warn("Response already committed — skipping 401 write at {}", clock.instant());
+            return Mono.empty();
+        }
+
         exchange.getResponse().getHeaders().set("X-Auth-Failed", clock.instant().toString());
         exchange.getResponse().getHeaders().set("WWW-Authenticate", "Bearer");
+
+        boolean statusSet = exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
+        if (!statusSet) {
+            log.warn("Could not set 401 status — response likely already committed at {}", clock.instant());
+            return Mono.empty();
+        }
+
         return exchange.getResponse().setComplete();
     }
 
