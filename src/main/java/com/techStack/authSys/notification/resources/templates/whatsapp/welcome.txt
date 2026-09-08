@@ -1,0 +1,7 @@
+🌍 *Welcome to Damuchi Safaris, {{customerName}}!*
+
+Your account is all set. Explore curated safaris, day trips and cultural experiences across Kenya.
+
+👉 {{websiteUrl}}
+
+We can't wait to take you on an adventure! 🦁🌅

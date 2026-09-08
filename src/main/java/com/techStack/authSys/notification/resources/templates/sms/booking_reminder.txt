@@ -1,0 +1,1 @@
+Damuchi Safaris: REMINDER — Your {{tourName}} is TOMORROW, {{tourDate}}! Carry ID, wear comfortable clothes. Ref: #{{bookingId}}. Full details: {{bookingPortalUrl}}

@@ -1,0 +1,19 @@
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{emails/layouts/base-template :: body(content=~{::#content})}">
+<head><title th:text="${subject}">Special Offer</title></head>
+<body>
+    <div id="content">
+        <div th:replace="~{emails/components/hero :: hero(title=${offerTitle}, subtitle=${offerSubtitle})}"></div>
+        <p style="font-size:15px; line-height:1.7; color:#333333;" th:text="${offerBody}">
+            Limited-time offer on select destinations. Book now and save.
+        </p>
+        <div style="text-align:center; margin:24px 0;">
+            <div th:replace="~{emails/components/button :: button(text='Grab This Deal', url=${offerUrl}, style='primary')}"></div>
+        </div>
+        <p style="font-size:11px; color:#999999; text-align:center; margin-top:20px;">
+            You're receiving this because you opted in to Damuchi offers.
+            <a th:href="${unsubscribeUrl}" style="color:#999999;">Unsubscribe</a>
+        </p>
+    </div>
+</body>
+</html>

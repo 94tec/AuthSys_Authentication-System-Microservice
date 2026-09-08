@@ -1,0 +1,13 @@
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{emails/layouts/notification-template :: body(content=~{::#content})}">
+<head><title>New User Registered</title></head>
+<body>
+    <div id="content">
+        <div th:replace="~{emails/components/alert :: alert(type='info', message='New user registration')}"></div>
+        <div th:replace="~{emails/components/info-card :: info('User Details', ${detailRows})}"></div>
+        <div style="text-align:center; margin:16px 0 0;">
+            <div th:replace="~{emails/components/button :: button(text='Review User', url=${reviewUrl}, style='secondary')}"></div>
+        </div>
+    </div>
+</body>
+</html>

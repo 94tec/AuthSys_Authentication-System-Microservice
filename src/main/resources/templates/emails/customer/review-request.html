@@ -1,0 +1,17 @@
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{emails/layouts/minimal-template :: body(content=~{::#content})}">
+<head><title>How Was Your Trip?</title></head>
+<body>
+    <div id="content">
+        <h2 style="font-size:22px; color:#FF6B35; margin-top:0; text-align:center;">How was your trip?</h2>
+        <p style="font-size:15px; color:#333333; text-align:center; line-height:1.6;">
+            Hi <span th:text="${fullName}">there</span>, we'd love to hear about your experience with
+            <strong th:text="${tripTitle}">Safari Adventure</strong>. It only takes a minute.
+        </p>
+        <div style="text-align:center; font-size:28px; letter-spacing:6px; color:#F5A623; margin:16px 0;">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
+        <div style="text-align:center; margin:8px 0 0;">
+            <div th:replace="~{emails/components/button :: button(text='Leave a Review', url=${reviewUrl}, style='primary')}"></div>
+        </div>
+    </div>
+</body>
+</html>

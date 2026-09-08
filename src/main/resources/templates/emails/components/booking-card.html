@@ -1,0 +1,17 @@
+<!-- fragment arg: booking (title, location, travelers, date, status) -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" th:fragment="card(booking)"
+       style="background:#FFF8F3; border-radius:12px; padding:20px; margin:20px 0;">
+    <tr>
+        <td style="padding:20px;">
+            <h3 style="font-size:22px; color:#FF6B35; margin:0 0 5px;" th:text="${booking.title}">Safari Adventure</h3>
+            <p style="margin:5px 0; color:#333333;" th:text="${booking.location}">Nairobi National Park</p>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:10px;">
+                <tr>
+                    <td style="font-size:14px; color:#666666;" th:text="'Travelers: ' + ${booking.travelers}">3 Travelers</td>
+                    <td style="font-size:14px; color:#666666; text-align:center;" th:text="'Date: ' + ${booking.date}">July 24</td>
+                    <td style="font-size:14px; color:#43A047; font-weight:600; text-align:right;" th:text="${booking.status}">Paid</td>
+                </tr>
+            </table>
+        </td>
+    </tr>
+</table>

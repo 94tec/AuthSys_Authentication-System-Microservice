@@ -1,0 +1,12 @@
+<div style="background:#F9F9F9; border-radius:12px; padding:20px; margin:20px 0;"
+     xmlns:th="http://www.w3.org/1999/xhtml">
+    <table style="width:100%; font-size:15px; color:#333;">
+        <tr><td>Booking ID</td><td th:text="${bookingId}">#BK-123</td></tr>
+        <tr><td>Traveler</td><td th:text="${travelerName}">John Doe</td></tr>
+        <tr><td>Payment Method</td><td th:text="${paymentMethod}">Credit Card</td></tr>
+        <tr><td>Amount</td><td th:text="${amount}">$500</td></tr>
+        <tr><td>Taxes</td><td th:text="${taxes}">$50</td></tr>
+        <tr><td>Discount</td><td th:text="${discount}">-$20</td></tr>
+        <tr style="font-weight:bold; font-size:18px;"><td>TOTAL</td><td th:text="${total}">$530</td></tr>
+    </table>
+</div>

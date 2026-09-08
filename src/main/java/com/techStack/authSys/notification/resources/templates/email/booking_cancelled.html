@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Booking Cancelled</title></head>
+<body style="font-family:Arial,sans-serif;color:#0B1F1A;background:#F5F1E8;margin:0;padding:0;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#F5F1E8;padding:32px 0;">
+  <tr><td align="center">
+    <table width="560" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:12px;overflow:hidden;border:1px solid #E8E2D4;">
+      <tr><td style="background:#0B1F1A;padding:28px 32px;">
+        <p style="color:#C9742F;font-size:20px;font-weight:bold;margin:0;">🌍 Damuchi Safaris</p>
+      </td></tr>
+      <tr><td style="padding:32px;">
+        <h2 style="color:#8B2E2E;margin:0 0 8px;">Your booking has been cancelled</h2>
+        <p style="color:#555;margin:0 0 24px;">Hi {{customerName}}, your booking for <strong>{{tourName}}</strong> on {{tourDate}} has been cancelled.</p>
+        <table width="100%" style="background:#F5F1E8;border-radius:8px;padding:20px;margin-bottom:24px;">
+          <tr><td style="color:#666;font-size:13px;">Booking reference</td>
+              <td style="color:#0B1F1A;font-weight:bold;font-size:13px;text-align:right;">#{{bookingId}}</td></tr>
+          <tr><td style="color:#666;font-size:13px;padding-top:8px;">Reason</td>
+              <td style="color:#555;font-size:13px;text-align:right;padding-top:8px;">{{cancellationReason}}</td></tr>
+        </table>
+        <p style="color:#555;font-size:13px;">If a refund is applicable, our team will process it within 5–7 business days. Browse our other tours and plan your next adventure.</p>
+        <a href="{{websiteUrl}}" style="display:inline-block;background:#C9742F;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:bold;margin-top:8px;">Browse Tours</a>
+      </td></tr>
+      <tr><td style="background:#F5F1E8;padding:20px 32px;text-align:center;border-top:1px solid #E8E2D4;">
+        <p style="color:#888;font-size:12px;margin:0;"><a href="mailto:{{supportEmail}}" style="color:#C9742F;">{{supportEmail}}</a></p>
+        <p style="color:#aaa;font-size:11px;margin:6px 0 0;">© {{companyName}}</p>
+      </td></tr>
+    </table>
+  </td></tr>
+</table>
+</body>
+</html>

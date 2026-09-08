@@ -1,0 +1,41 @@
+<div style="
+    text-align:center;
+    padding:20px 0 24px;
+">
+
+    <!-- =====================================================
+         LOGO
+    ====================================================== -->
+
+    <img th:if="${logoUrl != null and !#strings.isEmpty(logoUrl)}"
+         th:src="${logoUrl}"
+         alt="Damuchi"
+         width="150"
+         style="
+            display:block;
+            width:150px;
+            max-width:150px;
+            height:auto;
+            margin:0 auto;
+            border:0;
+            outline:none;
+            text-decoration:none;
+         "/>
+
+
+    <!-- =====================================================
+         FALLBACK BRAND
+    ====================================================== -->
+
+    <div th:unless="${logoUrl != null and !#strings.isEmpty(logoUrl)}"
+         style="
+            font-size:25px;
+            line-height:32px;
+            font-weight:700;
+            letter-spacing:1px;
+            color:#263238;
+         ">
+        Damuchi
+    </div>
+
+</div>

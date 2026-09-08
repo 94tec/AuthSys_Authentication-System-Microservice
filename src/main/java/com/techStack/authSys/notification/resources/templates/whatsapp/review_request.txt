@@ -1,0 +1,9 @@
+🌍 *Damuchi Safaris*
+
+⭐ *How was {{tourName}}?*
+
+Hi {{customerName}}, we hope it was unforgettable! Your review helps fellow adventurers discover Kenya's wonders — and it only takes 2 minutes.
+
+Leave your review: {{bookingPortalUrl}}
+
+Thank you! 🙏

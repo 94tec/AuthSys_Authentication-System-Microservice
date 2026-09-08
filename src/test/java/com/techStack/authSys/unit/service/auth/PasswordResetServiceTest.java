@@ -1,6 +1,5 @@
 package com.techStack.authSys.unit.service.auth;
 
-import com.techStack.authSys.config.TestConfig;
 import com.techStack.authSys.dto.request.UserRegistrationDTO;
 import com.techStack.authSys.exception.account.UserNotFoundException;
 import com.techStack.authSys.exception.auth.InvalidTokenException;

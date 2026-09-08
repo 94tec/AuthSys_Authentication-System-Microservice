@@ -1,0 +1,16 @@
+🌍 *Damuchi Safaris*
+
+✅ *Booking Confirmed!*
+
+Hi {{customerName}}, your adventure is locked in!
+
+🗺 *Tour:* {{tourName}}
+📅 *Date:* {{tourDate}}
+👥 *Travelers:* {{travelerCount}}
+💳 *Paid:* {{currency}} {{totalPrice}}
+📱 *M-Pesa:* {{paymentReference}}
+🔖 *Ref:* #{{bookingId}}
+
+View your itinerary: {{bookingPortalUrl}}
+
+See you on the trail! 🦁

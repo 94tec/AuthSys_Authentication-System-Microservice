@@ -24,20 +24,28 @@ import java.util.List;
 public class BookingMapper {
 
     public BookingDTO toDTO(Booking booking) {
+
         return new BookingDTO(
+
+                // Identity
                 booking.getId(),
 
                 // Customer
                 booking.getCustomerId(),
-                booking.getCustomerEmail(),
                 booking.getCustomerName(),
+                booking.getCustomerEmail(),
 
                 // Tour
                 booking.getTour() != null ? booking.getTour().getId() : null,
+                booking.getAvailability() != null ? booking.getAvailability().getId() : null,
                 booking.getTourName(),
                 booking.getTourDate(),
 
-                // Party
+                // Booking
+                booking.getStatus(),
+                booking.getStatus() != null
+                        ? booking.getStatus().getDescription()
+                        : null,
                 booking.getTravelerCount(),
                 mapTravelers(booking),
 
@@ -46,17 +54,12 @@ public class BookingMapper {
                 booking.getTotalPrice(),
                 booking.getCurrency(),
 
-                // Lifecycle
-                booking.getStatus(),
-                booking.getStatus() != null
-                        ? booking.getStatus().getDescription()
-                        : null,
-
                 // Payment
+                null, // Replace with booking.getPayment().getId() if you have a Payment entity
                 booking.getPaymentReference(),
                 booking.getPaidAt(),
 
-                // Cancellation / refund
+                // Cancellation / Refund
                 booking.getCancelledAt(),
                 booking.getCancellationReason(),
                 booking.getRefundReference(),
@@ -65,7 +68,7 @@ public class BookingMapper {
                 // Notes
                 booking.getSpecialRequests(),
 
-                // Audit — from BaseEntity
+                // Audit
                 booking.getCreatedDate(),
                 booking.getLastModifiedDate()
         );

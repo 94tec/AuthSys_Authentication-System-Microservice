@@ -1,0 +1,9 @@
+🌍 *Damuchi Safaris*
+
+🎉 Hope you had an incredible time, {{customerName}}!
+
+Your *{{tourName}}* tour is now complete. We'd love to hear your story — your review helps other adventurers discover Kenya's wonders.
+
+⭐ Leave a review: {{bookingPortalUrl}}
+
+Until next time! 🌅

@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{emails/layouts/base-template :: body(content=~{::#content})}">
+<head>
+    <title th:text="${subject}">Account Approved – Welcome!</title>
+</head>
+<body>
+<div id="content">
+    <!-- Hero -->
+    <div style="text-align:center; padding:10px 0 20px;">
+        <div style="font-size:48px; margin:0;">🎉</div>
+        <h2 style="font-size:28px; font-weight:300; color:#2E7D32; margin:0;" th:text="#{email.user.approved.hero}">Account Approved!</h2>
+        <div style="height:2px; width:60px; margin:10px auto; background:linear-gradient(90deg, #2E7D32, #43A047); border-radius:2px;"></div>
+    </div>
+
+    <p style="font-size:16px; line-height:1.7; color:#333333;">
+        <span th:text="#{email.user.approved.greeting}">Hello</span> <span th:text="${fullName}">there</span>,
+    </p>
+    <p style="font-size:16px; line-height:1.7; color:#333333;" th:text="#{email.user.approved.body}">
+        Great news! Your account has been approved.
+    </p>
+
+    <!-- Approval Details Card -->
+    <div style="background:#F0F7F0; border-radius:12px; padding:20px; margin:20px 0; border-left:4px solid #2E7D32;">
+        <p style="font-size:14px; color:#666666; margin:0 0 8px;" th:text="#{email.user.approved.details.title}">Approval Details</p>
+        <p style="margin:4px 0; font-size:15px; color:#333;">
+            <strong th:text="#{email.user.approved.details.time}">Approved at:</strong>
+            <span th:text="${#dates.format(approvedAt, 'MMMM dd, yyyy HH:mm z')}">2025-01-01 12:00</span>
+        </p>
+        <p style="margin:4px 0; font-size:15px; color:#333;">
+            <strong th:text="#{email.user.approved.details.by}">Approved by:</strong>
+            <span th:text="${approvedBy}">Admin</span>
+        </p>
+    </div>
+
+    <!-- What You Can Do -->
+    <div style="background:#FFFFFF; border-radius:12px; padding:20px; margin:20px 0; border:1px solid #E0E0E0;">
+        <h4 style="font-size:16px; color:#2E7D32; margin:0 0 10px;" th:text="#{email.user.approved.actions.title}">You can now:</h4>
+        <ul style="font-size:15px; color:#444444; line-height:1.8; padding-left:20px; margin:0;">
+            <li th:text="#{email.user.approved.actions.step1}">Log in to your account</li>
+            <li th:text="#{email.user.approved.actions.step2}">Access all available features</li>
+            <li th:text="#{email.user.approved.actions.step3}">Customize your profile</li>
+        </ul>
+    </div>
+
+    <!-- CTA Button -->
+    <div style="text-align:center; margin:30px 0;">
+        <div th:replace="~{emails/components/button :: button(text=#{email.user.approved.button}, url=${loginUrl})}"></div>
+    </div>
+
+    <div th:replace="~{emails/components/support-card}"></div>
+    <div th:replace="~{emails/components/signature}"></div>
+</div>
+</body>
+</html>

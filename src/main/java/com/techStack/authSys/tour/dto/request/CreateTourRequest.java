@@ -1,60 +1,118 @@
 package com.techStack.authSys.tour.dto.request;
 
 import com.techStack.authSys.tour.models.TourCategory;
+import com.techStack.authSys.tour.models.TourCurrency;
 import com.techStack.authSys.tour.models.TourDifficulty;
+import com.techStack.authSys.tour.models.TourPriceType;
 import jakarta.validation.constraints.*;
-import lombok.Builder;
-import lombok.Data;
 
 import java.math.BigDecimal;
 import java.util.List;
 
-@Data
-@Builder
-public class CreateTourRequest {
+public record CreateTourRequest(
 
-    @NotBlank(message = "Tour name is required")
-    @Size(min = 3, max = 150, message = "Name must be between 3 and 150 characters")
-    private String name;
+        // ── Identity ──────────────────────────────────────────
+        @NotBlank(message = "Tour name is required")
+        @Size(max = 150, message = "Tour name must not exceed 150 characters")
+        String name,
 
-    @NotBlank(message = "Description is required")
-    @Size(max = 5000)
-    private String description;
+        @NotBlank(message = "Short description is required")
+        @Size(max = 500, message = "Short description must not exceed 500 characters")
+        String shortDescription,
 
-    @Size(max = 1000)
-    private String shortDescription;
+        @NotBlank(message = "Tour description is required")
+        @Size(max = 10000, message = "Description must not exceed 10,000 characters")
+        String description,
 
-    @NotNull(message = "Price per person is required")
-    @DecimalMin(value = "0.00", message = "Price must be positive")
-    private BigDecimal pricePerPerson;
+        @NotNull(message = "Tour category is required")
+        TourCategory category,
 
-    @NotNull(message = "Max capacity is required")
-    @Min(value = 1, message = "Capacity must be at least 1")
-    @Max(value = 500)
-    private Integer maxCapacity;
+        // ── Destination ───────────────────────────────────────
+        @NotBlank(message = "Destination is required")
+        @Size(max = 150)
+        String destination,
 
-    @NotNull(message = "Duration is required")
-    @Min(value = 1, message = "Duration must be at least 1 hour")
-    private Integer durationHours;
+        @NotBlank(message = "Country is required")
+        @Size(max = 100)
+        String country,
 
-    @NotNull(message = "Category is required")
-    private TourCategory category;
+        @Size(max = 150)
+        String region,
 
-    @NotNull(message = "Difficulty is required")
-    private TourDifficulty difficulty;
+        @Size(max = 300)
+        String meetingPoint,
 
-    @NotBlank(message = "Departure location is required")
-    private String departureLocation;
+        // ── Trip details ─────────────────────────────────────
+        @NotNull(message = "Duration in days is required")
+        @Min(value = 1, message = "Duration must be at least 1 day")
+        @Max(value = 365, message = "Duration cannot exceed 365 days")
+        Integer durationDays,
 
-    @NotBlank(message = "Destination is required")
-    private String destination;
+        @NotNull(message = "Duration in nights is required")
+        @Min(value = 0, message = "Duration nights cannot be negative")
+        Integer durationNights,
 
-    private List<String> imageUrls;
-    private List<String> inclusions;
-    private List<String> exclusions;
-    private List<String> highlights;
+        @NotNull(message = "Difficulty is required")
+        TourDifficulty difficulty,
 
-    private Integer minAge;
-    private Integer maxGroupSize;
-    private boolean featured;
+        @Min(value = 1, message = "Minimum age must be at least 1")
+        Integer minimumAge,
+
+        @Min(value = 1, message = "Maximum group size must be at least 1")
+        @Max(value = 1000, message = "Maximum group size cannot exceed 1000")
+        Integer maxGroupSize,
+
+        @Size(max = 200)
+        String bestSeason,
+
+        // ── Pricing ───────────────────────────────────────────
+        @NotNull(message = "Price is required")
+        @DecimalMin(value = "0.00", inclusive = true, message = "Price cannot be negative")
+        @Digits(integer = 10, fraction = 2, message = "Invalid price format")
+        BigDecimal price,
+
+        @NotNull(message = "Currency is required")
+        TourCurrency currency,
+
+        @NotNull(message = "Price type is required")
+        TourPriceType priceType,
+
+        @DecimalMin(value = "0.00")
+        @DecimalMax(value = "100.00")
+        BigDecimal depositPercentage,
+
+        // ── Content ───────────────────────────────────────────
+        @Size(max = 20, message = "Maximum 20 highlights allowed")
+        List<@NotBlank String> highlights,
+
+        @Size(max = 50, message = "Maximum 50 itinerary items allowed")
+        List<@NotBlank String> itinerary,
+
+        @Size(max = 50, message = "Maximum 50 inclusions allowed")
+        List<@NotBlank String> inclusions,
+
+        @Size(max = 50, message = "Maximum 50 exclusions allowed")
+        List<@NotBlank String> exclusions,
+
+        @Size(max = 50, message = "Maximum 50 requirements allowed")
+        List<@NotBlank String> requirements,
+
+        @Size(max = 5000)
+        String importantInformation,
+
+        // ── Media ─────────────────────────────────────────────
+        @NotBlank(message = "Cover image is required")
+        @Size(max = 1000)
+        String coverImage,
+
+        @Size(max = 30, message = "Maximum 30 gallery images allowed")
+        List<@NotBlank String> galleryImages,
+
+        @Size(max = 1000)
+        String videoUrl,
+
+        // ── Publishing ────────────────────────────────────────
+        Boolean active,
+        Boolean featured
+) {
 }

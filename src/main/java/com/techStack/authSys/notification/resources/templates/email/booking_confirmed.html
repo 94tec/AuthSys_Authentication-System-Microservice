@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Booking Confirmed</title></head>
+<body style="font-family:Arial,sans-serif;color:#0B1F1A;background:#F5F1E8;margin:0;padding:0;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#F5F1E8;padding:32px 0;">
+  <tr><td align="center">
+    <table width="560" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:12px;overflow:hidden;border:1px solid #E8E2D4;">
+      <tr><td style="background:#0B1F1A;padding:28px 32px;">
+        <p style="color:#C9742F;font-size:20px;font-weight:bold;margin:0;">🌍 Damuchi Safaris</p>
+        <p style="color:#F5F1E8;font-size:13px;margin:4px 0 0;">Your Adventure Awaits</p>
+      </td></tr>
+      <tr><td style="padding:32px;">
+        <!-- Stamp badge -->
+        <div style="text-align:center;margin-bottom:24px;">
+          <div style="display:inline-block;border:3px dashed #C9742F;border-radius:50%;width:80px;height:80px;line-height:80px;font-size:36px;">✓</div>
+        </div>
+        <h2 style="color:#3D5A4C;margin:0 0 8px;text-align:center;">Booking Confirmed!</h2>
+        <p style="color:#555;text-align:center;margin:0 0 28px;">Hi {{customerName}}, your payment is received and your adventure is locked in. See you on the trail!</p>
+
+        <table width="100%" style="background:#F5F1E8;border-radius:8px;padding:20px;margin-bottom:24px;">
+          <tr><td colspan="2" style="font-weight:bold;color:#0B1F1A;font-size:15px;padding-bottom:12px;border-bottom:1px solid #E8E2D4;">🎟 Your Booking Receipt</td></tr>
+          <tr><td style="color:#666;padding:8px 0 0;font-size:13px;">Reference</td>
+              <td style="color:#0B1F1A;font-weight:bold;padding:8px 0 0;font-size:13px;text-align:right;">#{{bookingId}}</td></tr>
+          <tr><td style="color:#666;padding:4px 0;font-size:13px;">Tour</td>
+              <td style="color:#0B1F1A;padding:4px 0;font-size:13px;text-align:right;">{{tourName}}</td></tr>
+          <tr><td style="color:#666;padding:4px 0;font-size:13px;">Date</td>
+              <td style="color:#0B1F1A;padding:4px 0;font-size:13px;text-align:right;">{{tourDate}}</td></tr>
+          <tr><td style="color:#666;padding:4px 0;font-size:13px;">Travelers</td>
+              <td style="color:#0B1F1A;padding:4px 0;font-size:13px;text-align:right;">{{travelerCount}}</td></tr>
+          <tr><td style="color:#666;padding:4px 0;font-size:13px;">M-Pesa Receipt</td>
+              <td style="color:#3D5A4C;font-weight:bold;padding:4px 0;font-size:13px;text-align:right;font-family:monospace;">{{paymentReference}}</td></tr>
+          <tr><td style="color:#666;padding:8px 0 0;font-size:14px;font-weight:bold;border-top:1px solid #E8E2D4;">Amount Paid</td>
+              <td style="color:#C9742F;padding:8px 0 0;font-size:14px;font-weight:bold;text-align:right;border-top:1px solid #E8E2D4;">{{currency}} {{totalPrice}}</td></tr>
+        </table>
+
+        <p style="color:#555;font-size:13px;">We'll send you a reminder the day before your tour. View your booking details and itinerary online.</p>
+        <a href="{{bookingPortalUrl}}" style="display:inline-block;background:#C9742F;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:bold;margin-top:8px;">View My Booking</a>
+      </td></tr>
+      <tr><td style="background:#F5F1E8;padding:20px 32px;text-align:center;border-top:1px solid #E8E2D4;">
+        <p style="color:#888;font-size:12px;margin:0;">Questions? <a href="mailto:{{supportEmail}}" style="color:#C9742F;">{{supportEmail}}</a></p>
+        <p style="color:#aaa;font-size:11px;margin:6px 0 0;">© {{companyName}}</p>
+      </td></tr>
+    </table>
+  </td></tr>
+</table>
+</body>
+</html>

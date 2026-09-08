@@ -1,0 +1,1 @@
+self.__REACT_LOADABLE_MANIFEST="{\"app/(public)/auth-callback/page.tsx -> @/lib/auth-api\":{\"id\":\"app/(public)/auth-callback/page.tsx -> @/lib/auth-api\",\"files\":[\"static/chunks/_app-pages-browser_src_lib_auth-api_ts.js\"]}}"

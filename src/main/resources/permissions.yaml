@@ -1,0 +1,288 @@
+authorization:
+
+  version: 1
+
+  validate-on-startup: true
+
+  seed-on-startup: true
+
+  cache:
+    enabled: true
+    warm-on-startup: true
+    ttl: 24h
+
+  permissions:
+
+    traveler:
+      category: CUSTOMER
+      actions:
+        - action: view_profile
+          description: View traveler profile
+        - action: update_profile
+          description: Update traveler profile
+        - action: upload_documents
+          description: Upload passport and travel documents
+        - action: manage_travelers
+          description: Manage traveler list
+
+    booking:
+      category: BOOKINGS
+      actions:
+        - action: create
+          description: Create booking
+        - action: view_own
+          description: View own bookings
+        - action: view_all
+          description: View all bookings
+        - action: update
+          description: Modify booking
+        - action: confirm
+          description: Confirm booking
+        - action: cancel_own
+          description: Cancel own booking
+        - action: cancel_any
+          description: Cancel any booking
+        - action: assign_guide
+          description: Assign guide
+        - action: assign_vehicle
+          description: Assign vehicle
+
+    tour:
+      category: TOURS
+      actions:
+        - action: view
+          description: View tour packages
+        - action: create
+          description: Create tour packages
+        - action: update
+          description: Update tour packages
+        - action: delete
+          description: Delete tour packages
+        - action: publish
+          description: Publish tours
+        - action: archive
+          description: Archive tours
+        - action: pricing
+          description: Manage pricing
+
+    enquiry:
+      category: ENQUIRIES
+      actions:
+        - action: create
+          description: Submit an enquiry
+        - action: view
+          description: View enquiries
+        - action: view_own
+          description: View own enquiries
+        - action: assign
+          description: Assign enquiry to staff
+        - action: update_status
+          description: Update enquiry status
+        - action: delete
+          description: Delete enquiry
+
+    destination:
+      category: DESTINATIONS
+      actions:
+        - action: view
+          description: View destinations
+        - action: create
+          description: Create destination
+        - action: update
+          description: Update destination
+        - action: delete
+          description: Delete destination
+
+    itinerary:
+      category: ITINERARY
+      actions:
+        - action: view
+          description: View itinerary
+        - action: create
+          description: Create itinerary
+        - action: update
+          description: Update itinerary
+        - action: delete
+          description: Delete itinerary
+
+    guide:
+      category: OPERATIONS
+      actions:
+        - action: view
+          description: View guides
+        - action: assign
+          description: Assign guide
+        - action: manage
+          description: Manage guides
+
+    vehicle:
+      category: OPERATIONS
+      actions:
+        - action: view
+          description: View vehicles
+        - action: assign
+          description: Assign vehicle
+        - action: manage
+          description: Manage fleet
+
+    supplier:
+      category: PARTNERS
+      actions:
+        - action: view
+          description: View suppliers
+        - action: create
+          description: Create supplier
+        - action: update
+          description: Update supplier
+        - action: delete
+          description: Delete supplier
+
+    payment:
+      category: FINANCE
+      actions:
+        - action: process
+          description: Process payment
+        - action: refund
+          description: Refund payment
+        - action: view_own
+          description: View own payments
+        - action: view_all
+          description: View all payments
+
+    review:
+      category: CUSTOMER
+      actions:
+        - action: create
+          description: Create review
+        - action: view
+          description: View reviews
+        - action: moderate
+          description: Moderate reviews
+
+    report:
+      category: ANALYTICS
+      actions:
+        - action: sales
+          description: View sales reports
+        - action: bookings
+          description: View booking reports
+        - action: customers
+          description: View customer reports
+        - action: operations
+          description: View operations reports
+
+    user:
+      category: ADMINISTRATION
+      actions:
+        - action: create
+          description: Create users
+        - action: read
+          description: View users
+        - action: update
+          description: Update users
+        - action: delete
+          description: Delete users
+        - action: assign_roles
+          description: Assign roles
+
+    system:
+      category: SYSTEM
+      actions:
+        - action: settings
+          description: Manage system settings
+        - action: audit_log
+          description: View audit logs
+        - action: backup
+          description: Manage backups
+        - action: api_management
+          description: Manage APIs
+
+  role_permissions:
+
+    SUPER_ADMIN:
+      - "*:*"
+
+    ADMIN:
+      - "user:*"
+      - "system:*"
+      - "traveler:*"
+      - "booking:*"
+      - "tour:*"
+      - "enquiry:*"
+      - "destination:*"
+      - "itinerary:*"
+      - "guide:*"
+      - "vehicle:*"
+      - "supplier:*"
+      - "payment:*"
+      - "review:*"
+      - "report:*"
+
+    MANAGER:
+      - "user:read"
+      - "user:create"
+      - "user:update"
+      - "booking:view_all"
+      - "booking:update"
+      - "booking:confirm"
+      - "booking:assign_guide"
+      - "booking:assign_vehicle"
+      - "tour:view"
+      - "tour:update"
+      - "enquiry:view"
+      - "enquiry:assign"
+      - "enquiry:update_status"
+      - "destination:view"
+      - "destination:update"
+      - "itinerary:*"
+      - "guide:*"
+      - "vehicle:*"
+      - "supplier:view"
+      - "payment:view_all"
+      - "payment:refund"
+      - "report:*"
+      - "review:moderate"
+      - "system:audit_log"
+
+    OPERATOR:
+      - "tour:view"
+      - "tour:create"
+      - "tour:update"
+      - "tour:publish"
+      - "tour:archive"
+      - "tour:pricing"
+      - "enquiry:view"
+      - "enquiry:update_status"
+      - "enquiry:assign"
+      - "destination:view"
+      - "destination:create"
+      - "destination:update"
+      - "itinerary:view"
+      - "itinerary:create"
+      - "itinerary:update"
+      - "review:view"
+
+    USER:
+      - "traveler:view_profile"
+      - "traveler:update_profile"
+      - "traveler:upload_documents"
+      - "traveler:manage_travelers"
+      - "booking:create"
+      - "booking:view_own"
+      - "booking:update"
+      - "booking:cancel_own"
+      - "tour:view"
+      - "enquiry:create"
+      - "enquiry:view_own"
+      - "destination:view"
+      - "itinerary:view"
+      - "payment:process"
+      - "payment:view_own"
+      - "review:create"
+      - "review:view"
+
+    GUEST:
+      - "tour:view"
+      - "enquiry:create"
+      - "destination:view"
+      - "review:view"

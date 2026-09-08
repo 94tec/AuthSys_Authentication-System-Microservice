@@ -2,23 +2,28 @@ package com.techStack.authSys.tour.models;
 
 import com.techStack.authSys.common.models.BaseEntity;
 import jakarta.persistence.*;
-import jakarta.validation.constraints.*;
 import lombok.*;
+import org.hibernate.annotations.BatchSize;
+import org.hibernate.annotations.UpdateTimestamp;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Core Tour entity for Damuchi Safaris.
- * Stored in PostgreSQL. Linked to Availability and Booking.
- */
 @Entity
-@Table(name = "tours", indexes = {
-        @Index(name = "idx_tour_slug", columnList = "slug", unique = true),
-        @Index(name = "idx_tour_category", columnList = "category"),
-        @Index(name = "idx_tour_active", columnList = "active")
-})
+@Table(
+        name = "tours",
+        indexes = {
+                @Index(name = "idx_tour_slug", columnList = "slug"),
+                @Index(name = "idx_tour_category", columnList = "category"),
+                @Index(name = "idx_tour_active", columnList = "active"),
+                @Index(name = "idx_tour_featured", columnList = "featured"),
+                @Index(name = "idx_tour_destination", columnList = "destination"),
+                @Index(name = "idx_tour_country", columnList = "country"),
+                @Index(name = "idx_tour_country_category", columnList = "country, category")
+        }
+)
 @Getter
 @Setter
 @NoArgsConstructor
@@ -26,149 +31,140 @@ import java.util.List;
 @Builder
 public class Tour extends BaseEntity {
 
-    @NotBlank
-    @Size(min = 3, max = 150)
-    @Column(name = "name", nullable = false, length = 150)
+    // ── Identity ──────────────────────────────────────────────
+    @Column(nullable = false, length = 150)
     private String name;
 
-    /**
-     * URL-friendly unique identifier — e.g. "maasai-mara-3-day-safari"
-     * Auto-generated from name on create.
-     */
-    @NotBlank
-    @Column(name = "slug", nullable = false, unique = true, length = 200)
+    @Column(nullable = false, unique = true, length = 180)
     private String slug;
 
-    @NotBlank
-    @Size(max = 5000)
-    @Column(name = "description", nullable = false, columnDefinition = "TEXT")
-    private String description;
-
-    @Size(max = 1000)
-    @Column(name = "short_description", length = 1000)
+    @Column(nullable = false, length = 500)
     private String shortDescription;
 
-    @NotNull
-    @DecimalMin("0.00")
-    @Column(name = "price_per_person", nullable = false, precision = 10, scale = 2)
-    private BigDecimal pricePerPerson;
+    @Column(nullable = false, columnDefinition = "TEXT")
+    private String description;
 
-    @NotNull
-    @Min(1)
-    @Max(500)
-    @Column(name = "max_capacity", nullable = false)
-    private Integer maxCapacity;
-
-    /**
-     * Duration in hours — e.g. 8 for a day trip, 72 for 3-day safari
-     */
-    @NotNull
-    @Min(1)
-    @Column(name = "duration_hours", nullable = false)
-    private Integer durationHours;
-
-    @NotNull
     @Enumerated(EnumType.STRING)
-    @Column(name = "category", nullable = false, length = 50)
+    @Column(nullable = false, length = 50)
     private TourCategory category;
 
-    @NotNull
-    @Enumerated(EnumType.STRING)
-    @Column(name = "difficulty", nullable = false, length = 20)
-    private TourDifficulty difficulty;
-
-    /**
-     * Departure/meeting point — e.g. "Nairobi CBD, Anniversary Towers"
-     */
-    @NotBlank
-    @Column(name = "departure_location", nullable = false, length = 300)
-    private String departureLocation;
-
-    /**
-     * Main destination — e.g. "Maasai Mara National Reserve"
-     */
-    @NotBlank
-    @Column(name = "destination", nullable = false, length = 300)
+    // ── Destination ───────────────────────────────────────────
+    @Column(nullable = false, length = 150)
     private String destination;
 
-    /**
-     * Comma-separated image URLs or stored as JSON array.
-     * For Phase 2: migrate to a TourImage child table.
-     */
-    @ElementCollection
-    @CollectionTable(name = "tour_images", joinColumns = @JoinColumn(name = "tour_id"))
-    @Column(name = "image_url", length = 500)
-    @Builder.Default
-    private List<String> imageUrls = new ArrayList<>();
+    @Column(nullable = false, length = 100)
+    private String country;
 
-    /**
-     * What's included — e.g. ["Transport", "Meals", "Park fees"]
-     */
-    @ElementCollection
-    @CollectionTable(name = "tour_inclusions", joinColumns = @JoinColumn(name = "tour_id"))
-    @Column(name = "inclusion", length = 200)
-    @Builder.Default
-    private List<String> inclusions = new ArrayList<>();
+    @Column(length = 150)
+    private String region;
 
-    /**
-     * What's excluded — e.g. ["Tips", "Travel insurance"]
-     */
-    @ElementCollection
-    @CollectionTable(name = "tour_exclusions", joinColumns = @JoinColumn(name = "tour_id"))
-    @Column(name = "exclusion", length = 200)
-    @Builder.Default
-    private List<String> exclusions = new ArrayList<>();
+    @Column(length = 300)
+    private String meetingPoint;
 
-    /**
-     * Highlights — e.g. ["Big Five game drive", "Mara River crossing"]
-     */
+    // ── Trip details ──────────────────────────────────────────
+    @Column(nullable = false)
+    private Integer durationDays;
+
+    @Column(nullable = false)
+    private Integer durationNights;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 30)
+    private TourDifficulty difficulty;
+
+    private Integer minimumAge;
+
+    private Integer maxGroupSize;
+
+    @Column(length = 200)
+    private String bestSeason;
+
+    // ── Pricing ───────────────────────────────────────────────
+    @Column(nullable = false, precision = 12, scale = 2)
+    private BigDecimal price;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 3)
+    private TourCurrency currency;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 30)
+    private TourPriceType priceType;
+
+    @Column(precision = 5, scale = 2)
+    private BigDecimal depositPercentage;
+
+    // ── Content ───────────────────────────────────────────────
+
     @ElementCollection
     @CollectionTable(name = "tour_highlights", joinColumns = @JoinColumn(name = "tour_id"))
-    @Column(name = "highlight", length = 300)
+    @Column(name = "highlight", nullable = false)
+    @BatchSize(size = 25)
     @Builder.Default
     private List<String> highlights = new ArrayList<>();
 
-    @Column(name = "min_age")
-    private Integer minAge;
-
-    @Column(name = "max_group_size")
-    private Integer maxGroupSize;
-
-    /**
-     * Whether this tour is visible and bookable on the site.
-     */
-    @Column(name = "active", nullable = false)
+    @ElementCollection
+    @CollectionTable(name = "tour_itinerary", joinColumns = @JoinColumn(name = "tour_id"))
+    @OrderColumn(name = "day_order")
+    @Column(name = "activity", nullable = false)
+    @BatchSize(size = 25)
     @Builder.Default
-    private boolean active = true;
+    private List<String> itinerary = new ArrayList<>();
 
-    /**
-     * Featured tours appear on the homepage.
-     */
-    @Column(name = "featured", nullable = false)
+    @ElementCollection
+    @CollectionTable(name = "tour_inclusions", joinColumns = @JoinColumn(name = "tour_id"))
+    @Column(name = "inclusion", nullable = false)
+    @BatchSize(size = 25)
     @Builder.Default
-    private boolean featured = false;
+    private List<String> inclusions = new ArrayList<>();
 
-    /**
-     * Average rating — updated via a scheduled job from confirmed booking reviews.
-     */
-    @Column(name = "average_rating", precision = 3, scale = 2)
-    private BigDecimal averageRating;
-
-    @Column(name = "total_reviews")
+    @ElementCollection
+    @CollectionTable(name = "tour_exclusions", joinColumns = @JoinColumn(name = "tour_id"))
+    @Column(name = "exclusion", nullable = false)
+    @BatchSize(size = 25)
     @Builder.Default
-    private Integer totalReviews = 0;
+    private List<String> exclusions = new ArrayList<>();
 
-    @Column(name = "total_bookings")
+    @ElementCollection
+    @CollectionTable(name = "tour_requirements", joinColumns = @JoinColumn(name = "tour_id"))
+    @Column(name = "requirement", nullable = false)
+    @BatchSize(size = 25)
     @Builder.Default
-    private Integer totalBookings = 0;
+    private List<String> requirements = new ArrayList<>();
 
-    // ─── Convenience ────────────────────────────────────────────────────────
+    @ElementCollection
+    @CollectionTable(name = "tour_gallery", joinColumns = @JoinColumn(name = "tour_id"))
+    @Column(name = "image_url", nullable = false)
+    @BatchSize(size = 25)
+    @Builder.Default
+    private List<String> galleryImages = new ArrayList<>();
 
-    public String getFormattedDuration() {
-        if (durationHours < 24) return durationHours + " hours";
-        int days = durationHours / 24;
-        int hours = durationHours % 24;
-        return hours == 0 ? days + " day" + (days > 1 ? "s" : "")
-                : days + " day" + (days > 1 ? "s" : "") + " " + hours + "h";
-    }
+    @Column(columnDefinition = "TEXT")
+    private String importantInformation;
+
+    // ── Media ─────────────────────────────────────────────────
+    @Column(nullable = false, length = 1000)
+    private String coverImage;
+
+
+    @Column(length = 1000)
+    private String videoUrl;
+
+    // ── Ratings ───────────────────────────────────────────────
+    @Builder.Default
+    @Column(nullable = false, precision = 3, scale = 2)
+    private BigDecimal averageRating = BigDecimal.ZERO;
+
+    @Builder.Default
+    @Column(nullable = false)
+    private Long reviewCount = 0L;
+
+    // ── Publishing ────────────────────────────────────────────
+    @Builder.Default
+    @Column(nullable = false)
+    private Boolean active = true;
+
+    @Builder.Default
+    @Column(nullable = false)
+    private Boolean featured = false;
 }

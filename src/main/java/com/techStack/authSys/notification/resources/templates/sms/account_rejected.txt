@@ -1,0 +1,1 @@
+Damuchi Safaris: Hi {{customerName}}, we could not approve your account at this time. Reason: {{rejectionReason}}. Contact us: {{supportEmail}}

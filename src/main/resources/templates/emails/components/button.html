@@ -1,0 +1,19 @@
+<div th:fragment="button(text, url, style)">
+    <!--[if mso]>
+    <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word"
+                 th:href="${url}" style="height:52px;v-text-anchor:middle;width:240px;"
+                 arcsize="20%" strokecolor="#FF6B35" fillcolor="#FF6B35">
+        <w:anchorlock/>
+        <center style="color:#ffffff;font-family:Arial,sans-serif;font-size:16px;font-weight:bold;">
+            <span th:text="${text}">Button</span>
+        </center>
+    </v:roundrect>
+    <![endif]-->
+    <!--[if !mso]><!-->
+    <a th:if="${style == null or (style != 'secondary' and style != 'danger')}" th:href="${url}" class="cta-button"
+       style="display:inline-block; background-color:#FF6B35; background:linear-gradient(135deg, #FF6F59, #FF6B35); color:#FFFFFF; font-size:18px; font-weight:600; padding:16px 32px; border-radius:16px; text-decoration:none;">
+        <span th:text="${text}">Button</span>
+    </a>
+    <!--<![endif]-->
+    <!-- secondary/danger variants unchanged below -->
+</div>

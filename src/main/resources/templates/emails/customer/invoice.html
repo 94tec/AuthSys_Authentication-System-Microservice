@@ -1,0 +1,13 @@
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{emails/layouts/base-template :: body(content=~{::#content})}">
+<head><title>Invoice</title></head>
+<body>
+    <div id="content">
+        <h2 style="font-size:24px; color:#FF6B35; margin-top:0;" th:text="'Invoice ' + ${invoiceNumber}">Invoice #INV-1001</h2>
+        <div th:replace="~{emails/components/invoice-table :: table(${items}, ${total})}"></div>
+        <div style="text-align:center; margin:24px 0 0;">
+            <div th:replace="~{emails/components/button :: button(text='Download PDF', url=${invoicePdfUrl}, style='secondary')}"></div>
+        </div>
+    </div>
+</body>
+</html>

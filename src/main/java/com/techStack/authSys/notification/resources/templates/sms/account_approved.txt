@@ -1,0 +1,1 @@
+Damuchi Safaris: Great news, {{customerName}}! Your account has been approved. Sign in and start exploring tours: {{websiteUrl}}

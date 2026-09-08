@@ -1,0 +1,10 @@
+🌍 *Damuchi Safaris*
+
+🎉 *Account Approved!*
+
+Welcome, {{customerName}}! Your Damuchi Safaris account is ready.
+
+Sign in and start exploring Kenya's best tours:
+{{websiteUrl}}
+
+Safari awaits! 🐘

@@ -1,0 +1,14 @@
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{emails/layouts/base-template :: body(content=~{::#content})}">
+<head><title>Your Trip Is Coming Up</title></head>
+<body>
+    <div id="content">
+        <div th:replace="~{emails/components/hero :: hero(title='Almost time!', subtitle=${countdownText})}"></div>
+        <div th:replace="~{emails/components/booking-card :: card(${booking})}"></div>
+        <div th:each="day : ${itinerary}" th:replace="~{emails/components/itinerary-day :: day(${day})}"></div>
+        <div style="text-align:center; margin:24px 0 0;">
+            <div th:replace="~{emails/components/button :: button(text='View Trip Details', url=${bookingUrl}, style='primary')}"></div>
+        </div>
+    </div>
+</body>
+</html>

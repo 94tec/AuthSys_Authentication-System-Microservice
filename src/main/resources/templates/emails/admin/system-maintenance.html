@@ -1,0 +1,14 @@
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{emails/layouts/base-template :: body(content=~{::#content})}">
+<head><title>Scheduled Maintenance</title></head>
+<body>
+    <div id="content">
+        <div th:replace="~{emails/components/hero :: hero(title='Scheduled Maintenance', subtitle='A brief service window is planned.')}"></div>
+        <div th:replace="~{emails/components/info-card :: info('Maintenance Window', ${detailRows})}"></div>
+        <p style="font-size:14px; color:#666666;">The platform may be briefly unavailable during this window. We appreciate your patience.</p>
+        <div style="text-align:center; margin:16px 0 0;">
+            <div th:replace="~{emails/components/button :: button(text='Status Page', url=${statusPageUrl}, style='secondary')}"></div>
+        </div>
+    </div>
+</body>
+</html>

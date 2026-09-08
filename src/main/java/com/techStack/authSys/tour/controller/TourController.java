@@ -5,7 +5,7 @@ import com.techStack.authSys.tour.dto.request.UpdateTourRequest;
 import com.techStack.authSys.tour.dto.response.TourResponse;
 import com.techStack.authSys.tour.dto.response.TourSummaryResponse;
 import com.techStack.authSys.tour.models.TourCategory;
-import com.techStack.authSys.tour.service.TourService;
+import com.techStack.authSys.tour.services.TourService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -25,7 +25,7 @@ import java.util.UUID;
  * Tour endpoints for Damuchi Safaris.
  *
  * Public:
- *   GET  /api/tours               — paginated list
+ *   GET  /api/tours               — paginated list, optional category/country/destination filters
  *   GET  /api/tours/featured      — homepage featured tours
  *   GET  /api/tours/search        — search by keyword
  *   GET  /api/tours/{slug}        — tour detail page
@@ -34,6 +34,14 @@ import java.util.UUID;
  *   POST   /api/tours             — create tour
  *   PUT    /api/tours/{id}        — update tour
  *   DELETE /api/tours/{id}        — soft delete tour
+ *
+ * NOTE: Spring 6 / Boot 3 disabled trailing-slash matching by default, so
+ * "/api/tours" and "/api/tours/" are now two distinct routes rather than
+ * aliases. Every mapping below is written WITHOUT a trailing slash to match
+ * exactly what the frontend calls — don't add "/" back to any of these, and
+ * don't add a second overload of any of these methods with a "/" variant;
+ * that's exactly what caused the 405 and the silently-ignored
+ * country/destination filters.
  */
 @Slf4j
 @RestController
@@ -47,13 +55,15 @@ public class TourController {
     // ─── Public endpoints ────────────────────────────────────────────────────
 
     @GetMapping
-    @Operation(summary = "List all active tours with optional category filter")
+    @Operation(summary = "List active tours with optional category/country/destination filters")
     public Mono<Page<TourSummaryResponse>> listTours(
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "12") int size,
-            @RequestParam(required = false) TourCategory category
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) TourCategory category,
+            @RequestParam(required = false) String country,
+            @RequestParam(required = false) String destination
     ) {
-        return tourService.listTours(page, size, category);
+        return tourService.listTours(page, size, category, country, destination);
     }
 
     @GetMapping("/featured")
@@ -78,6 +88,12 @@ public class TourController {
         return tourService.getTourBySlug(slug);
     }
 
+    @GetMapping("/id/{id}")
+    @Operation(summary = "Get tour detail by ID — used by admin/staff tooling")
+    public Mono<TourResponse> getTourById(@PathVariable UUID id) {
+        return tourService.getTourById(id);
+    }
+
     // ─── Admin / Manager endpoints ───────────────────────────────────────────
 
     @PostMapping
@@ -85,7 +101,7 @@ public class TourController {
     @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'MANAGER')")
     @Operation(summary = "Create a new tour — Admin/Manager only")
     public Mono<TourResponse> createTour(@Valid @RequestBody CreateTourRequest request) {
-        log.info("Creating tour: {}", request.getName());
+        log.info("Creating tour: {}", request.name());
         return tourService.createTour(request);
     }
 
@@ -97,6 +113,14 @@ public class TourController {
             @Valid @RequestBody UpdateTourRequest request
     ) {
         return tourService.updateTour(id, request);
+    }
+
+    @PatchMapping("/{id}/publish")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'MANAGER')")
+    @Operation(summary = "Publish a tour, making it visible and bookable by customers — Admin/Manager only")
+    public Mono<TourResponse> publishTour(@PathVariable UUID id) {
+        log.info("Publishing tour: {}", id);
+        return tourService.publishTour(id);
     }
 
     @DeleteMapping("/{id}")

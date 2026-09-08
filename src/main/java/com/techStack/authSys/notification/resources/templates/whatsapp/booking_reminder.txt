@@ -1,0 +1,18 @@
+🌍 *Damuchi Safaris*
+
+⏰ *Your tour is TOMORROW!*
+
+Hi {{customerName}}, get ready for *{{tourName}}* on {{tourDate}}.
+
+📋 Ref: #{{bookingId}}
+👥 Travelers: {{travelerCount}}
+
+✅ *Checklist:*
+• Valid ID / passport
+• Comfortable shoes & clothing
+• Sunscreen & hat
+• Meet your guide at the departure point
+
+Full itinerary: {{bookingPortalUrl}}
+
+See you tomorrow! 🦒

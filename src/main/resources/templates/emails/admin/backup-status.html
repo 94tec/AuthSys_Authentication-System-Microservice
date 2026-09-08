@@ -1,0 +1,10 @@
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{emails/layouts/notification-template :: body(content=~{::#content})}">
+<head><title>Backup Status</title></head>
+<body>
+    <div id="content">
+        <div th:replace="~{emails/components/alert :: alert(type=${success ? 'success' : 'danger'}, message=${success ? 'Backup completed successfully' : 'Backup failed'})}"></div>
+        <div th:replace="~{emails/components/info-card :: info('Backup Details', ${detailRows})}"></div>
+    </div>
+</body>
+</html>

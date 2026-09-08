@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8"/>
+    <style>
+        @page { size: A4; margin: 0; }
+        body {
+            font-family: 'Helvetica', 'Arial', sans-serif;
+            color: #2b2b28;
+            margin: 0;
+            padding: 0;
+            font-size: 11px;
+        }
+        .page { padding: 36px 40px; }
+
+        /* ⚠️ Placeholder hex values — replace with your real Tailwind theme colors */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 3px solid #3f5d42; /* expedition-forest */
+            padding-bottom: 16px;
+            margin-bottom: 24px;
+        }
+        .logo { height: 56px; }
+        .company-meta { text-align: right; font-size: 10px; color: #6b6b63; }
+        .doc-title {
+            font-size: 22px;
+            font-weight: bold;
+            color: #3f5d42;
+            letter-spacing: 0.5px;
+            margin: 0 0 4px 0;
+        }
+        .doc-subtitle { color: #b5652f; font-size: 11px; font-weight: bold; } /* expedition-clay */
+
+        .meta-table { width: 100%; margin-bottom: 20px; }
+        .meta-table td { padding: 3px 0; font-size: 11px; }
+        .meta-label { color: #6b6b63; width: 140px; }
+
+        .section-title {
+            background: #eef2ea; /* expedition-moss tint */
+            color: #3f5d42;
+            font-weight: bold;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            padding: 6px 10px;
+            margin: 20px 0 10px 0;
+        }
+
+        table.pricing { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+        table.pricing th {
+            background: #3f5d42;
+            color: #fff;
+            text-align: left;
+            padding: 8px 10px;
+            font-size: 10px;
+            text-transform: uppercase;
+        }
+        table.pricing td {
+            padding: 8px 10px;
+            border-bottom: 1px solid #e2e2dc;
+            font-size: 11px;
+        }
+        .total-row td {
+            font-weight: bold;
+            font-size: 13px;
+            color: #3f5d42;
+            border-top: 2px solid #3f5d42;
+            border-bottom: none;
+        }
+
+        .payment-box {
+            border: 1.5px solid #b5652f;
+            border-radius: 4px;
+            padding: 14px 16px;
+            margin-bottom: 4px;
+        }
+        .payment-channel { margin-bottom: 10px; }
+        .payment-channel-title { font-weight: bold; color: #b5652f; font-size: 11px; }
+        .payment-detail-row { display: flex; }
+        .payment-detail-label { width: 130px; color: #6b6b63; }
+
+        .terms { font-size: 9.5px; line-height: 1.5; color: #4a4a44; }
+        .terms ul { margin: 4px 0; padding-left: 16px; }
+
+        .footer {
+            position: fixed;
+            bottom: 20px;
+            left: 40px;
+            right: 40px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-top: 1px solid #e2e2dc;
+            padding-top: 10px;
+            font-size: 9px;
+            color: #8a8a82;
+        }
+        .qr-code { height: 60px; width: 60px; }
+    </style>
+</head>
+<body>
+<div class="page">
+
+    <div class="header">
+        <div>
+            <img class="logo" th:src="${'data:image/png;base64,' + logoBase64}" alt="Damuchi Tours"/>
+        </div>
+        <div class="company-meta">
+            <div><strong>Damuchi Tours</strong></div>
+            <div>Mtwapa, Kenya</div>
+            <div>KRA PIN: [ADD YOUR KRA PIN]</div>
+        </div>
+    </div>
+
+    <p class="doc-title">Safari Quotation</p>
+    <p class="doc-subtitle">Quote Reference: <span th:text="${q.quoteId}"></span></p>
+
+    <table class="meta-table">
+        <tr>
+            <td class="meta-label">Prepared for</td>
+            <td th:text="${q.customerName}"></td>
+            <td class="meta-label">Valid until</td>
+            <td th:text="${#temporals.format(q.validUntil, 'dd MMM yyyy')}"></td>
+        </tr>
+        <tr>
+            <td class="meta-label">Email</td>
+            <td th:text="${q.customerEmail}"></td>
+            <td class="meta-label">Preferred date</td>
+            <td th:text="${q.preferredDate != null ? #temporals.format(q.preferredDate, 'dd MMM yyyy') : 'Flexible'}"></td>
+        </tr>
+    </table>
+
+    <div class="section-title">Trip Details</div>
+    <table class="meta-table">
+        <tr>
+            <td class="meta-label">Tour</td>
+            <td th:text="${q.tourName}"></td>
+            <td class="meta-label">Destination</td>
+            <td th:text="${q.destination + ', ' + q.country}"></td>
+        </tr>
+        <tr>
+            <td class="meta-label">Duration</td>
+            <td th:text="${q.durationDays + ' days / ' + q.durationNights + ' nights'}"></td>
+            <td class="meta-label">Travelers</td>
+            <td th:text="${q.adultCount + ' adult(s)' + (q.childCount > 0 ? ' · ' + q.childCount + ' child(ren)' : '')}"></td>
+        </tr>
+    </table>
+
+    <div class="section-title">Pricing</div>
+    <table class="pricing">
+        <thead>
+        <tr><th>Item</th><th>Rate</th><th>Qty</th><th>Subtotal</th></tr>
+        </thead>
+        <tbody>
+        <tr>
+            <td>Adult</td>
+            <td th:text="${q.currency + ' ' + #numbers.formatDecimal(q.pricePerAdult, 1, 'COMMA', 2, 'POINT')}"></td>
+            <td th:text="${q.adultCount}"></td>
+            <td th:text="${q.currency + ' ' + #numbers.formatDecimal(q.pricePerAdult.multiply(new java.math.BigDecimal(q.adultCount)), 1, 'COMMA', 2, 'POINT')}"></td>
+        </tr>
+        <tr th:if="${q.childCount > 0}">
+            <td>Child</td>
+            <td th:text="${q.currency + ' ' + #numbers.formatDecimal(q.pricePerChild, 1, 'COMMA', 2, 'POINT')}"></td>
+            <td th:text="${q.childCount}"></td>
+            <td th:text="${q.currency + ' ' + #numbers.formatDecimal(q.pricePerChild.multiply(new java.math.BigDecimal(q.childCount)), 1, 'COMMA', 2, 'POINT')}"></td>
+        </tr>
+        <tr class="total-row">
+            <td colspan="3">Total Amount Due</td>
+            <td th:text="${q.currency + ' ' + #numbers.formatDecimal(q.totalPrice, 1, 'COMMA', 2, 'POINT')}"></td>
+        </tr>
+        </tbody>
+    </table>
+
+    <p th:if="${q.inclusionsNote != null and !q.inclusionsNote.isEmpty()}" style="font-size:10.5px; color:#4a4a44;">
+        <strong>Inclusions:</strong> <span th:text="${q.inclusionsNote}"></span>
+    </p>
+
+    <div class="section-title">Payment Instructions</div>
+    <div class="payment-box">
+        <div class="payment-channel">
+            <div class="payment-channel-title">Option 1 — M-Pesa Paybill</div>
+            <div class="payment-detail-row"><span class="payment-detail-label">Business Number</span><span th:text="${mpesaPaybill}"></span></div>
+            <div class="payment-detail-row"><span class="payment-detail-label">Account Number</span><span th:text="${mpesaAccount}"></span></div>
+        </div>
+        <div class="payment-channel">
+            <div class="payment-channel-title">Option 2 — Bank Transfer</div>
+            <div class="payment-detail-row"><span class="payment-detail-label">Bank</span><span th:text="${bankName}"></span></div>
+            <div class="payment-detail-row"><span class="payment-detail-label">Account Name</span><span th:text="${bankAccountName}"></span></div>
+            <div class="payment-detail-row"><span class="payment-detail-label">Account Number</span><span th:text="${bankAccountNumber}"></span></div>
+            <div class="payment-detail-row"><span class="payment-detail-label">Branch</span><span th:text="${bankBranch}"></span></div>
+            <div class="payment-detail-row"><span class="payment-detail-label">SWIFT/BIC</span><span th:text="${bankSwift}"></span></div>
+        </div>
+    </div>
+
+    <div class="section-title">Terms &amp; Conditions</div>
+    <div class="terms">
+        <ul>
+            <li>A 30% deposit is required within 72 hours of accepting this quote to confirm your booking.</li>
+            <li>The remaining 70% balance is due no later than 14 days before your travel start date.</li>
+            <li>Bookings made within 14 days of travel require full payment upfront.</li>
+            <li>Please use your Quote Reference as the payment description or account note wherever the channel allows.</li>
+            <li>This quotation is valid until the date stated above; prices are not guaranteed after this date.</li>
+            <li>After payment, submit your transaction reference in your dashboard so our team can verify and confirm your booking.</li>
+        </ul>
+    </div>
+
+    <div class="footer">
+        <div>
+            Damuchi Tours &middot; Mtwapa, Kenya &middot; This document was generated electronically and is valid without a signature.
+        </div>
+        <img class="qr-code" th:src="${'data:image/png;base64,' + qrCodeBase64}" alt="Verify"/>
+    </div>
+
+</div>
+</body>
+</html>

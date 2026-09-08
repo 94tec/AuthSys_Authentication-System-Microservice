@@ -1,0 +1,1 @@
+Damuchi Safaris: Your booking for {{tourName}} on {{tourDate}} (Ref: #{{bookingId}}) has been cancelled. Reason: {{cancellationReason}}. Questions? {{supportEmail}}

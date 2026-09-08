@@ -1,0 +1,10 @@
+🌍 *Damuchi Safaris*
+
+💳 *Payment Received*
+
+Hi {{customerName}}, your M-Pesa payment has been received.
+
+💰 Amount: {{currency}} {{paymentAmount}}
+📱 Receipt: *{{mpesaReceiptNumber}}*
+
+Keep this receipt for your records. Your booking confirmation has been sent to your email.

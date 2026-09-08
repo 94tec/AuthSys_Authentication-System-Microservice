@@ -1,0 +1,6 @@
+<div style="margin:15px 0; padding:15px; background:#FFFFFF; border-radius:12px; border-left:4px solid #FF6B35;">
+    <h4 style="font-size:18px; color:#FF6B35; margin:0 0 5px;" th:text="'Day ' + ${dayNumber} + ': ' + ${dayTitle}">Day 1: Arrival</h4>
+    <ul style="list-style:none; padding:0; margin:5px 0 0;">
+        <li th:each="item : ${activities}" style="padding:3px 0; font-size:15px; color:#333;" th:text="${item}">Airport Pickup</li>
+    </ul>
+</div>

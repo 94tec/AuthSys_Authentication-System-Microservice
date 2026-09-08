@@ -1,0 +1,12 @@
+🌍 *Damuchi Safaris*
+
+Hi {{customerName}}, we've received your booking!
+
+🗺 *Tour:* {{tourName}}
+📅 *Date:* {{tourDate}}
+👥 *Travelers:* {{travelerCount}}
+💰 *Total:* {{currency}} {{totalPrice}}
+🔖 *Reference:* #{{bookingId}}
+
+Complete your M-Pesa payment to confirm your spot:
+{{bookingPortalUrl}}

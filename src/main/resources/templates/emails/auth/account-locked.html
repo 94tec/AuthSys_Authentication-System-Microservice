@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{emails/layouts/base-template :: body(content=~{::#content})}">
+<head>
+    <title th:text="${subject}">Account Locked – Security Alert</title>
+</head>
+<body>
+<div id="content">
+    <!-- Danger Alert -->
+    <div th:replace="~{emails/components/alert :: alert(type='danger', message=#{email.account.locked.alert})}"></div>
+
+    <p style="font-size:16px; line-height:1.7; color:#333333;">
+        <span th:text="#{email.account.locked.greeting}">Hello</span> <span th:text="${fullName}">there</span>,
+    </p>
+    <p style="font-size:16px; line-height:1.7; color:#333333;" th:text="#{email.account.locked.body}">
+        Your account has been locked for security reasons.
+    </p>
+
+    <!-- Lock Details Card -->
+    <div style="background:#F9F9F9; border-radius:12px; padding:20px; margin:20px 0; border-left:4px solid #E53935;">
+        <p style="font-size:14px; color:#666666; margin:0 0 8px;" th:text="#{email.account.locked.details.title}">Lock Details</p>
+        <p style="margin:4px 0; font-size:15px; color:#333;">
+            <strong th:text="#{email.account.locked.details.time}">Time:</strong>
+            <span th:text="${#dates.format(lockedAt, 'MMMM dd, yyyy HH:mm z')}">2025-01-01 12:00</span>
+        </p>
+        <p style="margin:4px 0; font-size:15px; color:#333;">
+            <strong th:text="#{email.account.locked.details.reason}">Reason:</strong>
+            <span th:text="${reason}">Suspicious activity</span>
+        </p>
+        <p style="margin:4px 0; font-size:15px; color:#333;">
+            <strong th:text="#{email.account.locked.details.ip}">IP Address:</strong>
+            <span th:text="${ipAddress}">192.168.1.1</span>
+        </p>
+    </div>
+
+    <!-- What This Means -->
+    <div style="background:#FFFFFF; border-radius:12px; padding:20px; margin:20px 0; border:1px solid #EEE8E2;">
+        <h4 style="font-size:16px; color:#E53935; margin:0 0 10px;" th:text="#{email.account.locked.meaning.title}">What This Means</h4>
+        <ul style="font-size:15px; color:#444444; line-height:1.8; padding-left:20px; margin:0;">
+            <li th:text="#{email.account.locked.meaning.item1}">You cannot log in until the lock is removed</li>
+            <li th:text="#{email.account.locked.meaning.item2}">This is a security measure to protect your account</li>
+        </ul>
+    </div>
+
+    <!-- Resolution Steps -->
+    <div style="background:#FFF8F3; border-radius:12px; padding:20px; margin:20px 0; border-left:4px solid #FF6B35;">
+        <h4 style="font-size:16px; color:#FF6B35; margin:0 0 10px;" th:text="#{email.account.locked.resolve.title}">How to Resolve</h4>
+        <ol style="font-size:15px; color:#444444; line-height:1.8; padding-left:20px; margin:0;">
+            <li th:text="#{email.account.locked.resolve.step1}">Wait for the automatic unlock period (typically 15-30 minutes)</li>
+            <li th:text="#{email.account.locked.resolve.step2}">Contact support for immediate assistance</li>
+            <li th:text="#{email.account.locked.resolve.step3}">Review recent account activity</li>
+        </ol>
+    </div>
+
+    <!-- CTA Button (Contact Support) -->
+    <div style="text-align:center; margin:30px 0;">
+        <a th:href="${supportUrl}" style="display:inline-block; background:linear-gradient(135deg, #FF6F59, #FF6B35); color:#FFFFFF; font-size:18px; font-weight:600; padding:16px 40px; border-radius:16px; text-decoration:none; box-shadow:0 10px 30px rgba(255,107,53,0.3);">
+            <span th:text="#{email.account.locked.button}">Contact Support</span>
+        </a>
+    </div>
+
+    <!-- Footer info -->
+    <p style="font-size:14px; color:#999999; text-align:center;">
+        <span th:text="#{email.account.locked.sentAt} + ' ' + ${#dates.format(currentDate, 'MMMM dd, yyyy HH:mm z')}">Sent at: 2025-01-01 12:00</span>
+    </p>
+
+    <div th:replace="~{emails/components/support-card}"></div>
+    <div th:replace="~{emails/components/signature}"></div>
+</div>
+</body>
+</html>

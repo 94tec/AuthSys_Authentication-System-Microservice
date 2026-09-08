@@ -1,0 +1,15 @@
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{emails/layouts/base-template :: body(content=~{::#content})}">
+<head><title>Application Received</title></head>
+<body>
+    <div id="content">
+        <div th:replace="~{emails/components/alert :: alert(type='info', message='Your application is under review')}"></div>
+        <p style="font-size:16px; line-height:1.7; color:#333333;">
+            Hi <span th:text="${fullName}">there</span>, thanks for applying to join the Damuchi team as
+            <strong th:text="${requestedRole}">Tour Consultant</strong>. An administrator will review your
+            application shortly — you'll get another email as soon as a decision is made.
+        </p>
+        <div th:replace="~{emails/components/signature}"></div>
+    </div>
+</body>
+</html>

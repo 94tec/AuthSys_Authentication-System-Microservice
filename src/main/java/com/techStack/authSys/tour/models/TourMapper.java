@@ -6,111 +6,117 @@ import com.techStack.authSys.tour.dto.response.TourResponse;
 import com.techStack.authSys.tour.dto.response.TourSummaryResponse;
 import org.springframework.stereotype.Component;
 
-import java.util.ArrayList;
-import java.util.Optional;
+import java.util.List;
 
 @Component
 public class TourMapper {
 
-    public Tour toEntity(CreateTourRequest req, String slug) {
+    public Tour toEntity(CreateTourRequest r, String slug) {
         return Tour.builder()
-                .name(req.getName().trim())
+                .name(r.name())
                 .slug(slug)
-                .description(req.getDescription().trim())
-                .shortDescription(req.getShortDescription())
-                .pricePerPerson(req.getPricePerPerson())
-                .maxCapacity(req.getMaxCapacity())
-                .durationHours(req.getDurationHours())
-                .category(req.getCategory())
-                .difficulty(req.getDifficulty())
-                .departureLocation(req.getDepartureLocation().trim())
-                .destination(req.getDestination().trim())
-                .imageUrls(Optional.ofNullable(req.getImageUrls()).orElse(new ArrayList<>()))
-                .inclusions(Optional.ofNullable(req.getInclusions()).orElse(new ArrayList<>()))
-                .exclusions(Optional.ofNullable(req.getExclusions()).orElse(new ArrayList<>()))
-                .highlights(Optional.ofNullable(req.getHighlights()).orElse(new ArrayList<>()))
-                .minAge(req.getMinAge())
-                .maxGroupSize(req.getMaxGroupSize())
-                .featured(req.isFeatured())
-                .active(true)
+                .shortDescription(r.shortDescription())
+                .description(r.description())
+                .category(r.category())
+                .destination(r.destination())
+                .country(r.country())
+                .region(r.region())
+                .meetingPoint(r.meetingPoint())
+                .durationDays(r.durationDays())
+                .durationNights(r.durationNights())
+                .difficulty(r.difficulty())
+                .minimumAge(r.minimumAge())
+                .maxGroupSize(r.maxGroupSize())
+                .bestSeason(r.bestSeason())
+                .price(r.price())
+                .currency(r.currency())
+                .priceType(r.priceType())
+                .depositPercentage(r.depositPercentage())
+                .highlights(r.highlights() != null ? r.highlights() : new java.util.ArrayList<>())
+                .itinerary(r.itinerary() != null ? r.itinerary() : new java.util.ArrayList<>())
+                .inclusions(r.inclusions() != null ? r.inclusions() : new java.util.ArrayList<>())
+                .exclusions(r.exclusions() != null ? r.exclusions() : new java.util.ArrayList<>())
+                .requirements(r.requirements() != null ? r.requirements() : new java.util.ArrayList<>())
+                .importantInformation(r.importantInformation())
+                .coverImage(r.coverImage())
+                .galleryImages(r.galleryImages() != null ? r.galleryImages() : new java.util.ArrayList<>())
+                .videoUrl(r.videoUrl())
+                .active(r.active() != null ? r.active() : true)
+                .featured(r.featured() != null ? r.featured() : false)
                 .build();
     }
 
-    public void applyUpdate(Tour tour, UpdateTourRequest req) {
-        if (req.getName() != null) tour.setName(req.getName().trim());
-        if (req.getDescription() != null) tour.setDescription(req.getDescription().trim());
-        if (req.getShortDescription() != null) tour.setShortDescription(req.getShortDescription());
-        if (req.getPricePerPerson() != null) tour.setPricePerPerson(req.getPricePerPerson());
-        if (req.getMaxCapacity() != null) tour.setMaxCapacity(req.getMaxCapacity());
-        if (req.getDurationHours() != null) tour.setDurationHours(req.getDurationHours());
-        if (req.getCategory() != null) tour.setCategory(req.getCategory());
-        if (req.getDifficulty() != null) tour.setDifficulty(req.getDifficulty());
-        if (req.getDepartureLocation() != null) tour.setDepartureLocation(req.getDepartureLocation().trim());
-        if (req.getDestination() != null) tour.setDestination(req.getDestination().trim());
-        if (req.getImageUrls() != null) tour.setImageUrls(req.getImageUrls());
-        if (req.getInclusions() != null) tour.setInclusions(req.getInclusions());
-        if (req.getExclusions() != null) tour.setExclusions(req.getExclusions());
-        if (req.getHighlights() != null) tour.setHighlights(req.getHighlights());
-        if (req.getMinAge() != null) tour.setMinAge(req.getMinAge());
-        if (req.getMaxGroupSize() != null) tour.setMaxGroupSize(req.getMaxGroupSize());
-        if (req.getActive() != null) tour.setActive(req.getActive());
-        if (req.getFeatured() != null) tour.setFeatured(req.getFeatured());
+    /** Partial update — only overwrites fields the caller actually sent. */
+    public void applyUpdate(Tour tour, UpdateTourRequest r) {
+        if (r.name() != null) tour.setName(r.name());
+        if (r.shortDescription() != null) tour.setShortDescription(r.shortDescription());
+        if (r.description() != null) tour.setDescription(r.description());
+        if (r.category() != null) tour.setCategory(r.category());
+
+        if (r.destination() != null) tour.setDestination(r.destination());
+        if (r.country() != null) tour.setCountry(r.country());
+        if (r.region() != null) tour.setRegion(r.region());
+        if (r.meetingPoint() != null) tour.setMeetingPoint(r.meetingPoint());
+
+        if (r.durationDays() != null) tour.setDurationDays(r.durationDays());
+        if (r.durationNights() != null) tour.setDurationNights(r.durationNights());
+        if (r.difficulty() != null) tour.setDifficulty(r.difficulty());
+        if (r.minimumAge() != null) tour.setMinimumAge(r.minimumAge());
+        if (r.maxGroupSize() != null) tour.setMaxGroupSize(r.maxGroupSize());
+        if (r.bestSeason() != null) tour.setBestSeason(r.bestSeason());
+
+        if (r.price() != null) tour.setPrice(r.price());
+        if (r.currency() != null) tour.setCurrency(r.currency());
+        if (r.priceType() != null) tour.setPriceType(r.priceType());
+        if (r.depositPercentage() != null) tour.setDepositPercentage(r.depositPercentage());
+
+        if (r.highlights() != null) tour.setHighlights(r.highlights());
+        if (r.itinerary() != null) tour.setItinerary(r.itinerary());
+        if (r.inclusions() != null) tour.setInclusions(r.inclusions());
+        if (r.exclusions() != null) tour.setExclusions(r.exclusions());
+        if (r.requirements() != null) tour.setRequirements(r.requirements());
+        if (r.importantInformation() != null) tour.setImportantInformation(r.importantInformation());
+
+        if (r.coverImage() != null) tour.setCoverImage(r.coverImage());
+        if (r.galleryImages() != null) tour.setGalleryImages(r.galleryImages());
+        if (r.videoUrl() != null) tour.setVideoUrl(r.videoUrl());
+
+        if (r.active() != null) tour.setActive(r.active());
+        if (r.featured() != null) tour.setFeatured(r.featured());
     }
 
-    public TourResponse toResponse(Tour tour) {
-        return TourResponse.builder()
-                .id(tour.getId())
-                .name(tour.getName())
-                .slug(tour.getSlug())
-                .description(tour.getDescription())
-                .shortDescription(tour.getShortDescription())
-                .pricePerPerson(tour.getPricePerPerson())
-                .maxCapacity(tour.getMaxCapacity())
-                .durationHours(tour.getDurationHours())
-                .formattedDuration(tour.getFormattedDuration())
-                .category(tour.getCategory())
-                .categoryDisplayName(tour.getCategory().getDisplayName())
-                .difficulty(tour.getDifficulty())
-                .difficultyDescription(tour.getDifficulty().getDescription())
-                .departureLocation(tour.getDepartureLocation())
-                .destination(tour.getDestination())
-                .imageUrls(tour.getImageUrls())
-                .inclusions(tour.getInclusions())
-                .exclusions(tour.getExclusions())
-                .highlights(tour.getHighlights())
-                .minAge(tour.getMinAge())
-                .maxGroupSize(tour.getMaxGroupSize())
-                .active(tour.isActive())
-                .featured(tour.isFeatured())
-                .averageRating(tour.getAverageRating())
-                .totalReviews(tour.getTotalReviews())
-                .totalBookings(tour.getTotalBookings())
-                .createdDate(tour.getCreatedDate())
-                .lastModifiedDate(tour.getLastModifiedDate())
-                .build();
+    public TourResponse toResponse(Tour t) {
+        return new TourResponse(
+                t.getId(), t.getName(), t.getSlug(), t.getShortDescription(), t.getDescription(), t.getCategory(),
+                t.getDestination(), t.getCountry(), t.getRegion(), t.getMeetingPoint(),
+                t.getDurationDays(), t.getDurationNights(), t.getDifficulty(), t.getMinimumAge(), t.getMaxGroupSize(), t.getBestSeason(),
+                t.getPrice(), t.getCurrency(), t.getPriceType(), t.getDepositPercentage(),
+                t.getHighlights(), t.getItinerary(), t.getInclusions(), t.getExclusions(), t.getRequirements(), t.getImportantInformation(),
+                t.getCoverImage(), t.getGalleryImages(), t.getVideoUrl(),                t.getAverageRating(), t.getReviewCount(),
+                t.getActive(), t.getFeatured(),                t.getCreatedDate(), t.getLastModifiedDate()        );
     }
 
-    public TourSummaryResponse toSummary(Tour tour) {
-        String coverImage = (tour.getImageUrls() != null && !tour.getImageUrls().isEmpty())
-                ? tour.getImageUrls().get(0)
-                : null;
+    public TourResponse to_Response(Tour t) {
+        return new TourResponse(
+                t.getId(), t.getName(), t.getSlug(), t.getShortDescription(), t.getDescription(), t.getCategory(),
+                t.getDestination(), t.getCountry(), t.getRegion(), t.getMeetingPoint(),
+                t.getDurationDays(), t.getDurationNights(), t.getDifficulty(), t.getMinimumAge(), t.getMaxGroupSize(), t.getBestSeason(),
+                t.getPrice(), t.getCurrency(), t.getPriceType(), t.getDepositPercentage(),
+                List.copyOf(t.getHighlights()), List.copyOf(t.getItinerary()), List.copyOf(t.getInclusions()),
+                List.copyOf(t.getExclusions()), List.copyOf(t.getRequirements()), t.getImportantInformation(),
+                t.getCoverImage(), List.copyOf(t.getGalleryImages()), t.getVideoUrl(),
+                t.getAverageRating(), t.getReviewCount(),
+                t.getActive(), t.getFeatured(),
+                t.getCreatedDate(), t.getLastModifiedDate()
+        );
+    }
 
-        return TourSummaryResponse.builder()
-                .id(tour.getId())
-                .name(tour.getName())
-                .slug(tour.getSlug())
-                .shortDescription(tour.getShortDescription())
-                .pricePerPerson(tour.getPricePerPerson())
-                .durationHours(tour.getDurationHours())
-                .formattedDuration(tour.getFormattedDuration())
-                .category(tour.getCategory())
-                .categoryDisplayName(tour.getCategory().getDisplayName())
-                .difficulty(tour.getDifficulty())
-                .destination(tour.getDestination())
-                .coverImageUrl(coverImage)
-                .featured(tour.isFeatured())
-                .averageRating(tour.getAverageRating())
-                .totalReviews(tour.getTotalReviews())
-                .build();
+    public TourSummaryResponse toSummary(Tour t) {
+        return new TourSummaryResponse(
+                t.getId(), t.getName(), t.getSlug(), t.getShortDescription(), t.getCategory(),
+                t.getDestination(), t.getCountry(), t.getDurationDays(), t.getDifficulty(),
+                t.getPrice(), t.getCurrency(), t.getCoverImage(),
+                t.getAverageRating(), t.getReviewCount(), t.getFeatured(), t.getActive()
+        );
     }
 }

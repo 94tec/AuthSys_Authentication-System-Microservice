@@ -1,0 +1,16 @@
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{emails/layouts/notification-template :: body(content=~{::#content})}">
+<head><title>Approval Needed</title></head>
+<body>
+    <div id="content">
+        <div th:replace="~{emails/components/alert :: alert(type='warning', message='Action required: approval pending')}"></div>
+        <div th:replace="~{emails/components/info-card :: info('Applicant Details', ${detailRows})}"></div>
+        <table role="presentation" cellpadding="0" cellspacing="0" style="margin:16px auto 0;">
+            <tr>
+                <td style="padding-right:8px;"><div th:replace="~{emails/components/button :: button(text='Approve', url=${approveUrl}, style='primary')}"></div></td>
+                <td style="padding-left:8px;"><div th:replace="~{emails/components/button :: button(text='Reject', url=${rejectUrl}, style='danger')}"></div></td>
+            </tr>
+        </table>
+    </div>
+</body>
+</html>

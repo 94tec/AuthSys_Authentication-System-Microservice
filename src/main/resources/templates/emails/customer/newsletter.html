@@ -1,0 +1,18 @@
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{emails/layouts/base-template :: body(content=~{::#content})}">
+<head><title th:text="${subject}">Damuchi Newsletter</title></head>
+<body>
+    <div id="content">
+        <div th:replace="~{emails/components/hero :: hero(title=${issueTitle}, subtitle=${issueDate})}"></div>
+        <div th:each="article : ${articles}" style="margin:0 0 22px;">
+            <h3 style="font-size:18px; color:#FF6B35; margin:0 0 6px;" th:text="${article.title}">Destination Spotlight</h3>
+            <p style="font-size:14px; line-height:1.6; color:#333333; margin:0 0 8px;" th:text="${article.summary}">Summary text here.</p>
+            <a th:href="${article.url}" style="font-size:13px; color:#FF6B35; font-weight:600; text-decoration:none;">Read more &rarr;</a>
+        </div>
+        <div th:replace="~{emails/components/divider}"></div>
+        <p style="font-size:11px; color:#999999; text-align:center;">
+            <a th:href="${unsubscribeUrl}" style="color:#999999;">Unsubscribe</a> from Damuchi newsletters.
+        </p>
+    </div>
+</body>
+</html>

@@ -3,21 +3,26 @@ package com.techStack.authSys.booking.models;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 
+/**
+ * Trip lifecycle for a Booking. Deliberately excludes payment concepts —
+ * PARTIALLY_PAID / PAID / REFUNDED now live on PaymentStatus instead, since
+ * the two dimensions vary independently (see PaymentStatus javadoc).
+ */
 @Getter
 @RequiredArgsConstructor
 public enum BookingStatus {
 
-    PENDING_PAYMENT("Awaiting payment to confirm booking"),
-    CONFIRMED("Booking confirmed and paid"),
+    PENDING_PAYMENT("Awaiting confirmation"),
+    CONFIRMED("Booking confirmed"),
     CANCELLED("Booking cancelled"),
     COMPLETED("Tour completed successfully"),
-    REFUNDED("Payment refunded to customer");
+    NO_SHOW("Customer did not show up for the enquire-button.tsx");
 
     private final String description;
 
     /**
      * Whether this booking can still be cancelled.
-     * COMPLETED and REFUNDED bookings are terminal — not cancellable.
+     * COMPLETED, CANCELLED, and NO_SHOW are terminal — not cancellable.
      */
     public boolean isCancellable() {
         return this == PENDING_PAYMENT || this == CONFIRMED;
@@ -36,6 +41,6 @@ public enum BookingStatus {
      * (no further lifecycle transitions possible).
      */
     public boolean isTerminal() {
-        return this == COMPLETED || this == REFUNDED;
+        return this == COMPLETED || this == CANCELLED || this == NO_SHOW;
     }
 }

@@ -1,0 +1,13 @@
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{emails/layouts/base-template :: body(content=~{::#content})}">
+<head><title>Receipt</title></head>
+<body>
+    <div id="content">
+        <div th:replace="~{emails/components/alert :: alert(type='success', message='Payment Receipt')}"></div>
+        <div th:replace="~{emails/components/payment-summary :: summary(${payment})}"></div>
+        <div style="text-align:center; margin:24px 0 0;">
+            <div th:replace="~{emails/components/button :: button(text='Download Receipt', url=${receiptPdfUrl}, style='secondary')}"></div>
+        </div>
+    </div>
+</body>
+</html>

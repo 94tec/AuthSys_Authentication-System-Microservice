@@ -1,0 +1,13 @@
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{emails/layouts/base-template :: body(content=~{::#content})}">
+<head><title>Your Tickets</title></head>
+<body>
+    <div id="content">
+        <div th:replace="~{emails/components/hero :: hero(title='Your tickets', subtitle='Present these at check-in.')}"></div>
+        <div th:each="ticket : ${tickets}" th:replace="~{emails/components/qr-ticket :: ticket(${ticket})}"></div>
+        <div style="text-align:center; margin:16px 0 0;">
+            <div th:replace="~{emails/components/button :: button(text='Download All Tickets', url=${ticketsPdfUrl}, style='secondary')}"></div>
+        </div>
+    </div>
+</body>
+</html>

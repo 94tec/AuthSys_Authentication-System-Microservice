@@ -6,7 +6,6 @@ import com.techStack.authSys.dto.request.UserRegistrationDTO;
 import com.techStack.authSys.dto.request.VerifyOtpRequest;
 import com.techStack.authSys.dto.response.LoginResponse;
 import com.techStack.authSys.dto.response.OtpVerificationResult;
-import com.techStack.authSys.integration.config.IntegrationTestConfig;
 import com.techStack.authSys.models.user.User;
 import com.techStack.authSys.repository.user.FirestoreUserRepository;
 import org.junit.jupiter.api.*;

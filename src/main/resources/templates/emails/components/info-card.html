@@ -1,0 +1,10 @@
+<!-- fragment args: title, rows (list of maps with 'label' and 'value') -->
+<div th:fragment="info(title, rows)" style="background-color:#FFF8F3; border-radius:12px; padding:20px; margin:20px 0;">
+    <h4 th:if="${title != null}" style="font-size:16px; color:#FF6B35; margin:0 0 12px;" th:text="${title}">Details</h4>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px; color:#333333;">
+        <tr th:each="row : ${rows}">
+            <td style="padding:6px 0; color:#666666;" th:text="${row.label}">Label</td>
+            <td style="padding:6px 0; text-align:right; font-weight:600;" th:text="${row.value}">Value</td>
+        </tr>
+    </table>
+</div>

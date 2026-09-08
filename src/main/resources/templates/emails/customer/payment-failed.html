@@ -1,0 +1,14 @@
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{emails/layouts/notification-template :: body(content=~{::#content})}">
+<head><title>Payment Failed</title></head>
+<body>
+    <div id="content">
+        <div th:replace="~{emails/components/alert :: alert(type='danger', message='We couldn\'t process your payment')}"></div>
+        <div th:replace="~{emails/components/payment-summary :: summary(${payment})}"></div>
+        <p style="font-size:14px; color:#666666;">Your booking is on hold until payment succeeds. Please retry with a valid payment method.</p>
+        <div style="text-align:center; margin:20px 0 0;">
+            <div th:replace="~{emails/components/button :: button(text='Retry Payment', url=${retryUrl}, style='danger')}"></div>
+        </div>
+    </div>
+</body>
+</html>

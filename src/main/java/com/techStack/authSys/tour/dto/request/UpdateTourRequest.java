@@ -1,50 +1,49 @@
 package com.techStack.authSys.tour.dto.request;
 
 import com.techStack.authSys.tour.models.TourCategory;
+import com.techStack.authSys.tour.models.TourCurrency;
 import com.techStack.authSys.tour.models.TourDifficulty;
+import com.techStack.authSys.tour.models.TourPriceType;
 import jakarta.validation.constraints.*;
-import lombok.Data;
 
 import java.math.BigDecimal;
 import java.util.List;
 
-/**
- * All fields optional — only non-null fields are applied (patch semantics).
- */
-@Data
-public class UpdateTourRequest {
+public record UpdateTourRequest(
+        @Size(max = 150) String name,
+        @Size(max = 500) String shortDescription,
+        @Size(max = 10000) String description,
+        TourCategory category,
 
-    @Size(min = 3, max = 150)
-    private String name;
+        @Size(max = 150) String destination,
+        @Size(max = 100) String country,
+        @Size(max = 150) String region,
+        @Size(max = 300) String meetingPoint,
 
-    @Size(max = 5000)
-    private String description;
+        @Min(1) @Max(365) Integer durationDays,
+        @Min(0) Integer durationNights,
+        TourDifficulty difficulty,
+        @Min(1) Integer minimumAge,
+        @Min(1) @Max(1000) Integer maxGroupSize,
+        @Size(max = 200) String bestSeason,
 
-    @Size(max = 1000)
-    private String shortDescription;
+        @DecimalMin("0.00") @Digits(integer = 10, fraction = 2) BigDecimal price,
+        TourCurrency currency,
+        TourPriceType priceType,
+        @DecimalMin("0.00") @DecimalMax("100.00") BigDecimal depositPercentage,
 
-    @DecimalMin("0.00")
-    private BigDecimal pricePerPerson;
+        @Size(max = 20) List<@NotBlank String> highlights,
+        @Size(max = 50) List<@NotBlank String> itinerary,
+        @Size(max = 50) List<@NotBlank String> inclusions,
+        @Size(max = 50) List<@NotBlank String> exclusions,
+        @Size(max = 50) List<@NotBlank String> requirements,
+        @Size(max = 5000) String importantInformation,
 
-    @Min(1) @Max(500)
-    private Integer maxCapacity;
+        @Size(max = 1000) String coverImage,
+        @Size(max = 30) List<@NotBlank String> galleryImages,
+        @Size(max = 1000) String videoUrl,
 
-    @Min(1)
-    private Integer durationHours;
-
-    private TourCategory category;
-    private TourDifficulty difficulty;
-
-    private String departureLocation;
-    private String destination;
-
-    private List<String> imageUrls;
-    private List<String> inclusions;
-    private List<String> exclusions;
-    private List<String> highlights;
-
-    private Integer minAge;
-    private Integer maxGroupSize;
-    private Boolean active;
-    private Boolean featured;
+        Boolean active,
+        Boolean featured
+) {
 }

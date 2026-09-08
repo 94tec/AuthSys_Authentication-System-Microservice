@@ -1,0 +1,16 @@
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{emails/layouts/base-template :: body(content=~{::#content})}">
+<head><title>Your Voucher</title></head>
+<body>
+    <div id="content">
+        <div th:replace="~{emails/components/hero :: hero(title=${voucherTitle}, subtitle='A little something for your next adventure.')}"></div>
+        <div style="text-align:center; background:#FFF8F3; border:2px dashed #FF6F59; border-radius:14px; padding:24px; margin:20px 0;">
+            <span style="font-family:'Courier New', monospace; font-size:28px; font-weight:700; letter-spacing:6px; color:#FF6B35;" th:text="${voucherCode}">DAMU-2026-XYZ</span>
+        </div>
+        <p style="font-size:13px; color:#999999; text-align:center;" th:text="${termsText}">Valid for 90 days. Not combinable with other offers.</p>
+        <div style="text-align:center; margin:16px 0 0;">
+            <div th:replace="~{emails/components/button :: button(text='Redeem Now', url=${redeemUrl}, style='primary')}"></div>
+        </div>
+    </div>
+</body>
+</html>

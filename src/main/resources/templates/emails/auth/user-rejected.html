@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{emails/layouts/base-template :: body(content=~{::#content})}">
+<head>
+  <title th:text="${subject}">Account Registration Decision</title>
+</head>
+<body>
+<div id="content">
+  <!-- Hero -->
+  <div style="text-align:center; padding:10px 0 20px;">
+    <div style="font-size:48px; margin:0;">📋</div>
+    <h2 style="font-size:28px; font-weight:300; color:#E53935; margin:0;" th:text="#{email.user.rejected.hero}">Registration Decision</h2>
+    <div style="height:2px; width:60px; margin:10px auto; background:linear-gradient(90deg, #E53935, #FB8C00); border-radius:2px;"></div>
+  </div>
+
+  <p style="font-size:16px; line-height:1.7; color:#333333;">
+    <span th:text="#{email.user.rejected.greeting}">Hello</span> <span th:text="${fullName}">there</span>,
+  </p>
+  <p style="font-size:16px; line-height:1.7; color:#333333;" th:text="#{email.user.rejected.body}">
+    We regret to inform you that your account registration was not approved.
+  </p>
+
+  <!-- Decision Details Card -->
+  <div style="background:#FFF8F3; border-radius:12px; padding:20px; margin:20px 0; border-left:4px solid #FB8C00;">
+    <p style="font-size:14px; color:#666666; margin:0 0 8px;" th:text="#{email.user.rejected.details.title}">Decision Details</p>
+    <p style="margin:4px 0; font-size:15px; color:#333;">
+      <strong th:text="#{email.user.rejected.details.time}">Reviewed at:</strong>
+      <span th:text="${#dates.format(rejectedAt, 'MMMM dd, yyyy HH:mm z')}">2025-01-01 12:00</span>
+    </p>
+    <p style="margin:4px 0; font-size:15px; color:#333;">
+      <strong th:text="#{email.user.rejected.details.reason}">Reason:</strong>
+      <span th:text="${reason}">Did not meet criteria</span>
+    </p>
+  </div>
+
+  <!-- Support Message -->
+  <div style="background:#FFFFFF; border-radius:12px; padding:20px; margin:20px 0; border:1px solid #EEE8E2;">
+    <p style="font-size:15px; color:#444444; line-height:1.7; margin:0;" th:text="#{email.user.rejected.support}">
+      If you believe this decision was made in error, please contact our support team.
+    </p>
+  </div>
+
+  <!-- CTA Button -->
+  <div style="text-align:center; margin:30px 0;">
+    <a th:href="${supportUrl}" style="display:inline-block; background:linear-gradient(135deg, #FF6F59, #FF6B35); color:#FFFFFF; font-size:18px; font-weight:600; padding:16px 40px; border-radius:16px; text-decoration:none; box-shadow:0 10px 30px rgba(255,107,53,0.3);">
+      <span th:text="#{email.user.rejected.button}">Contact Support</span>
+    </a>
+  </div>
+
+  <p style="font-size:15px; color:#666666; text-align:center;">
+    <span th:text="#{email.user.rejected.thanks}">Thank you for your interest.</span>
+  </p>
+
+  <div th:replace="~{emails/components/support-card}"></div>
+  <div th:replace="~{emails/components/signature}"></div>
+</div>
+</body>
+</html>

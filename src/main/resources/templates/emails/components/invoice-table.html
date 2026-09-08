@@ -1,0 +1,18 @@
+<!-- fragment args: items (list of maps: description, qty, price), total -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" th:fragment="table(items, total)"
+       style="border:1px solid #EEE8E2; border-radius:12px; overflow:hidden; margin:20px 0;">
+    <tr style="background:#FFF8F3;">
+        <td style="padding:10px 14px; font-size:12px; color:#666666; text-transform:uppercase;">Description</td>
+        <td style="padding:10px 14px; font-size:12px; color:#666666; text-transform:uppercase; text-align:center;">Qty</td>
+        <td style="padding:10px 14px; font-size:12px; color:#666666; text-transform:uppercase; text-align:right;">Price</td>
+    </tr>
+    <tr th:each="item : ${items}">
+        <td style="padding:10px 14px; font-size:14px; color:#333333; border-top:1px solid #EEE8E2;" th:text="${item.description}">Safari Package</td>
+        <td style="padding:10px 14px; font-size:14px; color:#333333; border-top:1px solid #EEE8E2; text-align:center;" th:text="${item.qty}">1</td>
+        <td style="padding:10px 14px; font-size:14px; color:#333333; border-top:1px solid #EEE8E2; text-align:right;" th:text="${item.price}">$500</td>
+    </tr>
+    <tr>
+        <td colspan="2" style="padding:14px; font-size:15px; font-weight:700; color:#333333; border-top:2px solid #EEE8E2;">Total</td>
+        <td style="padding:14px; font-size:15px; font-weight:700; color:#FF6B35; border-top:2px solid #EEE8E2; text-align:right;" th:text="${total}">$530</td>
+    </tr>
+</table>

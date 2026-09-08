@@ -1,0 +1,13 @@
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{emails/layouts/base-template :: body(content=~{::#content})}">
+<head><title>Daily Summary</title></head>
+<body>
+    <div id="content">
+        <div th:replace="~{emails/components/hero :: hero(title='Daily Summary', subtitle=${summaryDate})}"></div>
+        <div th:replace="~{emails/components/statistics :: stats(${stats})}"></div>
+        <div style="text-align:center; margin:16px 0 0;">
+            <div th:replace="~{emails/components/button :: button(text='Open Dashboard', url=${dashboardUrl}, style='primary')}"></div>
+        </div>
+    </div>
+</body>
+</html>

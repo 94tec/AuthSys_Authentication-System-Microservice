@@ -1,0 +1,7 @@
+🌍 *Damuchi Safaris*
+
+💰 *Refund Processed*
+
+Hi {{customerName}}, your refund for *{{tourName}}* has been processed. Please allow 5–7 business days for the funds to reflect in your M-Pesa.
+
+Questions? {{supportEmail}}

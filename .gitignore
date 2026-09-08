@@ -20,3 +20,9 @@ Thumbs.db
 # Logs
 *.log
 logs/
+
+folder-alias.json
+src/main/resources/spring-data-a3ebb-firebase-adminsdk-fbsvc-2c7014e914.json
+
+src/main/java/com/techStack/authSys/authsys-frontend/
+src/main/java/com/techStack/authSys/damuchi-ops-frontend/

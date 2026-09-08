@@ -1,0 +1,15 @@
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{emails/layouts/base-template :: body(content=~{::#content})}">
+<head><title>Booking Confirmed</title></head>
+<body>
+    <div id="content">
+        <div th:replace="~{emails/components/alert :: alert(type='success', message='Booking Confirmed!')}"></div>
+        <div th:replace="~{emails/components/booking-card :: card(${booking})}"></div>
+        <div th:each="day : ${itinerary}" th:replace="~{emails/components/itinerary-day :: day(${day})}"></div>
+        <div style="text-align:center; margin:30px 0;">
+            <div th:replace="~{emails/components/button :: button(text='View Booking', url=${bookingUrl}, style='primary')}"></div>
+        </div>
+        <div th:replace="~{emails/components/signature}"></div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,1 @@
+Damuchi Safaris: Hope you loved {{tourName}}, {{customerName}}! Share your experience and help fellow adventurers. Leave a review: {{bookingPortalUrl}}

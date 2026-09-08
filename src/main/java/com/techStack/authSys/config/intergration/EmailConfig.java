@@ -1,14 +1,19 @@
 package com.techStack.authSys.config.intergration;
 
-import com.techStack.authSys.util.validation.HelperUtils;
+import com.techStack.authSys.common.util.HelperUtils;
 import jakarta.annotation.PostConstruct;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.MessageSource;
+import org.springframework.context.support.ResourceBundleMessageSource;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.JavaMailSenderImpl;
+import org.thymeleaf.spring6.SpringTemplateEngine;
+import org.thymeleaf.templateresolver.ClassLoaderTemplateResolver;
+import org.thymeleaf.templateresolver.ITemplateResolver;
 import reactor.core.scheduler.Scheduler;
 import reactor.core.scheduler.Schedulers;
 
@@ -166,6 +171,32 @@ public class EmailConfig {
     @Bean
     public String emailFromAddress() {
         return fromAddress;
+    }
+
+    @Bean
+    public SpringTemplateEngine emailTemplateEngine() {
+        SpringTemplateEngine templateEngine = new SpringTemplateEngine();
+        templateEngine.setTemplateResolver(emailTemplateResolver());
+        templateEngine.setMessageSource(emailMessageSource()); // i18n support
+        return templateEngine;
+    }
+
+    private ITemplateResolver emailTemplateResolver() {
+        ClassLoaderTemplateResolver resolver = new ClassLoaderTemplateResolver();
+        resolver.setPrefix("classpath:/templates/emails/");
+        resolver.setSuffix(".html");
+        resolver.setTemplateMode("HTML");
+        resolver.setCharacterEncoding("UTF-8");
+        resolver.setCacheable(true);
+        return resolver;
+    }
+
+    @Bean
+    public MessageSource emailMessageSource() {
+        ResourceBundleMessageSource source = new ResourceBundleMessageSource();
+        source.setBasename("i18n/email-messages"); // optional, if you have email-specific messages
+        source.setDefaultEncoding("UTF-8");
+        return source;
     }
 
     /* =========================

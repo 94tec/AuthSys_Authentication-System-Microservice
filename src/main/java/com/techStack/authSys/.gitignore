@@ -1,0 +1,17 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Next.js Build Outputs
+.next/
+**/.next/
+out/
+build/
+
+# Local Environment Variables
+.env*.local
+
+# OS Files
+.DS_Store
+Thumbs.db
+

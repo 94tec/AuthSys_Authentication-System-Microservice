@@ -1,0 +1,1 @@
+Damuchi Safaris: New tours & offers just for you, {{customerName}}! Explore safaris, day trips and cultural experiences: {{websiteUrl}} — Reply STOP to unsubscribe.

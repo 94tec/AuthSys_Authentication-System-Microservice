@@ -1,0 +1,9 @@
+🌍 *Damuchi Safaris*
+
+Your booking for *{{tourName}}* on {{tourDate}} has been cancelled.
+
+📋 Ref: #{{bookingId}}
+❗ Reason: {{cancellationReason}}
+
+If a refund applies, it'll be processed within 5–7 business days.
+Questions? Email us: {{supportEmail}}

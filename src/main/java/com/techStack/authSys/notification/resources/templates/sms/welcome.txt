@@ -1,0 +1,1 @@
+Damuchi Safaris: Welcome {{customerName}}! Your account is ready. Explore Kenya's best tours and book your next adventure: {{websiteUrl}}

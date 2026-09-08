@@ -1,0 +1,1 @@
+Damuchi Safaris: Hi {{customerName}}, how was {{tourName}}? Share your experience and help other adventurers. It takes 2 minutes: {{bookingPortalUrl}}

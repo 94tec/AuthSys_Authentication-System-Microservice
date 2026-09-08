@@ -1,0 +1,8 @@
+🌍 *Damuchi Safaris*
+
+🎒 New tours & exclusive offers just for you, {{customerName}}!
+
+Explore safaris, day trips and cultural experiences across Kenya:
+{{websiteUrl}}
+
+_Reply STOP to unsubscribe from promotional messages._

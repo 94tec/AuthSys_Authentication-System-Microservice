@@ -1,0 +1,1 @@
+Damuchi Safaris: Hi {{customerName}}, we've received your booking for {{tourName}} on {{tourDate}} (Ref: #{{bookingId}}). Complete your M-Pesa payment to confirm. Visit {{bookingPortalUrl}}

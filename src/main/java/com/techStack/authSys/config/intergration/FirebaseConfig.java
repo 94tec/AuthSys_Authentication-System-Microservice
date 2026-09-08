@@ -3,6 +3,7 @@ package com.techStack.authSys.config.intergration;
 import com.google.auth.oauth2.AccessToken;
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.cloud.firestore.Firestore;
+import com.google.cloud.firestore.FirestoreOptions;
 import com.google.firebase.FirebaseApp;
 import com.google.firebase.FirebaseOptions;
 import com.google.firebase.auth.FirebaseAuth;
@@ -80,57 +81,39 @@ public class FirebaseConfig {
     /* =========================
        Firebase App Configuration
        ========================= */
-
-    /**
-     * Firebase App initialization
-     */
     @Bean
     public FirebaseApp firebaseApp(Clock clock) throws IOException {
-        Instant startTime = clock.instant();
+        Instant start = clock.instant();
+        log.info("Initializing Firebase App at {}", start);
 
-        try {
-            log.info("Initializing Firebase App at {}", startTime);
+        InputStream serviceAccount = loadServiceAccount();
 
-            InputStream serviceAccount = loadServiceAccount();
-            GoogleCredentials credentials = GoogleCredentials.fromStream(serviceAccount);
+        // 1. Load credentials and explicitly add ALL required scopes
+        GoogleCredentials credentials = GoogleCredentials.fromStream(serviceAccount)
+                .createScoped(Arrays.asList(
+                        "https://www.googleapis.com/auth/firebase",
+                        "https://www.googleapis.com/auth/cloud-platform",
+                        "https://www.googleapis.com/auth/datastore"
+                ));
 
-            FirebaseOptions options = FirebaseOptions.builder()
-                    .setCredentials(credentials)
-                    .setProjectId(projectId)
-                    .build();
+        log.info("Firebase credentials created with explicit scopes");
 
-            log.info("Firebase configuration - Project ID: {}", options.getProjectId());
+        FirebaseOptions options = FirebaseOptions.builder()
+                .setCredentials(credentials)
+                .setProjectId(projectId)
+                .build();
 
-            FirebaseApp app;
-            if (FirebaseApp.getApps().isEmpty()) {
-                app = FirebaseApp.initializeApp(options);
-
-                Instant endTime = clock.instant();
-                Duration initDuration = Duration.between(startTime, endTime);
-
-                log.info("Firebase application initialized successfully at {} (duration: {})",
-                        endTime, initDuration);
-            } else {
-                app = FirebaseApp.getInstance();
-                log.info("Using existing Firebase application instance");
-            }
-
-            return app;
-
-        } catch (IOException e) {
-            Instant failTime = clock.instant();
-            Duration failDuration = Duration.between(startTime, failTime);
-
-            log.error("Firebase initialization failed at {} (duration: {}): {}",
-                    failTime, failDuration, e.getMessage(), e);
-            throw new RuntimeException("Failed to initialize Firebase", e);
-        }
+        // 2. Initialize the default app
+        FirebaseApp app = FirebaseApp.initializeApp(options);
+        log.info("Firebase app initialized for project: {}", projectId);
+        return app;
     }
 
     /**
      * Load service account credentials
      */
     private InputStream loadServiceAccount() {
+        log.info("Loading service account from classpath: {}", serviceAccountPath);
         InputStream serviceAccount = getClass()
                 .getClassLoader()
                 .getResourceAsStream(serviceAccountPath);
@@ -149,6 +132,15 @@ public class FirebaseConfig {
        Firebase Services
        ========================= */
 
+    @Primary
+    @Bean
+    public Firestore firestore(FirebaseApp app) {
+        Firestore firestore = FirestoreClient.getFirestore(app);
+        log.info("Firestore created from scoped app");
+        return firestore;
+    }
+
+
     /**
      * Firebase Auth instance
      */
@@ -162,19 +154,6 @@ public class FirebaseConfig {
         return auth;
     }
 
-    /**
-     * Firestore instance
-     */
-    @Primary
-    @Bean
-    public Firestore firestore(FirebaseApp firebaseApp, Clock clock) {
-        Instant now = clock.instant();
-
-        Firestore firestore = FirestoreClient.getFirestore(firebaseApp);
-        log.info("Firestore initialized for project {} at {}", projectId, now);
-
-        return firestore;
-    }
 
     /* =========================
        HTTP Client Configuration
@@ -208,104 +187,6 @@ public class FirebaseConfig {
     /* =========================
        Credential Management
        ========================= */
-
-    /**
-     * Firebase Credentials Adapter
-     *
-     * Provides scoped credentials for Firebase services
-     */
-    public static class FirebaseCredentialsAdapter extends GoogleCredentials {
-
-        private final GoogleCredentials credentials;
-        private final Clock clock;
-
-        /**
-         * Default constructor (for backward compatibility)
-         */
-        public FirebaseCredentialsAdapter() throws IOException {
-            this(Clock.systemUTC());
-        }
-
-        /**
-         * Constructor with Clock injection
-         */
-        public FirebaseCredentialsAdapter(Clock clock) throws IOException {
-            this.clock = clock;
-            Instant now = clock.instant();
-
-            log.debug("Initializing Firebase credentials at {}", now);
-
-            this.credentials = GoogleCredentials.getApplicationDefault()
-                    .createScoped(Arrays.asList(
-                            "https://www.googleapis.com/auth/firebase",
-                            "https://www.googleapis.com/auth/cloud-platform"
-                    ));
-
-            log.info("Firebase credentials initialized with scopes at {}", now);
-        }
-
-        @Override
-        public AccessToken refreshAccessToken() throws IOException {
-            Instant refreshStart = clock.instant();
-
-            try {
-                log.debug("Refreshing Firebase access token at {}", refreshStart);
-
-                AccessToken token = credentials.refreshAccessToken();
-
-                Instant refreshEnd = clock.instant();
-                Duration refreshDuration = Duration.between(refreshStart, refreshEnd);
-
-                log.info("Access token refreshed successfully at {} (duration: {})",
-                        refreshEnd, refreshDuration);
-
-                if (token.getExpirationTime() != null) {
-                    log.debug("New token expires at: {}",
-                            Instant.ofEpochMilli(token.getExpirationTime().getTime()));
-                }
-
-                return token;
-
-            } catch (IOException e) {
-                Instant failTime = clock.instant();
-                Duration failDuration = Duration.between(refreshStart, failTime);
-
-                log.error("Failed to refresh access token at {} (duration: {}): {}",
-                        failTime, failDuration, e.getMessage());
-                throw e;
-            }
-        }
-
-        /**
-         * Get token expiration time
-         */
-        public Instant getTokenExpiration() throws IOException {
-            AccessToken token = refreshAccessToken();
-            if (token.getExpirationTime() != null) {
-                return Instant.ofEpochMilli(token.getExpirationTime().getTime());
-            }
-            return null;
-        }
-
-        /**
-         * Check if token is expired
-         */
-        public boolean isTokenExpired() throws IOException {
-            Instant expiration = getTokenExpiration();
-            if (expiration == null) {
-                return true;
-            }
-
-            Instant now = clock.instant();
-            boolean expired = now.isAfter(expiration);
-
-            if (expired) {
-                log.warn("Firebase token expired at {} (checked at {})", expiration, now);
-            }
-
-            return expired;
-        }
-    }
 
     /* =========================
        Health Check

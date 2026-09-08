@@ -1,0 +1,14 @@
+<!-- fragment arg: payment (bookingId, travelerName, paymentMethod, amount, taxes, discount, total) -->
+<div th:fragment="summary(payment)" style="background:#FFF8F3; border-radius:12px; padding:20px; margin:20px 0;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:15px; color:#333333;">
+        <tr><td style="padding:4px 0;">Booking ID</td><td style="padding:4px 0; text-align:right;" th:text="${payment.bookingId}">#BK-123</td></tr>
+        <tr><td style="padding:4px 0;">Traveler</td><td style="padding:4px 0; text-align:right;" th:text="${payment.travelerName}">John Doe</td></tr>
+        <tr><td style="padding:4px 0;">Payment Method</td><td style="padding:4px 0; text-align:right;" th:text="${payment.paymentMethod}">Credit Card</td></tr>
+        <tr><td style="padding:4px 0;">Amount</td><td style="padding:4px 0; text-align:right;" th:text="${payment.amount}">$500</td></tr>
+        <tr><td style="padding:4px 0;">Taxes</td><td style="padding:4px 0; text-align:right;" th:text="${payment.taxes}">$50</td></tr>
+        <tr><td style="padding:4px 0;">Discount</td><td style="padding:4px 0; text-align:right;" th:text="${payment.discount}">-$20</td></tr>
+        <tr style="font-weight:bold; font-size:18px; border-top:1px solid #EEE8E2;">
+            <td style="padding:10px 0 0;">TOTAL</td><td style="padding:10px 0 0; text-align:right; color:#FF6B35;" th:text="${payment.total}">$530</td>
+        </tr>
+    </table>
+</div>

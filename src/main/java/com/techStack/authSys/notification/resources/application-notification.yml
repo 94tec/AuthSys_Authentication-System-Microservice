@@ -1,0 +1,34 @@
+# ============================================================
+# Notification module configuration
+# Merge into your main application.yml
+# All secrets injected from environment variables
+# ============================================================
+
+notification:
+
+  brevo:
+    api-key:      ${BREVO_API_KEY}
+    sender-email: noreply@damuchisafaris.co.ke
+    sender-name:  Damuchi Safaris
+    api-url:      https://api.brevo.com/v3/smtp/email
+
+  africastalking:
+    api-key:       ${AT_API_KEY}
+    username:      ${AT_USERNAME}        # "sandbox" for testing
+    sender-id:     ${AT_SENDER_ID}       # e.g. "DAMUCHI" — must be approved by AT
+    whatsapp-from: ${AT_WHATSAPP_FROM}   # Your AT WhatsApp number
+    environment:   sandbox               # → production when going live
+
+  retry:
+    max-attempts:  3
+    window-hours:  24
+
+# Spring async config — required for @Async on NotificationService trigger methods
+spring:
+  task:
+    execution:
+      pool:
+        core-size: 4
+        max-size: 16
+        queue-capacity: 200
+      thread-name-prefix: notif-

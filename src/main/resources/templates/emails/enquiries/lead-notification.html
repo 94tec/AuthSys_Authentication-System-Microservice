@@ -1,0 +1,145 @@
+<!-- Placeholder path — this is the third layout you pasted (compact top bar,
+     inline "Automated notification — please do not reply" copyright, no
+     support/social footer). I don't have its real filename; adjust
+     `emails/layouts/system-notification` below to match wherever you save it. -->
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{emails/layouts/system-notification :: body(content=~{::#content})}">
+
+<head>
+    <meta charset="UTF-8"/>
+    <title th:text="${subject}">New Safari Enquiry</title>
+</head>
+
+<body>
+
+<div id="content">
+
+    <!-- Hero -->
+    <div style="text-align:center; padding:8px 0 24px;">
+        <div style="font-size:36px; line-height:1; margin-bottom:12px;">🧭</div>
+
+        <h2 style="font-size:28px; line-height:1.3; font-weight:700; color:#FF6B35; margin:0;">
+            New Safari Enquiry
+        </h2>
+
+        <div style="height:3px; width:60px; margin:14px auto 0; background-color:#FF6B35; border-radius:3px;"></div>
+    </div>
+
+    <!-- Intro -->
+    <p style="font-size:16px; line-height:1.7; color:#333333; margin:0 0 10px;">
+        A new customer enquiry has been received.
+    </p>
+
+    <p style="font-size:16px; line-height:1.7; color:#333333; margin:0 0 24px;">
+        <strong th:text="${enquiryName}">Jane Doe</strong>
+        is interested in
+        <strong th:text="${tourName}">3-Day Maasai Mara Safari</strong>.
+    </p>
+
+    <!-- Lead Highlight -->
+    <div style="background-color:#FFF7F2; border-left:4px solid #FF6B35; border-radius:6px; padding:16px 18px; margin:24px 0;">
+        <p style="font-size:13px; font-weight:600; text-transform:uppercase; letter-spacing:0.8px; color:#FF6B35; margin:0 0 5px;">
+            New Lead
+        </p>
+        <p style="font-size:15px; line-height:1.6; color:#444444; margin:0;">
+            Review the traveller's details below and follow up as soon as possible.
+        </p>
+    </div>
+
+    <!-- Contact Details -->
+    <div style="background-color:#FFFFFF; border:1px solid #E8E2DD; border-radius:10px; padding:20px; margin:26px 0;">
+        <h4 style="font-size:16px; line-height:1.4; color:#FF6B35; margin:0 0 16px;">👤 Contact Details</h4>
+
+        <div style="padding:0 0 12px; border-bottom:1px solid #F0ECE8; margin-bottom:12px;">
+            <p style="font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:0.6px; color:#888888; margin:0 0 4px;">Name</p>
+            <p style="font-size:15px; color:#333333; font-weight:600; margin:0;" th:text="${enquiryName}">Jane Doe</p>
+        </div>
+
+        <div style="padding:0 0 12px; border-bottom:1px solid #F0ECE8; margin-bottom:12px;">
+            <p style="font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:0.6px; color:#888888; margin:0 0 4px;">Email</p>
+            <p style="font-size:15px; color:#333333; margin:0; word-break:break-word;">
+                <a th:href="'mailto:' + ${enquiryEmail}" th:text="${enquiryEmail}" style="color:#FF6B35; text-decoration:none;">jane@example.com</a>
+            </p>
+        </div>
+
+        <div style="padding:0 0 12px; border-bottom:1px solid #F0ECE8; margin-bottom:12px;">
+            <p style="font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:0.6px; color:#888888; margin:0 0 4px;">Phone</p>
+            <p style="font-size:15px; color:#333333; margin:0;">
+                <a th:if="${enquiryPhone != null and !#strings.isEmpty(enquiryPhone)}"
+                   th:href="'tel:' + ${enquiryPhone}" th:text="${enquiryPhone}"
+                   style="color:#FF6B35; text-decoration:none;">+254700000000</a>
+                <span th:if="${enquiryPhone == null or #strings.isEmpty(enquiryPhone)}" style="color:#888888;">Not provided</span>
+            </p>
+        </div>
+
+        <div>
+            <p style="font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:0.6px; color:#888888; margin:0 0 4px;">Preferred Contact</p>
+            <p style="font-size:15px; color:#333333; font-weight:600; margin:0;" th:text="${preferredContact}">EMAIL</p>
+        </div>
+    </div>
+
+    <!-- Trip Details -->
+    <div style="background-color:#FFFFFF; border:1px solid #E8E2DD; border-radius:10px; padding:20px; margin:26px 0;">
+        <h4 style="font-size:16px; line-height:1.4; color:#FF6B35; margin:0 0 16px;">🦁 Trip Details</h4>
+
+        <div style="padding:0 0 12px; border-bottom:1px solid #F0ECE8; margin-bottom:12px;">
+            <p style="font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:0.6px; color:#888888; margin:0 0 4px;">Tour</p>
+            <p style="font-size:15px; color:#333333; font-weight:600; margin:0;" th:text="${tourName}">3-Day Maasai Mara Safari</p>
+        </div>
+
+        <div style="padding:0 0 12px; border-bottom:1px solid #F0ECE8; margin-bottom:12px;">
+            <p style="font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:0.6px; color:#888888; margin:0 0 4px;">Preferred Date</p>
+            <p style="font-size:15px; color:#333333; margin:0;">
+                <span th:text="${preferredDate}">Not specified</span>
+                <span th:if="${flexibleDates}" style="display:inline-block; margin-left:6px; padding:2px 7px; border-radius:999px; background-color:#FFF7F2; color:#FF6B35; font-size:11px; font-weight:600;">Flexible</span>
+            </p>
+        </div>
+
+        <div style="padding:0 0 12px; border-bottom:1px solid #F0ECE8; margin-bottom:12px;">
+            <p style="font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:0.6px; color:#888888; margin:0 0 4px;">Group Size</p>
+            <p style="font-size:15px; color:#333333; margin:0;">
+                <strong th:text="${groupSizeAdults}">2</strong> adults,
+                <strong th:text="${groupSizeChildren}">0</strong> children
+            </p>
+        </div>
+
+        <div>
+            <p style="font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:0.6px; color:#888888; margin:0 0 4px;">Budget</p>
+            <p style="font-size:15px; color:#333333; font-weight:600; margin:0;" th:text="${budgetRange}">Not specified</p>
+        </div>
+    </div>
+
+    <!-- Requirements -->
+    <div style="background-color:#FAFAFA; border:1px solid #E8E2DD; border-radius:10px; padding:20px; margin:26px 0;">
+        <h4 style="font-size:16px; line-height:1.4; color:#FF6B35; margin:0 0 12px;">📝 Traveller Requirements</h4>
+        <p style="font-size:15px; line-height:1.7; color:#444444; white-space:pre-line; margin:0;" th:text="${requirements}">None provided.</p>
+    </div>
+
+    <!-- CTA -->
+    <div style="text-align:center; margin:32px 0;">
+        <a th:href="${adminUrl}" style="display:inline-block; background-color:#FF6B35; color:#FFFFFF; font-size:16px; font-weight:700; line-height:1.2; padding:15px 30px; border-radius:8px; text-decoration:none;">
+            View Enquiry in Admin Panel
+        </a>
+    </div>
+
+    <p style="font-size:13px; line-height:1.6; color:#777777; margin:24px 0 8px;">
+        If the button above doesn't work, copy and paste this address into your browser:
+    </p>
+    <p style="font-size:13px; line-height:1.6; word-break:break-all; margin:0 0 26px;">
+        <a th:href="${adminUrl}" th:text="${adminUrl}" style="color:#FF6B35; text-decoration:none;">Admin enquiry URL</a>
+    </p>
+
+    <!-- Notification Metadata -->
+    <div style="background-color:#FFF7F2; border-radius:8px; padding:14px 16px; margin:26px 0;">
+        <p style="font-size:12px; line-height:1.6; color:#777777; margin:0;">
+            Enquiry received
+            <strong th:text="${#temporals.format(receivedAt, 'dd MMM yyyy, HH:mm')}">30 Aug 2026, 22:55</strong>.
+            This is an internal Damuchi Safaris lead notification.
+        </p>
+    </div>
+
+</div>
+
+</body>
+</html>

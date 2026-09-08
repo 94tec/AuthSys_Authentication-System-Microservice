@@ -1,0 +1,12 @@
+<!-- fragment arg: traveler (name, documentId, contact, seat) -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" th:fragment="card(traveler)"
+       style="background:#FFFFFF; border:1px solid #EEE8E2; border-radius:12px; margin:12px 0;">
+    <tr>
+        <td style="padding:16px;">
+            <div style="font-size:16px; font-weight:700; color:#333333;" th:text="${traveler.name}">Jane Traveller</div>
+            <div style="font-size:13px; color:#666666; margin-top:4px;" th:text="'ID/Passport: ' + ${traveler.documentId}">ID/Passport: A1234567</div>
+            <div style="font-size:13px; color:#666666; margin-top:2px;" th:text="'Contact: ' + ${traveler.contact}">Contact: +254700000000</div>
+            <div th:if="${traveler.seat != null}" style="font-size:13px; color:#FF6B35; font-weight:600; margin-top:6px;" th:text="'Seat: ' + ${traveler.seat}">Seat: 14A</div>
+        </td>
+    </tr>
+</table>
