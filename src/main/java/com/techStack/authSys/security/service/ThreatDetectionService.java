@@ -98,7 +98,7 @@ public class ThreatDetectionService {
      */
     private Mono<Boolean> callThreatDetectionApi(String deviceFingerprint, String ipAddress) {
         return webClient.post()
-                .uri(STR."\{threatApiUrl}/check")
+                .uri(threatApiUrl + "/check")
                 .header("X-API-KEY", apiKey)
                 .bodyValue(buildThreatRequest(deviceFingerprint, ipAddress))
                 .retrieve()
