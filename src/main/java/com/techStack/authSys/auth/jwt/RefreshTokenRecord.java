@@ -164,6 +164,11 @@ public class RefreshTokenRecord {
 
     @Override
     public String toString() {
-        return STR."RefreshTokenRecord{tokenId='\{tokenId}', userId='\{userId}', expiresAt=\{expiresAt}, revoked=\{revoked}}";
+        return "RefreshTokenRecord{" +
+                "tokenId='" + tokenId + '\'' +
+                ", userId='" + userId + '\'' +
+                ", expiresAt=" + expiresAt +
+                ", revoked=" + revoked +
+                '}';
     }
 }

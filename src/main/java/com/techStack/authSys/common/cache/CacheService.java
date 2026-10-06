@@ -41,7 +41,10 @@ public class CacheService {
      * Gets rate limit record with multi-layer caching
      */
     public Mono<RateLimitRecord> getRateLimitRecord(String identifier, String type) {
-        String cacheKey = STR."\{redisRateLimitPrefix}\{type}:\{identifier}";
+        String cacheKey = String.format("%s%s:%s",
+                redisRateLimitPrefix,
+                type,
+                identifier);
 
         return Mono.defer(() -> {
                     // 1. First try Redis cache
