@@ -21,6 +21,14 @@ Thumbs.db
 *.log
 logs/
 
+# Firebase
+*firebase*.json
+*adminsdk*.json
+
+# Environment files
+.env
+.env.*
+
 folder-alias.json
 src/main/resources/spring-data-a3ebb-firebase-adminsdk-fbsvc-2c7014e914.json
 
