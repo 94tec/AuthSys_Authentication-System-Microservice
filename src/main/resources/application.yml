@@ -6,10 +6,10 @@ spring:
   config:
     import: classpath:permissions.yaml
 
+
   datasource:
-    url: jdbc:postgresql://localhost:5432/authdb
-    username: postgres
-    password: postgres
+    url: ${DATABASE_URL}
+    driver-class-name: org.postgresql.Driver
 
   flyway:
     enabled: true
