@@ -211,7 +211,7 @@ public class JwtConfig {
     }
 
     // -------------------------------------------------------------------------
-    // Key validation
+    // Key validation and creation
     // -------------------------------------------------------------------------
 
     /**
@@ -224,28 +224,25 @@ public class JwtConfig {
      * @param keyString    the raw key string from properties
      * @param propertyName used in the error message if validation fails
      * @return validated SecretKey
-     * @throws IllegalArgumentException if key is null, blank, or under 512 bits
+     * @throws IllegalArgumentException if the key does not meet the minimum length requirements
      */
     private SecretKey validateAndCreateKey(String keyString, String propertyName) {
-        if (keyString == null || keyString.isBlank()) {
-            throw new IllegalArgumentException(
-                    propertyName + " must not be null or empty");
-        }
-
         byte[] keyBytes;
         try {
-            keyBytes = Base64.getDecoder().decode(keyString);
+            // Attempt Base64 decoding first
+            keyBytes = Base64.getDecoder().decode(keyString.trim());
         } catch (IllegalArgumentException e) {
-            // Not Base64 — treat as raw UTF-8
+            // Fall back to raw UTF-8 bytes if it's not base64 encoded
             keyBytes = keyString.getBytes(StandardCharsets.UTF_8);
         }
 
+        // Validate secret size constraint for HS512 signature algorithms
         if (keyBytes.length < 64) {
             throw new IllegalArgumentException(String.format(
-                    "%s must be at least 512 bits (64 bytes) for HS512. " +
-                            "Current size: %d bits (%d bytes). " +
-                            "Generate a suitable key with: openssl rand -base64 64",
-                    propertyName, keyBytes.length * 8, keyBytes.length));
+                    "Security Failure: The property '%s' is too short. " +
+                            "HS512 requires a minimum key length of 512 bits (64 bytes). Your key is currently %d bytes.",
+                    propertyName, keyBytes.length
+            ));
         }
 
         return Keys.hmacShaKeyFor(keyBytes);

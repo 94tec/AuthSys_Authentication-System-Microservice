@@ -97,6 +97,9 @@ CREATE TABLE enquiry_quotes (
                                 id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                                 enquiry_id          UUID NOT NULL REFERENCES tour_enquiries(id),
 
+                                adult_count         INTEGER NOT NULL DEFAULT 0,
+                                child_count         INTEGER NOT NULL DEFAULT 0,
+
                                 price_per_adult     NUMERIC(12,2) NOT NULL,
                                 price_per_child     NUMERIC(12,2),
                                 total_price         NUMERIC(12,2) NOT NULL,

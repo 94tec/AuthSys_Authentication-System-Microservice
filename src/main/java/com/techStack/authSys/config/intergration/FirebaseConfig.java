@@ -1,9 +1,8 @@
+
 package com.techStack.authSys.config.intergration;
 
-import com.google.auth.oauth2.AccessToken;
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.cloud.firestore.Firestore;
-import com.google.cloud.firestore.FirestoreOptions;
 import com.google.firebase.FirebaseApp;
 import com.google.firebase.FirebaseOptions;
 import com.google.firebase.auth.FirebaseAuth;
@@ -20,6 +19,8 @@ import reactor.netty.http.client.HttpClient;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -27,25 +28,15 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * Firebase Configuration
- *
- * Configures Firebase App, Auth, and Firestore.
- * Provides Clock bean for timestamp operations.
- */
 @Getter
 @Configuration
 @Slf4j
 public class FirebaseConfig {
 
-    /* =========================
-       Configuration Properties
-       ========================= */
-
-    @Value("${firebase.api.key}")
+    @Value("${firebase.api.key:}")
     private String firebaseApiKey;
 
-    @Value("${firebase.service-account.path}")
+    @Value("${firebase.service-account.path:}")
     private String serviceAccountPath;
 
     @Value("${firebase.project-id}")
@@ -60,141 +51,158 @@ public class FirebaseConfig {
     @Value("${firebase.http.read-timeout-seconds}")
     private int readTimeoutSeconds;
 
-    /* =========================
-       Clock Configuration
-       ========================= */
-
-    /**
-     * System Clock bean for production use
-     * Returns UTC time
-     */
+    // UTC clock shared by the application.
     @Bean
     @Primary
     public Clock clock() {
-        Clock systemClock = Clock.systemUTC();
-        Instant now = systemClock.instant();
-
-        log.info("System Clock initialized at {}", now);
-        return systemClock;
+        Clock clock = Clock.systemUTC();
+        log.info("System Clock initialized at {}", clock.instant());
+        return clock;
     }
 
-    /* =========================
-       Firebase App Configuration
-       ========================= */
+    // Firebase Admin SDK initialization.
     @Bean
     public FirebaseApp firebaseApp(Clock clock) throws IOException {
         Instant start = clock.instant();
+
         log.info("Initializing Firebase App at {}", start);
 
-        InputStream serviceAccount = loadServiceAccount();
+        if (projectId == null || projectId.isBlank()) {
+            throw new IllegalStateException(
+                    "Firebase project ID is missing. Configure firebase.project-id.");
+        }
 
-        // 1. Load credentials and explicitly add ALL required scopes
-        GoogleCredentials credentials = GoogleCredentials.fromStream(serviceAccount)
-                .createScoped(Arrays.asList(
-                        "https://www.googleapis.com/auth/firebase",
-                        "https://www.googleapis.com/auth/cloud-platform",
-                        "https://www.googleapis.com/auth/datastore"
-                ));
+        // Avoid initializing the default Firebase app twice.
+        for (FirebaseApp existingApp : FirebaseApp.getApps()) {
+            if (FirebaseApp.DEFAULT_APP_NAME.equals(existingApp.getName())) {
+                log.info(
+                        "Reusing existing Firebase app for project: {}",
+                        existingApp.getOptions().getProjectId()
+                );
+                return existingApp;
+            }
+        }
 
-        log.info("Firebase credentials created with explicit scopes");
+        GoogleCredentials credentials = loadServiceAccountCredentials();
 
         FirebaseOptions options = FirebaseOptions.builder()
                 .setCredentials(credentials)
                 .setProjectId(projectId)
                 .build();
 
-        // 2. Initialize the default app
         FirebaseApp app = FirebaseApp.initializeApp(options);
+
         log.info("Firebase app initialized for project: {}", projectId);
         return app;
     }
 
     /**
-     * Load service account credentials
+     * Loads Firebase credentials from a filesystem path outside the repository.
+     * Never package the service-account JSON inside the application resources.
      */
-    private InputStream loadServiceAccount() {
-        log.info("Loading service account from classpath: {}", serviceAccountPath);
-        InputStream serviceAccount = getClass()
-                .getClassLoader()
-                .getResourceAsStream(serviceAccountPath);
+    private GoogleCredentials loadServiceAccountCredentials()
+            throws IOException {
 
-        if (serviceAccount == null) {
-            log.error("Firebase service account file not found: {}", serviceAccountPath);
+        if (serviceAccountPath == null || serviceAccountPath.isBlank()) {
             throw new IllegalStateException(
-                    "Firebase service account file not found in classpath: " + serviceAccountPath);
+                    "Firebase service-account path is not configured. "
+                            + "Set the FIREBASE_SERVICE_ACCOUNT_PATH environment variable."
+            );
         }
 
-        log.debug("Loaded service account from: {}", serviceAccountPath);
-        return serviceAccount;
+        Path credentialsPath = Path.of(serviceAccountPath)
+                .toAbsolutePath()
+                .normalize();
+
+        if (!Files.isRegularFile(credentialsPath)
+                || !Files.isReadable(credentialsPath)) {
+            throw new IllegalStateException(
+                    "Firebase service-account file does not exist "
+                            + "or is not readable: " + credentialsPath
+            );
+        }
+
+        log.info("Loading Firebase service-account credentials from filesystem");
+
+        try (InputStream inputStream =
+                     Files.newInputStream(credentialsPath)) {
+
+            GoogleCredentials credentials =
+                    GoogleCredentials.fromStream(inputStream);
+
+            // Retain the explicit scopes used in the existing configuration.
+            return credentials.createScoped(Arrays.asList(
+                    "https://www.googleapis.com/auth/firebase",
+                    "https://www.googleapis.com/auth/cloud-platform",
+                    "https://www.googleapis.com/auth/datastore"
+            ));
+        }
     }
 
-    /* =========================
-       Firebase Services
-       ========================= */
-
-    @Primary
+    // Firestore.
     @Bean
+    @Primary
     public Firestore firestore(FirebaseApp app) {
         Firestore firestore = FirestoreClient.getFirestore(app);
-        log.info("Firestore created from scoped app");
+        log.info("Firestore created from Firebase app");
         return firestore;
     }
 
-
-    /**
-     * Firebase Auth instance
-     */
+    // Firebase Authentication.
     @Bean
     public FirebaseAuth firebaseAuth(FirebaseApp firebaseApp, Clock clock) {
-        Instant now = clock.instant();
-
         FirebaseAuth auth = FirebaseAuth.getInstance(firebaseApp);
-        log.info("Firebase Auth initialized at {}", now);
-
+        log.info("Firebase Auth initialized at {}", clock.instant());
         return auth;
     }
 
-
-    /* =========================
-       HTTP Client Configuration
-       ========================= */
-
-    /**
-     * Configured HTTP client with timeouts
-     */
+    // Shared reactive HTTP client.
     @Bean
     public HttpClient httpClient(Clock clock) {
         Instant now = clock.instant();
 
         HttpClient client = HttpClient.create()
-                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, connectTimeoutMs)
-                .responseTimeout(Duration.ofSeconds(responseTimeoutSeconds))
-                .doOnConnected(conn ->
-                        conn.addHandlerLast(new ReadTimeoutHandler(readTimeoutSeconds)))
-                .doOnRequest((req, conn) ->
-                        log.debug("HTTP request initiated at {}: {} {}",
-                                clock.instant(), req.method(), req.uri()))
-                .doOnResponse((res, conn) ->
-                        log.debug("HTTP response received at {}: Status {}",
-                                clock.instant(), res.status()));
+                .option(
+                        ChannelOption.CONNECT_TIMEOUT_MILLIS,
+                        connectTimeoutMs
+                )
+                .responseTimeout(
+                        Duration.ofSeconds(responseTimeoutSeconds)
+                )
+                .doOnConnected(connection ->
+                        connection.addHandlerLast(
+                                new ReadTimeoutHandler(readTimeoutSeconds)
+                        )
+                )
+                .doOnRequest((request, connection) ->
+                        log.debug(
+                                "HTTP request initiated at {}: {} {}",
+                                clock.instant(),
+                                request.method(),
+                                request.uri()
+                        )
+                )
+                .doOnResponse((response, connection) ->
+                        log.debug(
+                                "HTTP response received at {}: Status {}",
+                                clock.instant(),
+                                response.status()
+                        )
+                );
 
-        log.info("HTTP Client configured at {} - Connect timeout: {}ms, Response timeout: {}s, Read timeout: {}s",
-                now, connectTimeoutMs, responseTimeoutSeconds, readTimeoutSeconds);
+        log.info(
+                "HTTP Client configured at {} - Connect: {}ms, "
+                        + "Response: {}s, Read: {}s",
+                now,
+                connectTimeoutMs,
+                responseTimeoutSeconds,
+                readTimeoutSeconds
+        );
 
         return client;
     }
 
-    /* =========================
-       Credential Management
-       ========================= */
-
-    /* =========================
-       Health Check
-       ========================= */
-
-    /**
-     * Check Firebase connectivity
-     */
+    // Firebase health indicator.
     @Bean
     public FirebaseHealthIndicator firebaseHealthIndicator(
             FirebaseApp firebaseApp,
@@ -204,9 +212,6 @@ public class FirebaseConfig {
         return new FirebaseHealthIndicator(firebaseApp, firestore, clock);
     }
 
-    /**
-     * Firebase Health Indicator
-     */
     public static class FirebaseHealthIndicator {
 
         private final FirebaseApp firebaseApp;
@@ -223,45 +228,53 @@ public class FirebaseConfig {
             this.clock = clock;
         }
 
-        /**
-         * Check if Firebase is healthy
-         */
         public boolean isHealthy() {
             Instant checkTime = clock.instant();
 
             try {
-                // Check if Firebase app is initialized
-                if (firebaseApp == null || firebaseApp.getOptions() == null) {
-                    log.error("Firebase app not initialized at {}", checkTime);
+                if (firebaseApp == null
+                        || firebaseApp.getOptions() == null) {
+                    log.error(
+                            "Firebase app not initialized at {}",
+                            checkTime
+                    );
                     return false;
                 }
 
-                // Check if Firestore is accessible
                 if (firestore == null) {
-                    log.error("Firestore not accessible at {}", checkTime);
+                    log.error(
+                            "Firestore not accessible at {}",
+                            checkTime
+                    );
                     return false;
                 }
 
                 log.debug("Firebase health check passed at {}", checkTime);
                 return true;
 
-            } catch (Exception e) {
-                log.error("Firebase health check failed at {}: {}", checkTime, e.getMessage());
+            } catch (Exception exception) {
+                log.error(
+                        "Firebase health check failed at {}",
+                        checkTime,
+                        exception
+                );
                 return false;
             }
         }
 
-        /**
-         * Get Firebase status information
-         */
         public Map<String, Object> getStatus() {
-            Instant statusTime = clock.instant();
-
             Map<String, Object> status = new HashMap<>();
-            status.put("timestamp", statusTime.toString());
+
+            status.put("timestamp", clock.instant().toString());
             status.put("healthy", isHealthy());
-            status.put("projectId", firebaseApp.getOptions().getProjectId());
-            status.put("appName", firebaseApp.getName());
+
+            if (firebaseApp != null) {
+                status.put(
+                        "projectId",
+                        firebaseApp.getOptions().getProjectId()
+                );
+                status.put("appName", firebaseApp.getName());
+            }
 
             return status;
         }

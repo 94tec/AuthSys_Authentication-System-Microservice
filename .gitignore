@@ -29,8 +29,22 @@ logs/
 .env
 .env.*
 
-folder-alias.json
-src/main/resources/spring-data-a3ebb-firebase-adminsdk-fbsvc-2c7014e914.json
+# Local secrets
+application-local.properties
+application-*.local.properties
+*.local.properties
+!.env.example
 
+folder-alias.json
+
+# Firebase service-account credentials
+firebase-service-account.json
+firebase-adminsdk*.json
+*-firebase-adminsdk-*.json
+service-account*.json
+
+# Local secrets
+secrets/
+.credentials/
 src/main/java/com/techStack/authSys/authsys-frontend/
 src/main/java/com/techStack/authSys/damuchi-ops-frontend/
