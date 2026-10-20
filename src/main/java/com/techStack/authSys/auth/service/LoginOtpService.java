@@ -46,7 +46,7 @@ public class LoginOtpService {
 
         log.info("🔐 Generating login OTP for user: {} at {}", user.getId(), now);
 
-        return otpService.generateAndSendLoginOtp(user.getId(), user.getPhoneNumber())
+        return otpService.generateAndSendLoginOtp(user.getId(), user.getEmail(), user.getFullName())
                 .flatMap(result -> {
                     if (result.isRateLimited()) {
                         log.warn("⚠️ Login OTP rate limited for user: {}", user.getId());
@@ -121,7 +121,7 @@ public class LoginOtpService {
                 .flatMap(firebaseServiceAuth::getUserById)
                 .flatMap(user -> {
                     log.info("🔄 Resending login OTP to user: {} at {}", user.getId(), now);
-                    return otpService.generateAndSendLoginOtp(user.getId(), user.getPhoneNumber());
+                    return otpService.generateAndSendLoginOtp(user.getId(), user.getEmail(), user.getFullName());
                 })
                 .doOnSuccess(result ->
                         log.info("✅ Login OTP resent at {}", now))

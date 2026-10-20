@@ -100,7 +100,7 @@ public class OtpController {
                     **OTP Properties:**
                     - **Validity**: 10 minutes
                     - **Format**: 6-digit numeric code
-                    - **Delivery**: SMS to phone number
+                    - **Delivery**: SMS to email
                     - **Storage**: Redis with auto-expiry
                     - **Attempts**: Maximum 3 verification attempts
                     
@@ -109,36 +109,7 @@ public class OtpController {
                     - **Response**: 429 Too Many Requests if exceeded
                     - **Retry**: Wait 15 minutes or until rate limit resets
                     
-                    **SMS Delivery:**
-                    - **Dev Mode**: Printed to console logs
-                    - **Sandbox**: Sent via Africa's Talking sandbox
-                    - **Production**: Sent via configured provider
-                    
-                    **Development Testing:**
-```bash
-                    # 1. Send OTP
-                    curl -X POST "http://localhost:8001/api/otp/send/setup" \\
-                      -d "userId=user-123" \\
-                      -d "phoneNumber=+254712345678"
-                    
-                    # 2. Check console logs for OTP
-                    # Look for: ╔══════════════════════════════╗
-                    #           ║      OTP CODE: 123456       ║
-                    
-                    # 3. Verify OTP
-                    curl -X POST "http://localhost:8001/api/otp/verify/setup" \\
-                      -d "userId=user-123" \\
-                      -d "otp=123456"
-```
-                    
-                    **Production Flow:**
-                    In production, use `/api/auth/first-time-setup/change-password`
-                    which automatically generates and sends OTP.
-                    
-                    **Phone Number Format:**
-                    - Must be in E.164 format
-                    - Example: +254712345678 (Kenya)
-                    - Example: +1234567890 (US)
+                 
                     """,
             security = {}  // Public for testing
     )
@@ -152,8 +123,8 @@ public class OtpController {
                                     value = """
                                             {
                                               "success": true,
-                                              "message": "Setup OTP sent successfully. Check your phone.",
-                                              "data": "OTP sent to +254****5678"
+                                              "message": "Setup OTP sent successfully. Check your email.",
+                                              "data": "OTP sent to +email"
                                             }
                                             """
                             )
@@ -182,48 +153,30 @@ public class OtpController {
     })
     @PostMapping("/send/setup")
     public Mono<ResponseEntity<ApiResponse<String>>> sendSetupOtp(
-            @Parameter(
-                    description = "User ID to send OTP to",
-                    required = true,
-                    example = "user-123"
-            )
+            @Parameter(description = "User ID", required = true, example = "user-123")
             @RequestParam String userId,
 
-            @Parameter(
-                    description = "Phone number in E.164 format",
-                    required = true,
-                    example = "+254712345678"
-            )
-            @RequestParam String phoneNumber) {
+            @Parameter(description = "Email address to send the OTP to", required = true,
+                    example = "jane@example.com")
+            @RequestParam String email,
 
-        Instant now = clock.instant();
-        log.info("🔐 Setup OTP request at {} for: {}", now, HelperUtils.maskPhone(phoneNumber));
+            @Parameter(description = "Recipient name", example = "Jane Doe")
+            @RequestParam(required = false) String fullName) {
 
-        return otpService.generateAndSendSetupOtp(userId, phoneNumber)
+        log.info("🔐 Setup OTP request at {} for: {}", clock.instant(), HelperUtils.maskEmail(email));
+
+        return otpService.generateAndSendSetupOtp(userId, email, fullName)
                 .map(result -> {
                     if (result.isRateLimited()) {
                         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
-                                .body(new ApiResponse<>(
-                                        false,
-                                        result.getMessage(),
-                                        null
-                                ));
+                                .body(new ApiResponse<>(false, result.getMessage(), null));
                     }
-
                     if (!result.isSent()) {
                         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                                .body(new ApiResponse<>(
-                                        false,
-                                        result.getMessage(),
-                                        null
-                                ));
+                                .body(new ApiResponse<>(false, result.getMessage(), null));
                     }
-
                     return ResponseEntity.ok(new ApiResponse<>(
-                            true,
-                            result.getMessage(),
-                            "OTP sent to " + HelperUtils.maskPhone(phoneNumber)
-                    ));
+                            true, result.getMessage(), "OTP sent to " + HelperUtils.maskEmail(email)));
                 });
     }
 
@@ -476,16 +429,22 @@ public class OtpController {
             @RequestParam String userId,
 
             @Parameter(
-                    description = "Phone number in E.164 format",
+                    description = "Email address to send the OTP to",
                     required = true,
-                    example = "+254712345678"
+                    example = "jane@example.com"
             )
-            @RequestParam String phoneNumber) {
+            @RequestParam String email,
+
+            @Parameter(
+                    description = "Recipient name (optional)",
+                    example = "Jane Doe"
+            )
+            @RequestParam(required = false) String fullName) {
 
         Instant now = clock.instant();
-        log.info("🔐 Login OTP request at {} for: {}", now, HelperUtils.maskPhone(phoneNumber));
+        log.info("🔐 Login OTP request at {} for: {}", now, HelperUtils.maskEmail(email));
 
-        return otpService.generateAndSendLoginOtp(userId, phoneNumber)
+        return otpService.generateAndSendLoginOtp(userId, email, fullName)
                 .map(result -> {
                     if (result.isRateLimited()) {
                         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
@@ -508,7 +467,7 @@ public class OtpController {
                     return ResponseEntity.ok(new ApiResponse<>(
                             true,
                             result.getMessage(),
-                            "OTP sent to " + HelperUtils.maskPhone(phoneNumber)
+                            "OTP sent to " + HelperUtils.maskEmail(email)
                     ));
                 });
     }

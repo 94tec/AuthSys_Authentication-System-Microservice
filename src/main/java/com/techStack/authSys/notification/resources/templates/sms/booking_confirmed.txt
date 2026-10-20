@@ -1,1 +1,0 @@
-Damuchi Safaris: Booking CONFIRMED ✓ Hi {{customerName}}, your {{tourName}} on {{tourDate}} is confirmed. M-Pesa: {{paymentReference}}. Paid: {{currency}} {{totalPrice}}. Ref: #{{bookingId}}. See {{bookingPortalUrl}}

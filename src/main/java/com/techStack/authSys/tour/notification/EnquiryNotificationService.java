@@ -26,9 +26,6 @@ public interface EnquiryNotificationService {
      *  proxy) -- but tourName still needs the same explicit snapshot. */
     Mono<Void> sendQuoteReady(EnquiryQuote quote, String tourName);
 
-    // EnquiryNotificationService.java — add one method to the interface
-    Mono<Void> sendQuoteReadyWhatsApp(EnquiryQuote quote, String tourName, String phone);
-
     Mono<Void> sendAppreciationNote(TourEnquiry enquiry, String tourName);
 
     // EnquiryNotificationService.java — add to interface

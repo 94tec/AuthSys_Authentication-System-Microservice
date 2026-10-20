@@ -33,7 +33,6 @@ import java.util.Map;
 public class EnquiryNotificationServiceImpl implements EnquiryNotificationService {
 
     private final EmailServiceInstance emailService;
-    private final WhatsAppService whatsAppService;
     private final Clock clock;
 
     @Value("${enquiry.notification.internal-recipient}")
@@ -164,30 +163,6 @@ public class EnquiryNotificationServiceImpl implements EnquiryNotificationServic
                 });
     }
 
-    @Override
-    public Mono<Void> sendQuoteReadyWhatsApp(EnquiryQuote quote, String tourName, String phone) {
-        TourEnquiry enquiry = quote.getEnquiry();
-
-        Map<String, Object> vars = new HashMap<>();
-        vars.put("fullName", enquiry.getFullName());
-        vars.put("tourName", tourName);
-        vars.put("totalPrice", quote.getTotalPrice());
-        vars.put("currency", quote.getCurrency());
-        vars.put("validUntil", quote.getValidUntil().toString());
-        vars.put("acceptUrl", frontendBaseUrl + "/me/enquiries/" + enquiry.getId()
-                + "/quotes/" + quote.getId());
-
-        return whatsAppService.sendTemplatedMessage(
-                        phone,
-                        "quote_ready", // WhatsApp Business template name, must be pre-approved by Meta
-                        vars
-                )
-                .doOnSuccess(v -> log.info("WhatsApp quote-ready sent for quote {}", quote.getId()))
-                .onErrorResume(e -> {
-                    log.warn("Failed to send WhatsApp quote-ready for quote {}: {}", quote.getId(), e.getMessage());
-                    return Mono.empty();
-                });
-    }
 
     @Override
     public Mono<Void> sendAppreciationNote(TourEnquiry enquiry, String tourName) {

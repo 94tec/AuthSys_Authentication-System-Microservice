@@ -1,1 +1,0 @@
-Damuchi Safaris: Your refund for {{tourName}} has been processed. Allow 5-7 business days for the funds to reflect. Questions? {{supportEmail}}

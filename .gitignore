@@ -46,5 +46,8 @@ service-account*.json
 # Local secrets
 secrets/
 .credentials/
+*africastalking*
+
+
 src/main/java/com/techStack/authSys/authsys-frontend/
 src/main/java/com/techStack/authSys/damuchi-ops-frontend/

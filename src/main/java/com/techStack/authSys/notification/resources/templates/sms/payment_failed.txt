@@ -1,1 +1,0 @@
-Damuchi Safaris: Your M-Pesa payment was not completed. {{paymentFailureReason}}. Your booking slot is still held — please try again: {{bookingPortalUrl}}

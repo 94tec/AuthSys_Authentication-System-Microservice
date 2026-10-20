@@ -2,14 +2,9 @@ package com.techStack.authSys.notification.service;
 
 import com.techStack.authSys.auth.exception.EmailSendingException;
 import com.techStack.authSys.notification.repository.EmailService;
-import jakarta.annotation.PostConstruct;
-import jakarta.mail.internet.MimeMessage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.io.ClassPathResource;
-import org.springframework.mail.javamail.JavaMailSender;
-import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
 import org.springframework.web.util.UriComponentsBuilder;
 import org.thymeleaf.context.Context;
@@ -40,7 +35,7 @@ public class EmailServiceInstance implements EmailService {
        Dependencies
        ========================= */
 
-    private final JavaMailSender mailSender;
+    private final BrevoClient brevoClient;
     private final SpringTemplateEngine templateEngine;
     private final Scheduler emailScheduler;
     private final Clock clock;
@@ -48,9 +43,6 @@ public class EmailServiceInstance implements EmailService {
     /* =========================
        Configuration
        ========================= */
-
-    @Value("${spring.mail.from:${spring.mail.username}}")
-    private String fromAddress;
 
     @Value("${app.base-url}")
     private String baseUrl;
@@ -61,15 +53,6 @@ public class EmailServiceInstance implements EmailService {
     @Value("${app.logo-url}")
     private String logoUrl;
 
-    @Value("${app.logo.cid}")
-    private String logoCid;
-
-    @PostConstruct
-    public void init() {
-        // Use CID for all emails
-        this.logoUrl = "cid:" + logoCid;
-    }
-
     private static final DateTimeFormatter EMAIL_TIMESTAMP_FORMATTER =
             DateTimeFormatter.ofPattern("MMMM dd, yyyy 'at' HH:mm:ss z")
                     .withZone(ZoneId.systemDefault());
@@ -78,42 +61,20 @@ public class EmailServiceInstance implements EmailService {
        Core Email Sending
        ========================= */
     // Core method: send templated email
-    public Mono<Void> sendTemplatedEmail(String to, String subject, String templatePath, Map<String, Object> variables) {
+    public Mono<Void> sendTemplatedEmail(String to, String subject, String templatePath,
+                                         Map<String, Object> variables) {
         return Mono.fromCallable(() -> {
-                    if (!variables.containsKey("logoUrl")) {
-                        variables.put("logoUrl", logoUrl);
-                    }
-                    variables.put("baseUrl", baseUrl);
-                    variables.put("subject", subject);
-                    variables.put("timestamp", clock.instant());
-
-                    // Render HTML
-                    Context context = new Context(Locale.ENGLISH, variables);
-                    String htmlContent = templateEngine.process(templatePath, context);
-
-                    // Build MimeMessage
-                    MimeMessage mimeMessage = mailSender.createMimeMessage();
-                    MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, "UTF-8");
-                    helper.setFrom(fromAddress);
-                    helper.setTo(to);
-                    helper.setSubject(subject);
-                    helper.setText(htmlContent, true); // true = HTML
-
-                    // ✅ Embed the logo using the same CID that was put in the context
-                    String cid = (String) variables.get("logoUrl");
-                    if (cid != null && cid.startsWith("cid:")) {
-                        cid = cid.substring(4); // remove "cid:" prefix
-                        ClassPathResource logoResource = new ClassPathResource("static/images/logo.png");
-                        helper.addInline(cid, logoResource);
-                    }
-
-                    // Send
-                    mailSender.send(mimeMessage);
-                    return null;
+                    Map<String, Object> model = new HashMap<>(variables);
+                    model.putIfAbsent("logoUrl", logoUrl);
+                    model.put("baseUrl", baseUrl);
+                    model.put("subject", subject);
+                    model.put("timestamp", clock.instant());
+                    return templateEngine.process(templatePath, new Context(Locale.ENGLISH, model));
                 })
                 .subscribeOn(emailScheduler)
-                .doOnSuccess(v -> log.info("✅ Templated email sent to {}", to))
-                .doOnError(e -> log.error("❌ Failed to send templated email", e))
+                .flatMap(html -> brevoClient.send(to, null, subject, html))
+                .doOnSuccess(id -> log.info("✅ Email '{}' sent to {} (messageId={})", subject, to, id))
+                .doOnError(e -> log.error("❌ Failed to send '{}' to {}: {}", subject, to, e.getMessage()))
                 .onErrorMap(e -> new EmailSendingException("Failed to send templated email", e))
                 .then();
     }
@@ -165,7 +126,9 @@ public class EmailServiceInstance implements EmailService {
         variables.put("loginUrl", baseUrl + "/login");
 
         String subject = "Email Verified – Damuchi";
-        sendTemplatedEmail(email, subject, "emails/auth/email-verified", variables);
+        sendTemplatedEmail(email, subject, "emails/auth/email-verified", variables)
+                .onErrorResume(e -> Mono.empty())
+                .subscribe();
     }
 
     /* =========================
@@ -353,6 +316,21 @@ public class EmailServiceInstance implements EmailService {
     /* =========================
        Account Security Emails
        ========================= */
+    @Override
+    public Mono<Void> sendSecurityNotification(String email, String subject, String message) {
+        if (email == null || email.isBlank()) {
+            log.warn("Security notification skipped — no recipient address");
+            return Mono.empty();
+        }
+
+        Map<String, Object> variables = new HashMap<>();
+        variables.put("fullName", email.split("@")[0]); // fallback, as elsewhere
+        variables.put("alertMessage", message);
+        variables.put("securityUrl", baseUrl + "/profile/security");
+        variables.put("sentAt", clock.instant());
+
+        return sendTemplatedEmail(email, subject, "emails/auth/security-notification", variables);
+    }
 
     /**
      * Send account locked notification
@@ -408,12 +386,9 @@ public class EmailServiceInstance implements EmailService {
         variables.put("approvedAt", approvedAt);
         variables.put("loginUrl", baseUrl + "/login");
 
-        sendTemplatedEmail(
-                email,
-                subject,
-                "emails/auth/user-approved",
-                variables
-        );
+        sendTemplatedEmail(email, subject, "emails/auth/user-approved", variables)
+                .onErrorResume(e -> Mono.empty())
+                .subscribe();
     }
 
     /**
@@ -439,6 +414,9 @@ public class EmailServiceInstance implements EmailService {
                 subject,
                 "emails/auth/user-rejected",
                 variables
-        );
+        )
+                .onErrorResume(e -> Mono.empty())
+                .subscribe();
+
     }
 }

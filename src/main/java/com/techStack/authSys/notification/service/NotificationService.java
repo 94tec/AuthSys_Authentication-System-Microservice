@@ -64,8 +64,6 @@ public class NotificationService {
     private final NotificationLogRepository      logRepository;
     private final CustomerProfileRepository      customerProfileRepository;
     private final EmailNotificationService       emailService;
-    private final SmsNotificationService         smsService;
-    private final WhatsAppNotificationService    whatsAppService;
     private final NotificationConfig             config;
 
     // ── Booking lifecycle triggers ────────────────────────────────────────────
@@ -345,10 +343,8 @@ public class NotificationService {
                 // Re-dispatch via the appropriate channel service
                 // Channel services update the log row in-place
                 Mono<Void> send = switch (log.getChannel()) {
-                    case EMAIL    -> rebuildAndSendEmail(log);
-                    case SMS      -> rebuildAndSendSms(log);
-                    case WHATSAPP -> rebuildAndSendWhatsApp(log);
-                    case IN_APP   -> Mono.empty(); // in-app never retried
+                    case EMAIL -> rebuildAndSendEmail(log);
+                    case SMS, WHATSAPP, IN_APP -> Mono.empty(); // legacy rows, no longer sent
                 };
                 send.subscribe();
             });
@@ -372,22 +368,6 @@ public class NotificationService {
         if (!type.isMarketingOnly() || ctx.isEmailOptIn()) {
             NotificationLog emailLog = createLogEntry(type, NotificationChannel.EMAIL, ctx);
             sends.add(emailService.send(type, ctx, emailLog));
-        }
-
-        // SMS — sent only if customer has phone AND smsOptIn (or transactional with phone)
-        if (ctx.getCustomerPhone() != null && !ctx.getCustomerPhone().isBlank()) {
-            if (!type.isMarketingOnly() || ctx.isSmsOptIn()) {
-                NotificationLog smsLog = createLogEntry(type, NotificationChannel.SMS, ctx);
-                sends.add(smsService.send(type, ctx, smsLog));
-            }
-        }
-
-        // WHATSAPP — same gate as SMS (uses smsOptIn flag)
-        if (ctx.getCustomerPhone() != null && !ctx.getCustomerPhone().isBlank()) {
-            if (!type.isMarketingOnly() || ctx.isWhatsAppOptIn()) {
-                NotificationLog waLog = createLogEntry(type, NotificationChannel.WHATSAPP, ctx);
-                sends.add(whatsAppService.send(type, ctx, waLog));
-            }
         }
 
         // Fire all channels in parallel — don't block on any
@@ -466,32 +446,6 @@ public class NotificationService {
             .referenceType(log.getReferenceType())
             .build();
         return emailService.send(log.getNotificationType(), ctx, log);
-    }
-
-    private Mono<Void> rebuildAndSendSms(NotificationLog log) {
-        NotificationContext ctx = NotificationContext.builder()
-            .customerId(log.getCustomerId())
-            .customerName(log.getRecipientName())
-            .customerPhone(log.getRecipientPhone())
-            .emailOptIn(false).smsOptIn(true).whatsAppOptIn(false)
-            .correlationId(log.getCorrelationId())
-            .referenceId(log.getReferenceId())
-            .referenceType(log.getReferenceType())
-            .build();
-        return smsService.send(log.getNotificationType(), ctx, log);
-    }
-
-    private Mono<Void> rebuildAndSendWhatsApp(NotificationLog log) {
-        NotificationContext ctx = NotificationContext.builder()
-            .customerId(log.getCustomerId())
-            .customerName(log.getRecipientName())
-            .customerPhone(log.getRecipientPhone())
-            .emailOptIn(false).smsOptIn(false).whatsAppOptIn(true)
-            .correlationId(log.getCorrelationId())
-            .referenceId(log.getReferenceId())
-            .referenceType(log.getReferenceType())
-            .build();
-        return whatsAppService.send(log.getNotificationType(), ctx, log);
     }
 
     private NotificationLogResponse toResponse(NotificationLog n) {

@@ -7,7 +7,7 @@ import com.google.cloud.firestore.WriteResult;
 import com.google.firebase.auth.FirebaseAuth;
 import com.techStack.authSys.auth.model.SessionStatus;
 import com.techStack.authSys.common.util.FirestoreUtil;
-import com.techStack.authSys.notification.service.BrevoEmailService;
+import com.techStack.authSys.notification.repository.EmailService;
 import com.techStack.authSys.security.audit.AuditLogService;
 import com.techStack.authSys.security.exception.SessionException;
 import lombok.RequiredArgsConstructor;
@@ -46,7 +46,7 @@ public class SessionExpirationServiceImpl implements SessionExpirationService {
     private final Firestore firestore;
     private final FirebaseAuth firebaseAuth;
     private final AuditLogService auditLogService;
-    private final BrevoEmailService emailService;
+    private final EmailService emailService;
     private final Clock clock;
 
     @Lazy

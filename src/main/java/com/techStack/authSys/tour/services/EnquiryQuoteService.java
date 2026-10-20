@@ -230,26 +230,12 @@ public class EnquiryQuoteService {
                 .subscribeOn(Schedulers.boundedElastic())
                 .flatMap(sent -> {
 
-                    Mono<Void> delivery =
-                            switch (sent.channel()) {
+                    log.info("Quote {}: delivering by email (preferred channel: {})",
+                            sent.quote().getId(), sent.channel());
 
-                                case EMAIL ->
-                                        notificationService
-                                                .sendQuoteReady(
-                                                        sent.quote(),
-                                                        sent.tourName()
-                                                );
-
-                                case WHATSAPP, PHONE ->
-                                        notificationService
-                                                .sendQuoteReadyWhatsApp(
-                                                        sent.quote(),
-                                                        sent.tourName(),
-                                                        sent.phone()
-                                                );
-                            };
-
-                    return delivery.thenReturn(sent.quote());
+                    return notificationService
+                            .sendQuoteReady(sent.quote(), sent.tourName())
+                            .thenReturn(sent.quote());
                 })
                 .map(this::toResponse);
     }

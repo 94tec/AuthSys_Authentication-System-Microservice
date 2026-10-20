@@ -2,7 +2,7 @@ package com.techStack.authSys.auth.service;
 
 import com.techStack.authSys.auth.dto.OtpResult;
 import com.techStack.authSys.auth.dto.OtpVerificationResult;
-import com.techStack.authSys.notification.repository.SmsService;
+import com.techStack.authSys.notification.repository.EmailService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -23,7 +23,7 @@ import java.util.concurrent.TimeUnit;
 public class OtpService {
 
     private final RedisTemplate<String, Object> redisTemplate;
-    private final SmsService smsService;
+    private final EmailService emailService;
     private final Clock clock;
 
     @Value("${app.env.dev:false}")
@@ -72,7 +72,7 @@ public class OtpService {
        SETUP OTP
        ========================= */
 
-    public Mono<OtpResult> generateAndSendSetupOtp(String userId, String phoneNumber) {
+    public Mono<OtpResult> generateAndSendSetupOtp(String userId, String email, String fullName) {
         Instant now = clock.instant();
         log.info("🔐 Generating SETUP OTP for user: {} at {}", userId, now);
 
@@ -90,7 +90,7 @@ public class OtpService {
                         log.debug("Generated OTP for {}: {}", userId, otp);
                     }
                     return storeOtp(SETUP_OTP_KEY + userId, otp, validity)
-                            .then(smsService.sendOtp(phoneNumber, otp))
+                            .then(emailService.sendOtpNotification(email, fullName, "account setup", otp, now))
                             .then(incrementRateLimit(SETUP_RATE_LIMIT_KEY + userId))
                             .thenReturn(OtpResult.sent("First-time setup OTP", otp))
                             .onErrorResume(ex -> {
@@ -99,7 +99,6 @@ public class OtpService {
                             });
                 });
     }
-
 
     public Mono<OtpVerificationResult> verifySetupOtp(String userId, String enteredOtp) {
         Instant now = clock.instant();
@@ -118,7 +117,7 @@ public class OtpService {
        LOGIN OTP
        ========================= */
 
-    public Mono<OtpResult> generateAndSendLoginOtp(String userId, String phoneNumber) {
+    public Mono<OtpResult> generateAndSendLoginOtp(String userId, String email, String fullName) {
         Instant now = clock.instant();
         log.info("🔐 Generating LOGIN OTP for user: {} at {}", userId, now);
 
@@ -133,9 +132,13 @@ public class OtpService {
                     Duration validity = Duration.ofMinutes(loginValidityMinutes);
 
                     return storeOtp(LOGIN_OTP_KEY + userId, otp, validity)
-                            .then(smsService.sendOtp(phoneNumber, otp))
+                            .then(emailService.sendOtpNotification(email, fullName, "login", otp, now))
                             .then(incrementRateLimit(LOGIN_RATE_LIMIT_KEY + userId))
-                            .thenReturn(OtpResult.sent("Login authentication OTP", otp));
+                            .thenReturn(OtpResult.sent("Login authentication OTP", otp))
+                            .onErrorResume(ex -> {
+                                log.error("❌ Failed to send login OTP for user {}: {}", userId, ex.getMessage());
+                                return Mono.just(OtpResult.failed("Failed to send OTP. Try again."));
+                            });
                 });
     }
 

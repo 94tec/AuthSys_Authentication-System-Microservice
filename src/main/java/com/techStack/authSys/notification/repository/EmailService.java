@@ -37,6 +37,7 @@ public interface EmailService {
 
     /* Account Security */
     Mono<Void> sendAccountLockedNotification(String userId, Instant eventTime, String reason, String ipAddress);
+    Mono<Void> sendSecurityNotification(String email, String subject, String message);
 
     /* Approval Workflow */
     void sendUserApprovedNotification(String email, String approvedBy, Instant approvedAt);

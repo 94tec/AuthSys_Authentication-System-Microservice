@@ -16,6 +16,7 @@ import com.techStack.authSys.identity.dto.UserRegistrationDTO;
 import com.techStack.authSys.identity.models.User;
 import com.techStack.authSys.notification.repository.EmailService;
 import com.techStack.authSys.security.audit.AuditLogService;
+import com.techStack.authSys.security.crypto.StagedSecretCipher;
 import com.techStack.authSys.security.repository.RateLimiterService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -95,6 +96,7 @@ public class FirstTimeLoginSetupService {
     private final Clock clock;
     private final PasswordPolicyService passwordPolicyService;
     private final TokenValidator tokenValidator;
+    private final StagedSecretCipher stagedSecretCipher;
 
     // Redis key prefixes
     private static final String TEMP_PASSWORD_LOCK_PREFIX = "ftl:lock:";
@@ -196,6 +198,7 @@ public class FirstTimeLoginSetupService {
 
                     return stagePasswordInRedis(user.getId(), hashedPassword, plainPassword)
                             .then(Mono.just(user));
+
                 })
                 .flatMap(user -> {
                     log.warn("🔒 [STEP 1/3] LOCKING temp password for user {}", user.getId());
@@ -204,17 +207,14 @@ public class FirstTimeLoginSetupService {
                             .then(Mono.just(user));
                 })
                 .flatMap(user -> {
-                    log.info("📱 [STEP 1/3] Sending OTP to user {}", user.getId());
+                    log.info("📧 [STEP 1/3] Sending OTP email to user {}", user.getId());
 
-                    return otpService.generateAndSendSetupOtp(user.getId(), user.getPhoneNumber())
-                            .flatMap(otpResult -> {
-                                boolean otpSent = otpResult.isSent() && !otpResult.isRateLimited();
+                    String fullName = user.getFirstName() + " " + user.getLastName();
 
-                                return sendOtpEmailNotification(user, otpResult)
-                                        .map(emailSent -> {
-                                            auditPasswordStaged(user.getId(), otpSent, emailSent);
-                                            return otpResult;
-                                        });
+                    return otpService.generateAndSendSetupOtp(user.getId(), user.getEmail(), fullName)
+                            .doOnNext(otpResult -> {
+                                boolean sent = otpResult.isSent() && !otpResult.isRateLimited();
+                                auditPasswordStaged(user.getId(), sent, sent);
                             });
                 })
                 .doOnSuccess(result -> {
@@ -238,7 +238,7 @@ public class FirstTimeLoginSetupService {
         return redisTemplate.opsForValue()
                 .set(hashKey, hashedPassword, STAGED_PASSWORD_EXPIRY)
                 .then(redisTemplate.opsForValue()
-                        .set(plainKey, plainPassword, STAGED_PASSWORD_EXPIRY))
+                        .set(plainKey, stagedSecretCipher.encrypt(plainPassword, userId), STAGED_PASSWORD_EXPIRY))
                 .then()
                 .doOnSuccess(v -> log.info("✅ Password STAGED (hash+plain) for user {}", userId));
     }
@@ -267,25 +267,6 @@ public class FirstTimeLoginSetupService {
         String key = TEMP_PASSWORD_LOCK_PREFIX + userId;
         return redisTemplate.hasKey(key);
     }
-
-    /**
-     * Send OTP email notification
-     */
-    private Mono<Boolean> sendOtpEmailNotification(User user, OtpResult otpResult) {
-        // ✅ FIXED: Use isSent() like LoginOtpService
-        if (!otpResult.isSent()) return Mono.just(false);
-
-        return emailService.sendOtpNotification(
-                        user.getEmail(),
-                        user.getFirstName() + " " + user.getLastName(),
-                        "Complete your first-time setup with OTP",
-                        otpResult.getOtp(),
-                        clock.instant()
-                )
-                .thenReturn(true)
-                .onErrorReturn(false);
-    }
-
     /* =========================
        STEP 2: Verify OTP
        ========================= */
@@ -498,7 +479,10 @@ public class FirstTimeLoginSetupService {
      */
     private Mono<String> getStagedPlainPassword(String userId) {
         String key = STAGED_PASSWORD_PREFIX + "plain:" + userId;
-        return redisTemplate.opsForValue().get(key);
+        return redisTemplate.opsForValue().get(key)
+                .map(encrypted -> stagedSecretCipher.decrypt(encrypted, userId))
+                .onErrorMap(IllegalStateException.class, e ->
+                        new IllegalStateException("Staged password unreadable. Please restart from Step 1."));
     }
 
     /**
@@ -582,9 +566,8 @@ public class FirstTimeLoginSetupService {
                                 .then(Mono.just(user))
                                 .onErrorResume(e -> Mono.just(user))
                 )
-                .flatMap(user ->
-                        otpService.generateAndSendSetupOtp(user.getId(), user.getPhoneNumber())
-                )
+                .flatMap(user -> otpService.generateAndSendSetupOtp(
+                        user.getId(), user.getEmail(), user.getFirstName() + " " + user.getLastName()))
                 .doOnSuccess(result -> log.info("✅ OTP resent"))
                 .doOnError(e -> log.error("❌ Resend failed: {}", e.getMessage()));
     }

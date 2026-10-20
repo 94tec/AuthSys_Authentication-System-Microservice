@@ -1,1 +1,0 @@
-Damuchi Safaris: Payment received — {{currency}} {{paymentAmount}}. M-Pesa receipt: {{mpesaReceiptNumber}}. Your booking confirmation has been sent to your email.
