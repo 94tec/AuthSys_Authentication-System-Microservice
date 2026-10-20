@@ -1,4 +1,3 @@
-
 package com.techStack.authSys.config.intergration;
 
 import com.google.auth.oauth2.GoogleCredentials;
@@ -17,16 +16,16 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 import reactor.netty.http.client.HttpClient;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Map;
 
 @Getter
 @Configuration
@@ -38,6 +37,9 @@ public class FirebaseConfig {
 
     @Value("${firebase.service-account.path:}")
     private String serviceAccountPath;
+
+    @Value("${FIREBASE_CREDENTIALS_JSON:}")
+    private String rawCredentialsJson;
 
     @Value("${firebase.project-id}")
     private String projectId;
@@ -97,38 +99,39 @@ public class FirebaseConfig {
     }
 
     /**
-     * Loads Firebase credentials from a filesystem path outside the repository.
-     * Never package the service-account JSON inside the application resources.
+     * Loads Firebase credentials from either a filesystem path or a raw environment JSON string.
+     * Prioritizes filesystem path if configured and reachable; falls back to raw env string.
      */
-    private GoogleCredentials loadServiceAccountCredentials()
-            throws IOException {
+    private GoogleCredentials loadServiceAccountCredentials() throws IOException {
+        InputStream inputStream = null;
 
-        if (serviceAccountPath == null || serviceAccountPath.isBlank()) {
+        // Strategy A: Attempt to load from a physical filesystem path
+        if (serviceAccountPath != null && !serviceAccountPath.isBlank()) {
+            Path credentialsPath = Path.of(serviceAccountPath).toAbsolutePath().normalize();
+            if (Files.isRegularFile(credentialsPath) && Files.isReadable(credentialsPath)) {
+                log.info("Loading Firebase service-account credentials from filesystem path: {}", credentialsPath);
+                inputStream = Files.newInputStream(credentialsPath);
+            } else {
+                log.warn("Configured path is missing or unreadable: {}. Attempting environment fallback...", credentialsPath);
+            }
+        }
+
+        // Strategy B: Fall back to raw string stream parsing if filesystem check failed
+        if (inputStream == null && rawCredentialsJson != null && !rawCredentialsJson.isBlank()) {
+            log.info("Loading Firebase service-account credentials directly from FIREBASE_CREDENTIALS_JSON environment variable.");
+            inputStream = new ByteArrayInputStream(rawCredentialsJson.getBytes(StandardCharsets.UTF_8));
+        }
+
+        // If neither strategy yielded an active stream, reject context startup
+        if (inputStream == null) {
             throw new IllegalStateException(
-                    "Firebase service-account path is not configured. "
-                            + "Set the FIREBASE_SERVICE_ACCOUNT_PATH environment variable."
+                    "Firebase credentials missing! Provide a valid file path in 'firebase.service-account.path' "
+                            + "or populate the 'FIREBASE_CREDENTIALS_JSON' environment variable."
             );
         }
 
-        Path credentialsPath = Path.of(serviceAccountPath)
-                .toAbsolutePath()
-                .normalize();
-
-        if (!Files.isRegularFile(credentialsPath)
-                || !Files.isReadable(credentialsPath)) {
-            throw new IllegalStateException(
-                    "Firebase service-account file does not exist "
-                            + "or is not readable: " + credentialsPath
-            );
-        }
-
-        log.info("Loading Firebase service-account credentials from filesystem");
-
-        try (InputStream inputStream =
-                     Files.newInputStream(credentialsPath)) {
-
-            GoogleCredentials credentials =
-                    GoogleCredentials.fromStream(inputStream);
+        try (InputStream managedStream = inputStream) {
+            GoogleCredentials credentials = GoogleCredentials.fromStream(managedStream);
 
             // Retain the explicit scopes used in the existing configuration.
             return credentials.createScoped(Arrays.asList(
@@ -232,51 +235,19 @@ public class FirebaseConfig {
             Instant checkTime = clock.instant();
 
             try {
-                if (firebaseApp == null
-                        || firebaseApp.getOptions() == null) {
-                    log.error(
-                            "Firebase app not initialized at {}",
-                            checkTime
-                    );
+                if (firebaseApp == null || firebaseApp.getOptions() == null) {
+                    log.error("Firebase app not initialized at {}", checkTime);
                     return false;
                 }
-
                 if (firestore == null) {
-                    log.error(
-                            "Firestore not accessible at {}",
-                            checkTime
-                    );
+                    log.error("Firestore instance missing from health indicator lookup at {}", checkTime);
                     return false;
                 }
-
-                log.debug("Firebase health check passed at {}", checkTime);
                 return true;
-
-            } catch (Exception exception) {
-                log.error(
-                        "Firebase health check failed at {}",
-                        checkTime,
-                        exception
-                );
+            } catch (Exception e) {
+                log.error("Firebase health check exception at {}: {}", checkTime, e.getMessage());
                 return false;
             }
-        }
-
-        public Map<String, Object> getStatus() {
-            Map<String, Object> status = new HashMap<>();
-
-            status.put("timestamp", clock.instant().toString());
-            status.put("healthy", isHealthy());
-
-            if (firebaseApp != null) {
-                status.put(
-                        "projectId",
-                        firebaseApp.getOptions().getProjectId()
-                );
-                status.put("appName", firebaseApp.getName());
-            }
-
-            return status;
         }
     }
 }
