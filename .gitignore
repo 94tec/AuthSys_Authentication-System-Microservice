@@ -43,6 +43,8 @@ firebase-adminsdk*.json
 *-firebase-adminsdk-*.json
 service-account*.json
 
+./Dockerfile
+
 # Local secrets
 secrets/
 .credentials/
