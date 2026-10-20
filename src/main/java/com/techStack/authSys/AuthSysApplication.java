@@ -9,14 +9,30 @@ import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 import com.google.cloud.spring.data.firestore.repository.config.EnableReactiveFirestoreRepositories;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.cache.annotation.EnableCaching;
+import org.springframework.context.annotation.FilterType;
+import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.scheduling.annotation.EnableAsync;
 
 import java.time.Clock;
 
 @SpringBootApplication
+// Scan all packages but limit mapping by interface inheritance targets strictly
+@EnableJpaRepositories(
+		basePackages = "com.techStack.authSys",
+		includeFilters = @org.springframework.context.annotation.ComponentScan.Filter(
+				type = FilterType.ASSIGNABLE_TYPE,
+				classes = org.springframework.data.jpa.repository.JpaRepository.class
+		)
+)
+@EnableReactiveFirestoreRepositories(
+		basePackages = "com.techStack.authSys",
+		includeFilters = @org.springframework.context.annotation.ComponentScan.Filter(
+				type = FilterType.ASSIGNABLE_TYPE,
+				classes = com.google.cloud.spring.data.firestore.FirestoreReactiveRepository.class
+		)
+)
 @ConfigurationPropertiesScan("com.techStack.authSys.config")
 @EnableConfigurationProperties({AppConfigProperties.class, JwtConfig.class})
-@EnableReactiveFirestoreRepositories
 @EnableAsync
 @EnableCaching
 public class AuthSysApplication {
