@@ -22,5 +22,5 @@ USER appuser
 EXPOSE 8001
 
 # Run with G1 Garbage Collector performance flags suited for low-memory infrastructure
-ENV JAVA_OPTS="-XX:+UseG1GC -XX:MaxRAMPercentage=75.0 -XX:+HeapDumpOnOutOfMemoryError"
-ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
+ # ENV JAVA_OPTS="-XX:+UseG1GC -XX:MaxRAMPercentage=75.0 -XX:+HeapDumpOnOutOfMemoryError"
+ENTRYPOINT ["sh", "-c", "java -jar app.jar"]
