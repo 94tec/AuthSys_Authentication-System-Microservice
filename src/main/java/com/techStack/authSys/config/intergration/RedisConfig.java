@@ -14,6 +14,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 import org.springframework.data.redis.cache.RedisCacheConfiguration;
 import org.springframework.data.redis.connection.ReactiveRedisConnectionFactory;
+import org.springframework.data.redis.connection.RedisPassword;
 import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceClientConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
@@ -21,6 +22,7 @@ import org.springframework.data.redis.connection.lettuce.LettucePoolingClientCon
 import org.springframework.data.redis.core.ReactiveRedisTemplate;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.serializer.*;
+import io.lettuce.core.RedisURI;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -40,10 +42,14 @@ public class RedisConfig {
        Redis Connection Settings
        ========================= */
 
-    @Value("${spring.data.redis.host}")
+    // Prefer REDIS_URL (a full URL) — falls back to host/port if URL isn't set
+    @Value("${spring.data.redis.url:${REDIS_URL:}}")
+    private String redisUrl;
+
+    @Value("${spring.data.redis.host:localhost}")
     private String redisHost;
 
-    @Value("${spring.data.redis.port}")
+    @Value("${spring.data.redis.port:6379}")
     private int redisPort;
 
     @Value("${spring.data.redis.password:}")
@@ -73,83 +79,8 @@ public class RedisConfig {
        Cache Configuration
        ========================= */
 
-    @Value("${spring.redis.cache.ttl-minutes:10}")
+    @Value("${app.redis.cache.ttl-minutes:10}")
     private long cacheTtlMinutes;
-
-    /* =========================
-       Connection Pool
-       ========================= */
-
-    /**
-     * Configure the connection pool for Lettuce
-     */
-    @Bean
-    public GenericObjectPoolConfig<?> lettucePoolConfig(Clock clock) {
-        Instant now = clock.instant();
-
-        log.info("🔧 Configuring Redis connection pool at {}", now);
-
-        GenericObjectPoolConfig<?> poolConfig = new GenericObjectPoolConfig<>();
-        poolConfig.setMaxTotal(maxTotal);
-        poolConfig.setMaxIdle(maxIdle);
-        poolConfig.setMinIdle(minIdle);
-        poolConfig.setTestOnBorrow(true);
-        poolConfig.setTestWhileIdle(true);
-        poolConfig.setBlockWhenExhausted(true);
-
-        log.info("📊 Pool config - MaxTotal: {}, MaxIdle: {}, MinIdle: {}",
-                maxTotal, maxIdle, minIdle);
-
-        return poolConfig;
-    }
-
-    /* =========================
-       Connection Factory
-       ========================= */
-
-    /**
-     * Primary LettuceConnectionFactory with pooling and validation
-     */
-    @Bean
-    @Primary
-    public LettuceConnectionFactory lettuceConnectionFactory(
-            GenericObjectPoolConfig<?> poolConfig,
-            Clock clock
-    ) {
-        Instant startTime = clock.instant();
-
-        log.info("🔌 Connecting to Redis at {}:{} (started at {})",
-                redisHost, redisPort, startTime);
-
-        // Configure Redis connection
-        RedisStandaloneConfiguration redisConfig = new RedisStandaloneConfiguration(redisHost, redisPort);
-
-        if (!redisPassword.isEmpty()) {
-            redisConfig.setPassword(redisPassword);
-            log.debug("🔐 Redis password configured");
-        } else {
-            log.debug("🔓 No Redis password configured");
-        }
-
-        // Configure Lettuce client
-        LettuceClientConfiguration clientConfig = LettucePoolingClientConfiguration.builder()
-                .commandTimeout(Duration.ofMillis(commandTimeoutMs))
-                .shutdownTimeout(Duration.ZERO)
-                .poolConfig(poolConfig)
-                .build();
-
-        // Create and configure factory
-        LettuceConnectionFactory factory = new LettuceConnectionFactory(redisConfig, clientConfig);
-        factory.setValidateConnection(false);
-
-        Instant endTime = clock.instant();
-        Duration duration = Duration.between(startTime, endTime);
-
-        log.info("✅ Redis connection factory created at {} (duration: {})", endTime, duration);
-        log.info("⏱️ Command timeout: {}ms", commandTimeoutMs);
-
-        return factory;
-    }
 
     /* =========================
        Object Mapper
