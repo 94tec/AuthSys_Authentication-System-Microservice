@@ -178,7 +178,8 @@ public class SecurityConfig {
         configuration.setAllowedOrigins(Arrays.asList(
                 "http://localhost:3000",
                 "http://localhost:3001",
-                "http://localhost:3002"
+                "https://auth.kivanasafaris.com/",
+                "https://www.kivanasafaris.com/"
         ));
 
         // Allow specific HTTP methods

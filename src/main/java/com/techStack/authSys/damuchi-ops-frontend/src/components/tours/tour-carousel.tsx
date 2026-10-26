@@ -39,7 +39,6 @@ export function PremiumTourCarousel({
         };
 
         emblaApi.on("select", onSelect);
-
         onSelect();
 
         return () => {
@@ -60,38 +59,30 @@ export function PremiumTourCarousel({
     return (
         <section
             className="
-                relative
-                overflow-hidden
-                rounded-[36px]
-                border
-                border-white/10
-                bg-white/[0.04]
-                backdrop-blur-2xl
-                shadow-[0_20px_80px_rgba(0,0,0,0.35)]
-                p-8
-              "
+        relative
+        overflow-hidden
+        rounded-[36px]
+        border
+        border-white/10
+        bg-white/[0.04]
+        backdrop-blur-2xl
+        shadow-[0_20px_80px_rgba(0,0,0,0.35)]
+        p-8
+      "
         >
-            {/* Background Glow */}
             <div
+                aria-hidden="true"
                 className="
-                  absolute
-                  inset-0
-                  pointer-events-none
-                  bg-[radial-gradient(circle_at_top_right,rgba(255,115,0,.15),transparent_35%),radial-gradient(circle_at_bottom_left,rgba(14,165,233,.15),transparent_35%)]
-                "
+          absolute
+          inset-0
+          pointer-events-none
+          bg-[radial-gradient(circle_at_top_right,rgba(255,115,0,.15),transparent_35%),radial-gradient(circle_at_bottom_left,rgba(14,165,233,.15),transparent_35%)]
+        "
             />
 
-            {/* Header */}
             <div className="relative z-10 mb-8 flex items-center justify-between">
                 <div>
-                    <p
-                        className="
-                          text-xs
-                          uppercase
-                          tracking-[0.25em]
-                          text-muted-foreground
-                        "
-                    >
+                    <p className="text-xs uppercase tracking-[0.25em] text-muted-foreground">
                         Premium Collection
                     </p>
 
@@ -106,27 +97,25 @@ export function PremiumTourCarousel({
 
                 <Button
                     variant="outline"
-                    className="
-                        hidden
-                        md:flex
-                        rounded-full
-                        gap-2
-                      "
+                    className="hidden gap-2 rounded-full md:flex"
                 >
                     View All
+
                     <ArrowRight className="h-4 w-4" />
                 </Button>
             </div>
 
-            {/* Fade Edges */}
-            <div className="pointer-events-none absolute left-0 top-0 z-10 h-full w-32 bg-gradient-to-r from-background to-transparent" />
-            <div className="pointer-events-none absolute right-0 top-0 z-10 h-full w-32 bg-gradient-to-l from-background to-transparent" />
-
-            {/* Carousel */}
             <div
-                ref={emblaRef}
-                className="overflow-hidden"
-            >
+                aria-hidden="true"
+                className="pointer-events-none absolute left-0 top-0 z-10 h-full w-32 bg-gradient-to-r from-background to-transparent"
+            />
+
+            <div
+                aria-hidden="true"
+                className="pointer-events-none absolute right-0 top-0 z-10 h-full w-32 bg-gradient-to-l from-background to-transparent"
+            />
+
+            <div ref={emblaRef} className="overflow-hidden">
                 <div className="flex gap-6">
                     {tours.map((tour) => (
                         <div
@@ -148,14 +137,18 @@ export function PremiumTourCarousel({
                 </div>
             </div>
 
-            {/* Dots */}
             <div className="mt-8 flex justify-center gap-2">
                 {tours.map((_, index) => (
                     <button
                         key={index}
+                        type="button"
                         onClick={() => emblaApi?.scrollTo(index)}
+                        aria-label={`Go to tour ${index + 1}`}
                         className={`
-              h-2 rounded-full transition-all duration-300
+              h-2
+              rounded-full
+              transition-all
+              duration-300
               ${
                             selected === index
                                 ? "w-8 bg-primary"

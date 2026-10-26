@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CalendarDays, Plus, Trash2, AlertTriangle } from "lucide-react";
+import { CalendarDays, Plus, Trash2, AlertTriangle, Lock, Unlock } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/layout/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -14,46 +14,54 @@ import {
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { tourApi } from "@/lib/tour-api";
+import { availabilityApi, type AvailabilityResponse } from "@/lib/availability-api";
 import { formatDate } from "@/lib/utils";
-import type { ApiError, AvailabilitySlot, TourAdmin } from "@/types";
+import type { ApiError } from "@/types/index-types";
+
+import { tourAdminApi } from "@/lib/tour-admin-api";
+import type { PagedTours } from "@/types/tour-admin";
+type TourOption = PagedTours["content"][number];
 
 const STATUS_BADGE: Record<string, "success" | "warning" | "destructive" | "outline" | "secondary"> = {
   OPEN: "success",
-  SOLD_OUT: "warning",
-  BLOCKED: "destructive",
-  UNAVAILABLE: "destructive",
+  LIMITED: "warning",
+  FULL: "secondary",
+  CLOSED: "outline",
+  CANCELLED: "destructive",
 };
 
+const sortByDate = (list: AvailabilityResponse[]) =>
+    [...list].sort((a, b) => a.date.localeCompare(b.date));
+
 export default function StaffAvailabilityPage() {
-  const [tours, setTours] = useState<TourAdmin[]>([]);
+  const [tours, setTours] = useState<TourOption[]>([]);
   const [selectedTour, setSelectedTour] = useState<string>("");
   const [toursLoading, setToursLoading] = useState(true);
   const [toursError, setToursError] = useState<string | null>(null);
 
-  const [slots, setSlots] = useState<AvailabilitySlot[]>([]);
+  const [slots, setSlots] = useState<AvailabilityResponse[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [slotsError, setSlotsError] = useState<string | null>(null);
 
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
 
   // New slot form
   const [newDate, setNewDate] = useState("");
-  const [newTotal, setNewTotal] = useState(10);
+  const [newMaxSlots, setNewMaxSlots] = useState(10);
   const [newDeadline, setNewDeadline] = useState("");
   const [isAdding, setIsAdding] = useState(false);
 
   useEffect(() => {
-    // Previously silently swallowed with .catch(console.error) — a failure
-    // here left an empty enquire-button.tsx dropdown with zero indication why. Now
-    // surfaces the same way every other load-failure does on these pages.
+    // Surfaces a load failure instead of leaving an empty tour dropdown
+    // with no indication why.
     (async () => {
       setToursLoading(true);
       setToursError(null);
       try {
-        const res = await tourApi.adminList({ page: 0, size: 100 });
+        const res = await tourAdminApi.listTours({ page: 0, size: 100 });
         setTours(res.content);
+        if (res.content.length > 0) setSelectedTour(res.content[0].id);
         if (res.content.length > 0) setSelectedTour(res.content[0].id);
       } catch (err) {
         const message = (err as ApiError).message || "Couldn't load tours.";
@@ -69,10 +77,10 @@ export default function StaffAvailabilityPage() {
     if (!selectedTour) return;
     setSlotsLoading(true);
     setSlotsError(null);
-    setConfirmingDeleteId(null); // stale confirm state shouldn't survive a enquire-button.tsx switch/reload
+    setConfirmingDeleteId(null); // stale confirm state shouldn't survive a tour switch/reload
     try {
-      const data = await tourApi.getSlots(selectedTour);
-      setSlots(data.sort((a, b) => a.date.localeCompare(b.date)));
+      const data = await availabilityApi.getAllForTour(selectedTour);
+      setSlots(sortByDate(data));
     } catch (err) {
       const message = (err as ApiError).message || "Couldn't load availability.";
       setSlotsError(message);
@@ -90,17 +98,19 @@ export default function StaffAvailabilityPage() {
     if (!newDate || !selectedTour) return;
     setIsAdding(true);
     try {
-      const slot = await tourApi.createSlot({
+      const slot = await availabilityApi.createSlot({
         tourId: selectedTour,
         date: newDate,
-        totalSlots: newTotal,
-        availableSlots: newTotal,
-        bookingDeadline: newDeadline || undefined,
-        status: "OPEN",
+        maxSlots: newMaxSlots,
+        // availableSlots omitted — backend defaults it to maxSlots and
+        // derives the starting status (OPEN / LIMITED) itself.
+        // <input type="datetime-local"> yields "2026-09-15T10:00" with no
+        // offset; the backend's OffsetDateTime needs a full ISO instant.
+        bookingDeadline: newDeadline ? new Date(newDeadline).toISOString() : undefined,
       });
-      setSlots((prev) => [...prev, slot].sort((a, b) => a.date.localeCompare(b.date)));
+      setSlots((prev) => sortByDate([...prev, slot]));
       setNewDate("");
-      setNewTotal(10);
+      setNewMaxSlots(10);
       setNewDeadline("");
       toast.success("Availability slot added.");
     } catch (err) {
@@ -110,20 +120,36 @@ export default function StaffAvailabilityPage() {
     }
   }
 
+  async function handleToggleClosed(slot: AvailabilityResponse) {
+    setBusyId(slot.id);
+    try {
+      const updated = slot.status === "CLOSED"
+          ? await availabilityApi.reopenSlot(slot.id)
+          : await availabilityApi.closeSlot(slot.id);
+      setSlots((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+      toast.success(slot.status === "CLOSED" ? "Slot reopened." : "Slot closed to bookings.");
+    } catch (err) {
+      toast.error((err as ApiError).message || "Couldn't update slot.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function handleDeleteClick(id: string) {
     if (confirmingDeleteId !== id) {
       setConfirmingDeleteId(id);
       return;
     }
-    setDeletingId(id);
+    setBusyId(id);
     try {
-      await tourApi.deleteSlot(id);
+      await availabilityApi.deleteSlot(id);
       setSlots((prev) => prev.filter((s) => s.id !== id));
       toast.success("Slot removed.");
     } catch (err) {
+      // Delete is MANAGER+ on the backend — OPERATORs get a 403 here.
       toast.error((err as ApiError).message || "Couldn't remove slot.");
     } finally {
-      setDeletingId(null);
+      setBusyId(null);
       setConfirmingDeleteId(null);
     }
   }
@@ -185,8 +211,8 @@ export default function StaffAvailabilityPage() {
                   <Label>Total slots</Label>
                   <Input
                       type="number"
-                      value={newTotal}
-                      onChange={(e) => setNewTotal(Number(e.target.value))}
+                      value={newMaxSlots}
+                      onChange={(e) => setNewMaxSlots(Number(e.target.value))}
                       min={1}
                       max={200}
                       required
@@ -249,7 +275,9 @@ export default function StaffAvailabilityPage() {
                   <div className="divide-y divide-border">
                     {slots.map((slot) => {
                       const isConfirming = confirmingDeleteId === slot.id;
-                      const isDeleting = deletingId === slot.id;
+                      const isBusy = busyId === slot.id;
+                      const isClosed = slot.status === "CLOSED";
+                      const canToggle = slot.status !== "CANCELLED";
                       return (
                           <div
                               key={slot.id}
@@ -259,32 +287,46 @@ export default function StaffAvailabilityPage() {
                               <p className="font-medium">
                                 {formatDate(slot.date, { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
                               </p>
-                              {slot.bookingDeadline && (
-                                  <p className="mt-0.5 text-xs text-muted-foreground">
-                                    Deadline: {formatDate(slot.bookingDeadline, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
-                                  </p>
-                              )}
+                              <p className="mt-0.5 text-xs text-muted-foreground">
+                                {slot.effectivePrice.toLocaleString()}
+                                {slot.priceOverride != null && " (override)"}
+                                {slot.bookingDeadline && (
+                                    <> · Deadline: {formatDate(slot.bookingDeadline, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</>
+                                )}
+                              </p>
                             </div>
                             <div className="shrink-0 text-right text-sm">
                               <p className="font-mono">
                                 <span className="font-semibold text-accent">{slot.availableSlots}</span>
-                                <span className="text-muted-foreground"> / {slot.totalSlots}</span>
+                                <span className="text-muted-foreground"> / {slot.maxSlots}</span>
                               </p>
                               <p className="text-xs text-muted-foreground">available</p>
                             </div>
                             <Badge variant={STATUS_BADGE[slot.status] ?? "outline"} className="shrink-0 rounded-full text-[10px] font-medium">
                               {slot.status.replace("_", " ")}
                             </Badge>
+                            {canToggle && (
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleToggleClosed(slot)}
+                                    disabled={isBusy}
+                                    className="shrink-0"
+                                    title={isClosed ? "Reopen for bookings" : "Close to new bookings"}
+                                >
+                                  {isClosed ? <Unlock className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}
+                                </Button>
+                            )}
                             <Button
                                 variant={isConfirming ? "destructive" : "ghost"}
                                 size="sm"
                                 onClick={() => handleDeleteClick(slot.id)}
-                                disabled={isDeleting}
+                                disabled={isBusy}
                                 className="shrink-0"
                                 title={isConfirming ? "Click again to confirm" : "Remove slot"}
                             >
                               <Trash2 className="h-3.5 w-3.5" />
-                              {isConfirming && (isDeleting ? "Removing…" : "Confirm")}
+                              {isConfirming && (isBusy ? "Removing…" : "Confirm")}
                             </Button>
                           </div>
                       );

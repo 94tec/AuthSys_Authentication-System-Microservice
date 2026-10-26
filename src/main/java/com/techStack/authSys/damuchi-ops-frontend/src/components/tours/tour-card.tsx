@@ -12,7 +12,6 @@ import {
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import {
     CATEGORY_LABELS,
     CATEGORY_EMOJI,
@@ -511,7 +510,10 @@ export function TourCard({ tour }: TourCardProps) {
                                     onClick={(e) => e.stopPropagation()}
                                     onKeyDown={(e) => e.stopPropagation()}
                                 >
-                                    <EnquiryModal tour={tour} source="tour-card-enquire" />
+                                    <EnquiryModal
+                                        tourSummary={tour}
+                                        source="tour-card-enquire"
+                                    />
                                 </div>
                             )}
 

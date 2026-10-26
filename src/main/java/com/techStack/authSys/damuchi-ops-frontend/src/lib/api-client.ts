@@ -1,5 +1,5 @@
 import axios, { AxiosError, type InternalAxiosRequestConfig } from "axios";
-import type { ApiError } from "@/types";
+import type { ApiError } from "@/types/index-types";
 import { useAuthStore } from "@/store/auth-store";
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8001/api";

@@ -1,5 +1,5 @@
-import { Badge } from "@/components/ui/Badge";
-import type { BookingStatus } from "@/types";
+import { Badge } from "@/components/ui/badge";
+import type { BookingStatus } from "@/types/index-types";
 
 const STATUS_TONE: Record<BookingStatus, "neutral" | "savanna" | "amber" | "red" | "blue"> = {
     PENDING_PAYMENT: "amber",
@@ -22,5 +22,5 @@ interface BookingStatusBadgeProps {
 }
 
 export function BookingStatusBadge({ status }: BookingStatusBadgeProps) {
-    return <Badge tone={STATUS_TONE[status]}>{STATUS_LABEL[status]}</Badge>;
+    return <Badge variant={STATUS_TONE[status]}>{STATUS_LABEL[status]}</Badge>;
 }

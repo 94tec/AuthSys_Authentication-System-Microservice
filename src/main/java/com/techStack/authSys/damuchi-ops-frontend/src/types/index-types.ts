@@ -43,7 +43,12 @@ export interface RegisterRequest {
 
 // ── Availability ──────────────────────────────────────────────────────────────
 
-export type AvailabilityStatus = "OPEN" | "SOLD_OUT" | "BLOCKED" | "UNAVAILABLE";
+export type AvailabilityStatus =
+    | "OPEN"
+    | "LIMITED"
+    | "FULL"
+    | "CLOSED"
+    | "CANCELLED";
 
 export interface AvailabilitySlot {
     id: string;
@@ -93,6 +98,8 @@ export interface Booking {
     currency: string;
     status: BookingStatus;
     statusDescription: string;
+    amountPaid?: number;
+    balanceAmount?: number;
     paymentReference?: string;
     paidAt?: string;
     cancelledAt?: string;

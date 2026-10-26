@@ -4,8 +4,9 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Search, SlidersHorizontal, MapPin, Clock, Users } from "lucide-react";
 import { tourApi } from "@/lib/tour-api";
+import { TourCard } from "@/components/tours/tour-card";
 import { formatCurrency } from "@/lib/utils";
-import type { TourCategory, TourDifficulty, TourPublic } from "@/types/index-types";
+import type { TourCategory, TourDifficulty, TourSummary } from "@/types/tour";
 
 const CATEGORIES: { value: TourCategory | ""; label: string }[] = [
   { value: "",            label: "All categories" },
@@ -61,7 +62,7 @@ function TourCardSkeleton() {
 }
 
 export default function ToursPage() {
-  const [tours, setTours]         = useState<TourPublic[]>([]);
+  const [tours, setTours] = useState<TourSummary[]>([]);
   const [loading, setLoading]     = useState(true);
   const [search, setSearch]       = useState("");
   const [category, setCategory]   = useState<TourCategory | "">("");
@@ -71,17 +72,29 @@ export default function ToursPage() {
     const controller = new AbortController();
     setLoading(true);
 
-    tourApi.list({
-      category:   category   || undefined,
-      difficulty: difficulty || undefined,
-      query:      search     || undefined,
-    })
-    .then(setTours)
-    .catch((e) => { if (e.name !== "AbortError") console.error(e); })
-    .finally(() => setLoading(false));
+    tourApi
+        .getTours({
+          category: category || undefined,
+          q: search.trim() || undefined,
+          size: 50,
+          signal: controller.signal,
+        })
+        .then((page) => {
+          const items = page.content ?? [];
+          // difficulty isn't a backend filter yet, so narrow it here
+          setTours(difficulty ? items.filter((t) => t.difficulty === difficulty) : items);
+        })
+        .catch((e) => {
+          if (e?.name === "AbortError") return;
+          console.error(e);
+          setTours([]);
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setLoading(false);
+        });
 
     return () => controller.abort();
-  }, [category, difficulty]);
+  }, [category, difficulty, search]);
 
   // Client-side search filter
   const filtered = search.trim()
@@ -178,63 +191,3 @@ export default function ToursPage() {
   );
 }
 
-function TourCard({ tour }: { tour: TourPublic }) {
-  return (
-    <Link href={`/tours/${tour.slug}`} className="card-hover block overflow-hidden group">
-      {/* Image */}
-      <div className="relative h-48 overflow-hidden bg-stone/10">
-        {tour.coverImageUrl ? (
-          <img
-            src={tour.coverImageUrl}
-            alt={tour.name}
-            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
-          />
-        ) : (
-          <div className="flex h-full items-center justify-center">
-            <MapPin className="h-10 w-10 text-stone/30" />
-          </div>
-        )}
-        {tour.featured && (
-          <span className="absolute top-3 left-3 rounded-full bg-savanna px-2.5 py-0.5 text-xs font-medium text-white">
-            Featured
-          </span>
-        )}
-        {/* Horizon line — signature element appears as a bottom accent on cards */}
-        <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-savanna opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-      </div>
-
-      <div className="p-5">
-        <p className="eyebrow text-xs mb-1">{tour.destination}</p>
-        <h3 className="font-display text-lg font-semibold text-earth leading-snug">
-          {tour.name}
-        </h3>
-        {tour.tagline && (
-          <p className="mt-1.5 text-sm text-stone line-clamp-2">{tour.tagline}</p>
-        )}
-
-        <div className="mt-4 flex items-center gap-4 text-xs text-stone">
-          <span className="flex items-center gap-1">
-            <Clock className="h-3.5 w-3.5" />
-            {tour.durationDays} {tour.durationDays === 1 ? "day" : "days"}
-          </span>
-          <span className="flex items-center gap-1">
-            <Users className="h-3.5 w-3.5" />
-            Max {tour.maxGroupSize}
-          </span>
-          <DifficultyPip difficulty={tour.difficulty} />
-        </div>
-
-        <div className="mt-4 flex items-center justify-between border-t border-border pt-4">
-          <div>
-            <p className="text-2xs text-stone">From</p>
-            <p className="price-tag text-xl">
-              {formatCurrency(tour.pricePerPerson, tour.currency)}
-            </p>
-            <p className="text-2xs text-stone">per person</p>
-          </div>
-          <span className="btn-primary text-sm px-4 py-2">View tour</span>
-        </div>
-      </div>
-    </Link>
-  );
-}

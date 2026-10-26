@@ -1,5 +1,5 @@
 import { apiClient } from "@/lib/api-client";
-import type { ApiResponse, Booking, BookingStats, BookingStatus, CreateBookingRequest } from "@/types";
+import type { ApiResponse, Booking, BookingStats, BookingStatus, CreateBookingRequest } from "@/types/index-types";
 
 export const bookingApi = {
   // ── Customer ────────────────────────────────────────────────────────────────

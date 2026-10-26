@@ -72,12 +72,13 @@ export default function ProfilePage() {
             .toUpperCase()
         : "?";
 
-    const statusVariant =
-        STATUS_BADGE[user.status] ?? "outline";
+    const status = user.status ?? "UNKNOWN";
+
+    const statusVariant = STATUS_BADGE[status] ?? "outline";
 
     const statusLabel =
-        STATUS_LABEL[user.status] ??
-        user.status.replace(/_/g, " ");
+        STATUS_LABEL[status] ??
+        status.replace(/_/g, " ");
 
     return (
         <div className="mx-auto w-full max-w-4xl">
@@ -161,9 +162,9 @@ export default function ProfilePage() {
                         </Badge>
 
                         {/* Roles */}
-                        {user.roles?.length > 0 && (
+                        {(user.roles?.length ?? 0) > 0 && (
                             <div className="mt-4 flex flex-wrap justify-center gap-1.5">
-                                {user.roles.map((role) => (
+                                {(user.roles ?? []).map((role) => (
                                     <Badge
                                         key={role}
                                         variant="outline"
@@ -221,15 +222,14 @@ export default function ProfilePage() {
                                     <p className="text-xs text-stone">
                                         Access level
                                     </p>
-
                                     <p className="mt-0.5 text-sm font-medium text-earth">
-                                        {user.roles.join(", ")}
+                                        {user.roles?.join(", ") || "No roles assigned"}
                                     </p>
                                 </div>
                             </div>
 
                             {/* Permissions */}
-                            {user.permissions?.length > 0 && (
+                            {(user.permissions?.length ?? 0) > 0 && (
                                 <div className="flex items-center gap-4 px-5 py-4 sm:px-6">
                                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-savanna/10 text-savanna">
                                         <BadgeCheck className="h-4 w-4" />
@@ -241,7 +241,7 @@ export default function ProfilePage() {
                                         </p>
 
                                         <p className="mt-0.5 text-sm font-medium text-earth">
-                                            {user.permissions.length} granted
+                                            {user.permissions?.length} granted
                                         </p>
 
                                         <p className="mt-0.5 text-xs text-stone">

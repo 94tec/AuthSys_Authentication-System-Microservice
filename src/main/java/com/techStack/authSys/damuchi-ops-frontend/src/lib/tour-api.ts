@@ -1,5 +1,6 @@
 import type {
   TourSummary,
+  TourPublic,
   PagedResponse,
   TourCategory,
 } from "@/types/tour";
@@ -106,7 +107,7 @@ export const tourApi = {
   /**
    * Tour detail by slug.
    */
-  getTourBySlug(slug: string, signal?: AbortSignal): Promise<TourSummary> {
+  getTourBySlug(slug: string, signal?: AbortSignal): Promise<TourPublic> {
     return request(`/tours/${slug}`, { signal });
   },
 };

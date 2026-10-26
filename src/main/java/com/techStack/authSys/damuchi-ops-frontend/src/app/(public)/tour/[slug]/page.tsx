@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { tourApi } from "@/lib/tour-api";
 import { formatCurrency } from "@/lib/utils";
-import type { TourPublic } from "@/types/index-types";
+import type { TourPublic } from "@/types/tour";
 
 function Skeleton({ className }: { className?: string }) {
   return <div className={`skeleton ${className ?? ""}`} />;
@@ -22,10 +22,17 @@ export default function TourDetailPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    tourApi.getBySlug(slug)
-      .then(setTour)
-      .catch(() => setError("Tour not found."))
-      .finally(() => setLoading(false));
+    const controller = new AbortController();
+
+    tourApi.getTourBySlug(slug, controller.signal)
+        .then(setTour)
+        .catch((err) => {
+          if (err?.name === "AbortError") return;
+          setError("Tour not found.");
+        })
+        .finally(() => setLoading(false));
+
+    return () => controller.abort();
   }, [slug]);
 
   if (loading) {

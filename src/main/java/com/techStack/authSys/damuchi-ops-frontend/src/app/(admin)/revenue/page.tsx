@@ -1,4 +1,4 @@
-// app/(admin)/revenue/page.tsx
+// app/(admin)/revenue/login-form.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -28,7 +28,7 @@ import { Badge } from "@/components/ui/badge";
 
 import { PageHeader } from "@/components/layout/page-header";
 import { formatCurrency } from "@/lib/utils";
-import {router} from "next/client";
+import { useRouter } from "next/navigation";
 
 type Period = "today" | "thisWeek" | "thisMonth";
 
@@ -213,6 +213,7 @@ function ErrorState({
 }
 
 export default function RevenueDashboardPage() {
+    const router = useRouter();
     const [revenue, setRevenue] =
         useState<RevenueDashboardResponse | null>(null);
 
@@ -448,7 +449,7 @@ export default function RevenueDashboardPage() {
                             variant="ghost"
                             size="sm"
                             className="w-fit gap-1.5"
-                            onClick={() => router.push("/admin/bookings")}
+                            onClick={() => router.push("/bookings")}
                         >
                             View bookings
                             <ArrowUpRight className="h-3.5 w-3.5" />

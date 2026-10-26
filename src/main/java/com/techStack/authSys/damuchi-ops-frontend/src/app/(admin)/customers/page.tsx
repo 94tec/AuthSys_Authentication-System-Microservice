@@ -44,7 +44,7 @@ import {
 } from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
 
-import type { ApiError } from "@/types";
+import type { ApiError } from "@/types/index-types";
 
 /* ============================================================
  * Types

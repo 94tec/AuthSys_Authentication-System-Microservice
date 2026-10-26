@@ -25,7 +25,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { EnquiryForm } from "@/components/landing/enquiry/enquiry-form";
 import { tourApi } from "@/lib/tour-api";
-import type { TourSummary } from "@/types/tour";
+import type { TourPublic, TourSummary } from "@/types/tour";
+
+type EnquiryTarget = Pick<TourSummary, "id" | "name" | "destination">;
 
 interface EnquiryModalProps {
     /** Custom trigger. Falls back to the default Enquire button. */
@@ -35,73 +37,71 @@ interface EnquiryModalProps {
     source?: string;
 
     /**
-     * When provided:
-     * - the modal opens directly on this tour
-     * - no tour-list API request is made
-     * - the enquiry form receives this tour automatically
-     *
-     * When omitted:
-     * - the user sees the tour picker first
+     * Full tour object, usually available on the tour detail page.
+     * When provided, the modal opens directly on this tour.
      */
-    tour?: TourSummary;
+    tour?: TourPublic;
+
+    /**
+     * Lightweight tour object from cards/lists.
+     * The modal will fetch the full TourPublic after opening.
+     */
+    tourSummary?: TourSummary;
 }
 
 export function EnquiryModal({
-    children,
-    source = "nav-enquire-modal",
-    tour,
-}: EnquiryModalProps) {
+  children,
+  source = "nav-enquire-modal",
+  tour,
+  tourSummary,
+ }: EnquiryModalProps) {
     const [open, setOpen] = useState(false);
-
     const [tours, setTours] = useState<TourSummary[]>([]);
-    const [loading, setLoading] = useState(false);
+    const [loadingTours, setLoadingTours] = useState(false);
     const [error, setError] = useState(false);
-
-    const [selectedTour, setSelectedTour] =
-        useState<TourSummary | null>(tour ?? null);
-
     const [search, setSearch] = useState("");
 
-    /**
-     * Keep the selected tour synchronized when the parent
-     * changes the tour prop.
-     */
-    useEffect(() => {
-        if (tour) {
-            setSelectedTour(tour);
-        }
-    }, [tour]);
+    const [picked, setPicked] = useState<EnquiryTarget | null>(null);
+    const preset: EnquiryTarget | null = tour ?? tourSummary ?? null;
+    const hasPreset = preset !== null;
+    const selectedTour = picked ?? preset;
+
 
     /**
-     * Fetch tours only when:
-     * - the modal is open
-     * - there isn't already a preselected tour
-     * - tours haven't already been loaded
+     * Fetch the tour picker list only when:
+     * - modal is open
+     * - no tour or tour summary was supplied
+     * - tours have not already been loaded
      */
     const loadTours = useCallback(async () => {
-        setLoading(true);
+        setLoadingTours(true);
         setError(false);
-
         try {
-            const data = await tourApi.getTours();
-            setTours(data.content);
+            const data = await tourApi.getTours({ size: 100 });
+            setTours(data.content ?? []);
         } catch {
             setTours([]);
             setError(true);
         } finally {
-            setLoading(false);
+            setLoadingTours(false);
         }
     }, []);
 
     useEffect(() => {
-        if (!open || tour || tours.length > 0) {
+        if (open && !hasPreset && tours.length === 0 && !error) {
+            void loadTours();
+        }
+    }, [open, hasPreset, tours.length, error, loadTours]);
+
+    useEffect(() => {
+        if (!open || tour || tourSummary || tours.length > 0) {
             return;
         }
 
         let cancelled = false;
 
         async function fetchTours() {
-            setLoading(true);
+            setLoadingTours(true);
             setError(false);
 
             try {
@@ -117,7 +117,7 @@ export function EnquiryModal({
                 }
             } finally {
                 if (!cancelled) {
-                    setLoading(false);
+                    setLoadingTours(false);
                 }
             }
         }
@@ -127,50 +127,26 @@ export function EnquiryModal({
         return () => {
             cancelled = true;
         };
-    }, [open, tour, tours.length]);
+    }, [open, tour, tourSummary, tours.length]);
 
-    /**
-     * Modal lifecycle.
-     */
     function handleOpenChange(next: boolean) {
         setOpen(next);
-
-        if (next) {
-            // TourCard / detail page → direct to form.
-            if (tour) {
-                setSelectedTour(tour);
-            }
-
-            return;
-        }
-
-        // Clean transient UI state when closing.
-        setSearch("");
-
-        // Navbar/global enquiry modal should return to
-        // tour selection the next time it opens.
-        if (!tour) {
-            setSelectedTour(null);
+        if (!next) {
+            setSearch("");
+            setPicked(null);
         }
     }
 
-    /**
-     * Go back to the tour picker.
-     *
-     * Only available when the modal wasn't opened with
-     * a preselected tour.
-     */
     function handleBack() {
-        if (tour) {
-            return;
-        }
-
-        setSelectedTour(null);
+        if (!hasPreset) setPicked(null);
     }
 
-    function handleSelectTour(nextTour: TourSummary) {
-        setSelectedTour(nextTour);
+    function handleSelectTour(next: TourSummary) {
+        setPicked(next);
     }
+
+    const isSelectingTour = selectedTour === null;
+    const isLoading = loadingTours;
 
     const filteredTours = useMemo(() => {
         const query = search.trim().toLowerCase();
@@ -185,8 +161,6 @@ export function EnquiryModal({
                 .includes(query),
         );
     }, [search, tours]);
-
-    const isSelectingTour = selectedTour === null;
 
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -237,9 +211,6 @@ export function EnquiryModal({
                     dark:bg-background/90
                 "
             >
-                {/* ─────────────────────────────────────────
-                    AMBIENT GLASS EFFECT
-                ───────────────────────────────────────── */}
                 <div
                     aria-hidden="true"
                     className="
@@ -255,9 +226,6 @@ export function EnquiryModal({
                     "
                 />
 
-                {/* ─────────────────────────────────────────
-                    HEADER
-                ───────────────────────────────────────── */}
                 <DialogHeader
                     className="
                         relative
@@ -275,8 +243,7 @@ export function EnquiryModal({
                 >
                     {selectedTour ? (
                         <div className="space-y-3">
-                            {/* Back to tour selection */}
-                            {!tour && (
+                            {!tour && !tourSummary && (
                                 <button
                                     type="button"
                                     onClick={handleBack}
@@ -332,12 +299,11 @@ export function EnquiryModal({
 
                                     <DialogDescription className="mt-1 truncate text-xs">
                                         Tell us a little about your trip and
-                                        we'll help plan the details.
+                                        we&apos;ll help plan the details.
                                     </DialogDescription>
                                 </div>
                             </div>
 
-                            {/* Selected tour context */}
                             <AnimatePresence mode="wait" initial={false}>
                                 <motion.div
                                     key={selectedTour.id}
@@ -395,14 +361,12 @@ export function EnquiryModal({
                                                 <MapPin className="h-3 w-3 shrink-0" />
 
                                                 <span className="truncate">
-                                                    {
-                                                        selectedTour.destination
-                                                    }
+                                                    {selectedTour.destination}
                                                 </span>
                                             </p>
                                         </div>
 
-                                        {!tour && (
+                                        {!tour && !tourSummary && (
                                             <button
                                                 type="button"
                                                 onClick={handleBack}
@@ -462,14 +426,13 @@ export function EnquiryModal({
                                     </DialogTitle>
 
                                     <DialogDescription className="mt-1 text-xs leading-5">
-                                        Choose a tour you're interested in and
-                                        we'll help you plan the rest.
+                                        Choose a tour you&apos;re interested in
+                                        and we&apos;ll help you plan the rest.
                                     </DialogDescription>
                                 </div>
                             </div>
 
-                            {/* Search */}
-                            {!loading && tours.length > 0 && (
+                            {!loadingTours && tours.length > 0 && (
                                 <div className="relative">
                                     <Search
                                         className="
@@ -507,9 +470,6 @@ export function EnquiryModal({
                     )}
                 </DialogHeader>
 
-                {/* ─────────────────────────────────────────
-                    BODY
-                ───────────────────────────────────────── */}
                 <div
                     className="
                         min-h-0
@@ -519,7 +479,7 @@ export function EnquiryModal({
                     "
                 >
                     <AnimatePresence mode="wait" initial={false}>
-                        {loading ? (
+                        {isLoading ? (
                             <motion.div
                                 key="loading"
                                 initial={{ opacity: 0 }}
@@ -551,7 +511,9 @@ export function EnquiryModal({
 
                                 <div className="text-center">
                                     <p className="text-sm font-medium">
-                                        Finding available tours
+                                        {tourSummary
+                                            ? "Loading tour details"
+                                            : "Finding available tours"}
                                     </p>
 
                                     <p className="mt-1 text-xs text-muted-foreground">
@@ -620,7 +582,7 @@ export function EnquiryModal({
                                 </div>
 
                                 <p className="mt-4 text-sm font-medium">
-                                    We couldn't load the tours
+                                    We couldn&apos;t load the tour details
                                 </p>
 
                                 <p className="mt-1 max-w-xs text-xs leading-5 text-muted-foreground">
@@ -672,7 +634,7 @@ export function EnquiryModal({
                                 </p>
 
                                 <p className="mt-1 max-w-xs text-xs leading-5 text-muted-foreground">
-                                    There aren't any tours available for
+                                    There aren&apos;t any tours available for
                                     enquiry right now. Please check back soon.
                                 </p>
                             </motion.div>
@@ -778,7 +740,6 @@ export function EnquiryModal({
                                                 focus-visible:ring-offset-2
                                             "
                                         >
-                                            {/* Tour icon */}
                                             <div
                                                 className="
                                                     flex
@@ -807,7 +768,6 @@ export function EnquiryModal({
                                                 )}
                                             </div>
 
-                                            {/* Tour information */}
                                             <div className="min-w-0 flex-1">
                                                 <p className="truncate text-sm font-semibold">
                                                     {item.name}
@@ -822,7 +782,6 @@ export function EnquiryModal({
                                                 </p>
                                             </div>
 
-                                            {/* Arrow */}
                                             <div
                                                 className="
                                                     flex
@@ -857,9 +816,6 @@ export function EnquiryModal({
                     </AnimatePresence>
                 </div>
 
-                {/* ─────────────────────────────────────────
-                    FOOTER
-                ───────────────────────────────────────── */}
                 <div
                     className="
                         shrink-0

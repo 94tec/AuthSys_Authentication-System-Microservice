@@ -1,11 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import axios from "axios";
 import { useRouter, usePathname } from "next/navigation";
 import { MessageCircle, X, LoaderCircle } from "lucide-react";
 import { toast } from "sonner";
 import { useAuthStore } from "@/store/auth-store";
-import { tourApi } from "@/lib/tour-api";
+import { enquiryApi } from "@/lib/enquiry-api";
 
 interface EnquireButtonProps {
   tourId: string;
@@ -78,19 +79,30 @@ function EnquiryModal({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSubmitting(true);
+
     try {
-      await tourApi.enquire(tourId, {
+      await enquiryApi.createEnquiry(tourId, {
         fullName: form.fullName,
         email: form.email,
         phone: form.phone || undefined,
         preferredDate: form.preferredDate || undefined,
-        numberOfGuests: form.numberOfGuests ? Number(form.numberOfGuests) : undefined,
-        message: form.message || undefined,
+        groupSizeAdults: form.numberOfGuests
+            ? Number(form.numberOfGuests)
+            : undefined,
+        requirements: form.message || undefined,
       });
+
       toast.success("Enquiry sent — our team will be in touch shortly.");
       onClose();
-    } catch (err: any) {
-      toast.error(err?.response?.data?.message ?? "Couldn't send your enquiry. Try again.");
+    } catch (err) {
+      if (axios.isAxiosError<{ message?: string }>(err)) {
+        toast.error(
+            err.response?.data?.message ??
+            "Couldn't send your enquiry. Try again."
+        );
+      } else {
+        toast.error("Couldn't send your enquiry. Try again.");
+      }
     } finally {
       setSubmitting(false);
     }

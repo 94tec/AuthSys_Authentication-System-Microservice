@@ -60,7 +60,7 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // ── 2. Root → pass through (app/page.tsx redirects to /tours) ───────────
+  // ── 2. Root → pass through (app/login-form.tsx redirects to /tours) ───────────
   if (pathname === "/") return NextResponse.next();
 
   // ── 3. Public paths — always accessible ──────────────────────────────────

@@ -8,7 +8,7 @@ import org.springframework.web.reactive.config.WebFluxConfigurer;
 @Configuration
 public class CorsConfig implements WebFluxConfigurer {
 
-    @Value("${app.cors.allowed-origins:http://localhost:3000}")
+    @Value("${app.cors.allowed-origins:}")
     private String allowedOrigins;
 
     @Override

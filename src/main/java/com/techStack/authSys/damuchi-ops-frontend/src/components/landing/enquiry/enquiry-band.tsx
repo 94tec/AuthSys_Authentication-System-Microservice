@@ -20,9 +20,8 @@ export function EnquiryBand() {
     const reducedMotion = useReducedMotion();
 
     const [tours, setTours] = useState<TourSummary[]>([]);
+    const [selectedTour, setSelectedTour] = useState<TourSummary | null>(null);
     const [loading, setLoading] = useState(true);
-    const [selectedTour, setSelectedTour] =
-        useState<TourSummary | null>(null);
     const [loadError, setLoadError] = useState(false);
 
     useEffect(() => {
@@ -33,7 +32,7 @@ export function EnquiryBand() {
                 setLoading(true);
                 setLoadError(false);
 
-                const data = await tourApi.getTours(0, 20);
+                const data = await tourApi.getTours();
 
                 if (!mounted) return;
 
