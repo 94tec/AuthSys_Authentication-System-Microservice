@@ -68,7 +68,8 @@ public class FirestoreRolePermissionsRepository {
      * @param roleName uppercase role name e.g. "ADMIN"
      * @return Mono emitting the permission list, or empty list if role not found
      */
-    @Cacheable(value = "rolePermissions", key = "#roleName")
+    @Cacheable(value = "rolePermissions", key = "#roleName",
+            unless = "#result == null || #result.isEmpty()")
     public Mono<List<String>> findByRoleName(String roleName) {
         if (roleName == null || roleName.isBlank()) {
             log.warn("findByRoleName called with null or blank roleName");
@@ -110,7 +111,8 @@ public class FirestoreRolePermissionsRepository {
      * @param roleName uppercase role name e.g. "ADMIN"
      * @return permission list, or empty list if role not found
      */
-    @Cacheable(value = "rolePermissions", key = "#roleName")
+    @Cacheable(value = "rolePermissions", key = "#roleName",
+            unless = "#result == null || #result.isEmpty()")
     public List<String> findByRoleNameBlocking(String roleName) {
         if (roleName == null || roleName.isBlank()) {
             log.warn("findByRoleNameBlocking called with null or blank roleName");

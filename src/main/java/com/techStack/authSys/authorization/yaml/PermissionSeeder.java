@@ -5,6 +5,7 @@ import com.google.api.core.ApiFutures;
 import com.google.cloud.firestore.Firestore;
 import com.google.cloud.firestore.WriteResult;
 import com.techStack.authSys.authorization.models.FirestorePermission;
+import com.techStack.authSys.authorization.repository.FirestoreRolePermissionsRepository;
 import com.techStack.authSys.authorization.service.PermissionCacheWarmupService;
 import com.techStack.authSys.config.cache.CacheConfig;
 import com.techStack.authSys.authorization.models.Roles;
@@ -12,6 +13,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -84,6 +87,7 @@ public class PermissionSeeder implements ApplicationRunner {
     private final PermissionYamlLoader permissionsYamlLoader;
     private final SecurityBootstrapValidator validator;
     private final PermissionCacheWarmupService cacheWarmupService;
+    private final FirestoreRolePermissionsRepository firestoreRolePermissionsRepository;
     private final CacheConfig cacheConfig;
 
     private static final String PERMISSIONS_COLLECTION =
@@ -110,6 +114,7 @@ public class PermissionSeeder implements ApplicationRunner {
      * schema should be a hard startup failure, not a silent data gap.
      */
     @Override
+    @Order(Ordered.HIGHEST_PRECEDENCE)
     public void run(ApplicationArguments args) throws Exception {
 
         log.info("▶ Starting RBAC initialization...");
@@ -131,6 +136,7 @@ public class PermissionSeeder implements ApplicationRunner {
 
         int permissions = seedPermissions();
         int mappings = seedRolePermissions();
+        firestoreRolePermissionsRepository.evictCache();   // drop anything cached before seeding
 
         log.info("Seeded {} permissions and {} role mappings.", permissions, mappings);
     }
