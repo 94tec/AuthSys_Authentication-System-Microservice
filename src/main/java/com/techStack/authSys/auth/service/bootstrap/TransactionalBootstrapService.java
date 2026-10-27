@@ -90,14 +90,16 @@ public class TransactionalBootstrapService {
         UserRegistrationDTO validationDto = UserRegistrationDTO.builder()
                 .email(finalEmail)
                 .build();
-
-        return registrationEmailGate.validate(validationDto)
-                .doOnSuccess(v -> log.info("✅ Email validation passed for: {}",
-                        HelperUtils.maskEmail(finalEmail)))
-                .then(checkExistingAdmin(finalEmail))
+        return checkExistingAdmin(finalEmail)
                 .flatMap(exists -> exists
                         ? handleExistingAdmin(finalEmail, ctx)
-                        : executeTransactionalCreation(finalEmail, finalPhone, ctx))
+                        : redisCacheService.removeRegisteredEmail(finalEmail)
+                        .onErrorResume(e -> Mono.empty())
+                        .then(Mono.defer(() -> registrationEmailGate.validate(validationDto)))
+                        .doOnSuccess(v -> log.info("✅ Email validation passed for: {}",
+                                HelperUtils.maskEmail(finalEmail)))
+                        .then(Mono.defer(() ->
+                                executeTransactionalCreation(finalEmail, finalPhone, ctx))))
                 .doOnError(e -> performRollback(ctx, finalEmail, e))
                 .onErrorResume(e -> handleFinalError(finalEmail, ctx, e));
     }
@@ -124,22 +126,22 @@ public class TransactionalBootstrapService {
     /* =========================
        Handle Existing Admin
        ========================= */
-
+    private Mono<BootstrapResult> recoverExistingAdmin(String email) {
+        return firebaseServiceAuth.findByEmail(email)
+                .switchIfEmpty(Mono.error(new IllegalStateException(
+                        "Email reported as registered but no user found")))
+                .flatMap(user -> stateService.markBootstrapComplete()
+                        .thenReturn(BootstrapResult.alreadyExists(user.getId())))
+                .onErrorResume(ex -> Mono.error(new BootstrapInitializationException(
+                        "Email conflict but admin could not be verified: " + ex.getMessage(),
+                        "EMAIL_CONFLICT_RECOVERY", ex, false)));
+    }
     private Mono<BootstrapResult> handleExistingAdmin(String email, TransactionContext ctx) {
         log.info("⚠️ Super Admin already exists: {}", HelperUtils.maskEmail(email));
-
-        return stateService.markBootstrapComplete()
-                .then(firebaseServiceAuth.findByEmail(email))
-                .map(existingUser -> {
-                    ctx.endTime = System.currentTimeMillis();
-                    log.info("✅ Bootstrap verified in {}ms — Admin exists", ctx.getTotalDuration());
-                    recordMetric("bootstrap.super_admin.already_exists");
-                    return BootstrapResult.alreadyExists(existingUser.getId());
-                })
-                .onErrorResume(e -> {
-                    log.warn("⚠️ Could not mark bootstrap complete: {}", e.getMessage());
-                    return Mono.just(BootstrapResult.alreadyExists(null));
-                });
+        return recoverExistingAdmin(email).doOnNext(r -> {
+            ctx.endTime = System.currentTimeMillis();
+            recordMetric("bootstrap.super_admin.already_exists");
+        });
     }
 
     /* =========================
@@ -382,9 +384,7 @@ public class TransactionalBootstrapService {
     }
 
     private Mono<Void> rollbackBootstrapFlag(List<String> steps) {
-        return FirestoreUtils.apiFutureToMono(
-                        firestore.collection("system_flags")
-                                .document("bootstrap_admin").delete())
+        return stateService.resetBootstrapState()
                 .doOnSuccess(v -> steps.add("bootstrap_flag"))
                 .onErrorResume(e -> {
                     log.error("Failed to rollback bootstrap flag: {}", e.getMessage());

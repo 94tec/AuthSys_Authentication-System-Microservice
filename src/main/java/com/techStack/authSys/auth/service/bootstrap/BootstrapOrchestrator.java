@@ -145,20 +145,10 @@ public class BootstrapOrchestrator implements CommandLineRunner {
        ========================= */
 
     private Mono<BootstrapResult> executeBootstrapProcess() {
-        Instant now = clock.instant();
-
-        return stateService.isBootstrapCompleted()
-                .flatMap(alreadyDone -> {
-                    if (alreadyDone) {
-                        log.info("✅ Bootstrap previously completed — skipping at {}", now);
-                        return Mono.just(BootstrapResult.alreadyExists(null));
-                    }
-
-                    log.info("🔐 Creating Super Admin at {}", now);
-                    return transactionalService.createSuperAdminTransactionally(
-                            appConfigProperties.getSuperAdminEmail(),
-                            appConfigProperties.getSuperAdminPhone());
-                })
+        log.info("🔐 Reconciling Super Admin at {}", clock.instant());
+        return transactionalService.createSuperAdminTransactionally(
+                        appConfigProperties.getSuperAdminEmail(),
+                        appConfigProperties.getSuperAdminPhone())
                 .onErrorResume(e -> Mono.error(new BootstrapInitializationException(
                         "Bootstrap process failed: " + e.getMessage(),
                         "BOOTSTRAP_EXECUTION", e, isRetryableError(e))));

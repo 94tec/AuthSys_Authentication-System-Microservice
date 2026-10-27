@@ -204,18 +204,9 @@ public class BootstrapStateService {
         Instant now = clock.instant();
 
         log.warn("🔄 Resetting bootstrap state at {} - Redis and Firestore", now);
-
-        return Mono.fromRunnable(() -> {
-                    if (redisTemplate.hasKey(REDIS_BOOTSTRAP_KEY)) {
-                        redisTemplate.delete(REDIS_BOOTSTRAP_KEY);
-                        log.debug("✅ Redis bootstrap key deleted at {}", now);
-                    }
-                })
+        return Mono.fromRunnable(() -> redisTemplate.delete(REDIS_BOOTSTRAP_KEY))
                 .subscribeOn(Schedulers.boundedElastic())
-                .then(firestoreUserRepository.deleteDocument(FIRESTORE_COLLECTION, FIRESTORE_DOCUMENT))
-                .doOnSuccess(v -> log.info("✅ Bootstrap state fully reset at {}", now))
-                .doOnError(e -> log.error("❌ Failed to reset bootstrap state at {}: {}",
-                        now, e.getMessage(), e));
+                .then(firestoreUserRepository.deleteDocument(FIRESTORE_COLLECTION, FIRESTORE_DOCUMENT));
     }
 
     /* =========================
