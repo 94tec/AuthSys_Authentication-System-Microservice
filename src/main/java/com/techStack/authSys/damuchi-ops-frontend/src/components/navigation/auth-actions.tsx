@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { EnquiryModal } from "@/components/landing/enquiry/enquiry-modal";
 
 const AUTH_FRONTEND_URL =
-    process.env.NEXT_PUBLIC_AUTH_FRONTEND_URL ?? "http://localhost:3000";
+    process.env.NEXT_PUBLIC_AUTH_SYSTEM_URL ?? "http://localhost:3000";
 
 export function AuthActions() {
     return (

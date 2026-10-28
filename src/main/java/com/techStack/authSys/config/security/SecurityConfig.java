@@ -31,6 +31,7 @@ import org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.List;
 
 @Configuration
 @EnableWebFluxSecurity
@@ -41,9 +42,6 @@ public class SecurityConfig {
     private final FirebaseSecurityContextRepository securityContextRepository;
     private final CustomAuthenticationEntryPoint authenticationEntryPoint;
     private final CustomAccessDeniedHandler accessDeniedHandler;
-    //private final FirebaseAuthFilter firebaseAuthFilter;
-    //private final SuperAdminSecurityFilter superAdminSecurityFilter;
-    //private final ForcePasswordChangeFilter forcePasswordChangeFilter;
 
     private final SecurityIncidentService securityIncidentService;
     private final Environment environment;
@@ -174,45 +172,31 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
 
-        // Allow specific origins
         configuration.setAllowedOrigins(Arrays.asList(
+                "https://auth.kivanasafaris.com",
+                "https://kivanasafaris.com",
+                "https://www.kivanasafaris.com",
                 "http://localhost:3000",
-                "http://localhost:3001",
-                "https://auth.kivanasafaris.com/",
-                "https://www.kivanasafaris.com/"
+                "http://localhost:3001"
         ));
 
-        // Allow specific HTTP methods
         configuration.setAllowedMethods(Arrays.asList(
-                "GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"
+                "GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"
         ));
 
-        // Allow all headers
-        configuration.setAllowedHeaders(Arrays.asList(
-                "Authorization",
-                "Content-Type",
-                "X-Requested-With",
-                "Accept",
-                "Origin",
-                "X-Temp-Token",
-                "Access-Control-Request-Method",
-                "Access-Control-Request-Headers"
-        ));
+        configuration.setAllowedHeaders(List.of("*"));
 
-        // Expose headers to client
         configuration.setExposedHeaders(Arrays.asList(
                 "Authorization",
-                "Content-Type"
+                "Refresh-Token"
         ));
 
-        // Allow credentials (cookies, authorization headers)
         configuration.setAllowCredentials(true);
-
-        // Cache preflight response for 1 hour
         configuration.setMaxAge(3600L);
 
-        // Apply to all paths
-        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        UrlBasedCorsConfigurationSource source =
+                new UrlBasedCorsConfigurationSource();
+
         source.registerCorsConfiguration("/**", configuration);
 
         return source;
