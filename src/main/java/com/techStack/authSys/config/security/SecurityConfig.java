@@ -13,6 +13,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.env.Environment;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.access.hierarchicalroles.RoleHierarchy;
@@ -46,6 +47,9 @@ public class SecurityConfig {
     private final SecurityIncidentService securityIncidentService;
     private final Environment environment;
     private final Clock clock;
+
+    @Value("${app.cors.allowed-origins:http://localhost:3000,http://localhost:3001}")
+    private String allowedOrigins;
 
     @Bean
     public FirebaseAuthFilter firebaseAuthFilter(
@@ -173,11 +177,7 @@ public class SecurityConfig {
         CorsConfiguration configuration = new CorsConfiguration();
 
         configuration.setAllowedOrigins(Arrays.asList(
-                "https://auth.kivanasafaris.com",
-                "https://kivanasafaris.com",
-                "https://www.kivanasafaris.com",
-                "http://localhost:3000",
-                "http://localhost:3001"
+                allowedOrigins.split(",")
         ));
 
         configuration.setAllowedMethods(Arrays.asList(
