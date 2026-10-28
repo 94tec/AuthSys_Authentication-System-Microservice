@@ -10,6 +10,7 @@ import com.techStack.authSys.common.constants.SecurityConstants;
 import com.techStack.authSys.common.exception.CustomException;
 import com.techStack.authSys.common.exception.DataMappingException;
 import com.techStack.authSys.common.util.FirestoreUtil;
+import com.techStack.authSys.common.util.HelperUtils;
 import com.techStack.authSys.identity.exception.UserNotFoundException;
 import com.techStack.authSys.identity.mapper.FirestoreUserMapper;
 import com.techStack.authSys.authorization.models.Roles;
@@ -271,7 +272,8 @@ public class FirestoreUserRepository {
                 });
     }
 
-    public Mono<User> findByEmail(String email) {
+    public Mono<User> findByEmail(String rawEmail) {
+        final String email = HelperUtils.normalizeEmail(rawEmail);
         return Mono.fromCallable(() -> firestore.collection(SecurityConstants.COLLECTION_USERS)
                         .whereEqualTo("email", email)
                         .limit(1)

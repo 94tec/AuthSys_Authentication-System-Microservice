@@ -8,6 +8,7 @@ import com.techStack.authSys.identity.dto.UserRegistrationDTO;
 import com.techStack.authSys.identity.exception.UserNotFoundException;
 import com.techStack.authSys.identity.models.User;
 import com.techStack.authSys.identity.service.EmailValidationService;
+import com.techStack.authSys.notification.repository.EmailService;
 import com.techStack.authSys.notification.service.EmailServiceInstance;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -23,8 +24,6 @@ import reactor.util.retry.Retry;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -52,7 +51,7 @@ public class PasswordResetService {
 
     private final FirebaseServiceAuth firebaseServiceAuth;
     private final PasswordEncoder passwordEncoder;
-    private final EmailServiceInstance emailService;
+    private final EmailService emailService;
     private final PasswordResetTokenService tokenService;
     private final PasswordPolicyService passwordPolicyService;
     private final EmailValidationService  emailValidationService;
@@ -65,9 +64,6 @@ public class PasswordResetService {
 
     @Value("${app.frontend-base-url}")
     private String frontendUrl;
-
-    private static final String RESET_TEMPLATE = "emails/auth/password-reset";
-    private static final String RESET_SUBJECT = "Password Reset Request";
 
     /* =========================
        Password Reset Initiation
@@ -210,29 +206,23 @@ public class PasswordResetService {
         Instant startedAt = clock.instant();
         String maskedEmail = HelperUtils.maskEmail(email);
 
-        String resetLink = buildResetLink(token);
-
-        Map<String, Object> variables = new HashMap<>();
-        variables.put("fullName", deriveDisplayName(email));
-        variables.put("resetLink", resetLink);
-
-        log.debug("Sending password reset email to {} at {}", maskedEmail, startedAt);
-
-        return emailService.sendTemplatedEmail(email, RESET_SUBJECT, RESET_TEMPLATE, variables)
-                .doOnSuccess(v -> log.info("📧 Reset email sent to {} in {}",
-                        maskedEmail, Duration.between(startedAt, clock.instant())))
-                .doOnError(e -> log.error("❌ Failed to send reset email to {} after {}: {}",
-                        maskedEmail, Duration.between(startedAt, clock.instant()), e.getMessage()))
+        return emailService.sendResetPasswordEmail(email, token)
+                .doOnSuccess(unused -> log.info(
+                        "📧 Reset email sent to {} in {}",
+                        maskedEmail,
+                        Duration.between(startedAt, clock.instant())
+                ))
+                .doOnError(error -> log.error(
+                        "❌ Failed to send reset email to {} after {}: {}",
+                        maskedEmail,
+                        Duration.between(startedAt, clock.instant()),
+                        error.getMessage()
+                ))
                 .thenReturn(token)
-                .onErrorMap(e -> new EmailSendingException("Failed to send password reset email", e));
-    }
-
-    private String buildResetLink(String token) {
-        return UriComponentsBuilder.fromHttpUrl(frontendUrl)
-                .path("/password-reset")
-                .queryParam("token", token)
-                .build()
-                .toUriString();
+                .onErrorMap(error -> new EmailSendingException(
+                        "Failed to send password reset email",
+                        error
+                ));
     }
 
     /**

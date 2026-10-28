@@ -198,13 +198,46 @@ public class EmailServiceInstance implements EmailService {
        ========================= */
 
     /**
-     * Send password reset link
+     * Send password reset link -----> FirstTimelogin password change
      */
     @Override
     public Mono<Void> sendPasswordResetEmail(String email, String resetToken) {
         Map<String, Object> vars = new HashMap<>();
         vars.put("resetLink", baseUrl + "/api/auth/reset-password?token=" + resetToken);
         return sendTemplatedEmail(email, "Password Reset", "emails/auth/password-reset", vars);
+    }
+    @Override
+    public Mono<Void> sendResetPasswordEmail(String email, String resetToken) {
+        String resetLink = buildResetLink(resetToken);
+
+        return sendResetPasswordEmail(
+                email,
+                deriveDisplayName(email),
+                resetLink
+        );
+    }
+
+    private Mono<Void> sendResetPasswordEmail(
+            String email,
+            String fullName,
+            String resetLink
+    ) {
+        Map<String, Object> vars = new HashMap<>();
+        vars.put("fullName", fullName);
+        vars.put("resetLink", resetLink);
+
+        return sendTemplatedEmail(
+                email,
+                "Password Reset Request",
+                "emails/auth/password-reset",
+                vars
+        );
+    }
+
+    private String deriveDisplayName(String email) {
+        return (email != null && email.contains("@"))
+                ? email.split("@")[0]
+                : email;
     }
 
     /**
@@ -418,5 +451,19 @@ public class EmailServiceInstance implements EmailService {
                 .onErrorResume(e -> Mono.empty())
                 .subscribe();
 
+    }
+
+    /**
+     * Private methods
+     */
+
+    private String buildResetLink(String resetToken) {
+        return UriComponentsBuilder
+                .fromUriString(frontendBaseUrl)
+                .path("/password-reset")
+                .queryParam("token", resetToken)
+                .build()
+                .encode()
+                .toUriString();
     }
 }

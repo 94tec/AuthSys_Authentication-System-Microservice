@@ -29,6 +29,8 @@ public interface EmailService {
     Mono<Void> sendPasswordChangedNotification(String email, String ipAddress,
                                                Instant changedAt, boolean forced);
 
+    Mono<Void> sendResetPasswordEmail(String email, String resetToken);
+
     // ⭐ NEW: Overloaded method for simpler signature (used by FirstTimeLoginSetupService)
     Mono<Void> sendPasswordChangedNotification(String email, String fullName, Instant changedAt);
 
