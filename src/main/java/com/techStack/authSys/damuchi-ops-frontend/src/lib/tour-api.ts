@@ -5,7 +5,7 @@ import type {
   TourCategory,
 } from "@/types/tour";
 
-const BASE = process.env.NEXT_PUBLIC_API_URL;
+const BASE = process.env.NEXT_PUBLIC_API_BASE_URL;
 
 /**
  * tourApi — public, unauthenticated read access to the tour catalogue.
