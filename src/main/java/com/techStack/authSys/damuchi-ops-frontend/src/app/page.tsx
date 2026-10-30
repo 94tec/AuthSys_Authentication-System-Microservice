@@ -15,11 +15,11 @@ import type { Metadata }       from "next";
 import {TourShowcaseSection} from "@/components/tours/tour-showcase-section";
 
 export const metadata: Metadata = {
-    title:       "Damuchi Safaris | East Africa's tours, real local guides",
+    title:       "Kivana Trails & Safaris | East Africa's tours, real local guides",
     description: "Safaris across Kenya, Tanzania, Uganda & Rwanda — beach escapes, mountain treks, gorilla encounters, and cultural tours. Send an enquiry and hear back from a real local guide within hours.",
     robots:      { index: true, follow: true },
     openGraph: {
-        title:       "Damuchi Safaris | East Africa's tours, real local guides",
+        title:       "Kivana Trails & Safaris | East Africa's tours, real local guides",
         description: "Savannahs, coastlines, volcanoes, and gorillas — enquire directly with local experts across East Africa.",
         type:        "website",
     },

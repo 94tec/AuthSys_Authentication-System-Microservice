@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { CategoryLandingPage } from "@/components/landing/category-landing-page";
 
 export const metadata: Metadata = {
-    title: "Hotels & Lodges | Damuchi Safaris",
+    title: "Hotels & Lodges | Kivana Trails & Safaris",
     description:
         "Beach resorts, safari lodges, luxury camps, and city hotels across East Africa.",
 };

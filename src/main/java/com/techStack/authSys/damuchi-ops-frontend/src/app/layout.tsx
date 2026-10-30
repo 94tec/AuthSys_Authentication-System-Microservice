@@ -22,13 +22,13 @@ const jetbrainsMono = JetBrains_Mono({
     display: "swap",
 });
 
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://damuchisafaris.co.ke";
+const SITE_URL = process.env.NEXT_PUBLIC_TOUR_PORTAL_URL ?? "http://localhost:3001";
 
 export const metadata: Metadata = {
     metadataBase: new URL(SITE_URL),
     title: {
-        default: "Damuchi Safaris | East Africa Tours & Safaris",
-        template: "%s | Damuchi Safaris",
+        default: "Kivana Trails & Safaris | East Africa Tours & Safaris",
+        template: "%s | Kivana Trails & Safaris",
     },
     description:
         "Safaris across Kenya, Tanzania, Uganda & Rwanda — beach escapes, mountain treks, gorilla encounters, and cultural tours. Book directly with local guides, transparent pricing, no quotes needed.",
@@ -43,7 +43,7 @@ export const metadata: Metadata = {
         "Diani Beach",
         "Zanzibar",
     ],
-    authors: [{ name: "Damuchi Safaris" }],
+    authors: [{ name: "Kivana Trails & Safaris" }],
     robots: {
         index: true,
         follow: true,
@@ -59,8 +59,8 @@ export const metadata: Metadata = {
         type: "website",
         locale: "en_US",
         url: SITE_URL,
-        siteName: "Damuchi Safaris",
-        title: "Damuchi Safaris | East Africa Tours & Safaris",
+        siteName: "Kivana Trails & Safaris",
+        title: "Kivana Trails & Safaris | East Africa Tours & Safaris",
         description:
             "Savannahs, coastlines, volcanoes, and gorillas — book tours run by local experts across East Africa.",
         images: [
@@ -68,13 +68,13 @@ export const metadata: Metadata = {
                 url: "/og-image.jpg",
                 width: 1200,
                 height: 630,
-                alt: "Damuchi Safaris — East Africa tours",
+                alt: "Kivana Trails & Safaris — East Africa tours",
             },
         ],
     },
     twitter: {
         card: "summary_large_image",
-        title: "Damuchi Safaris | East Africa Tours & Safaris",
+        title: "Kivana Trails & Safaris | East Africa Tours & Safaris",
         description: "Book safaris across Kenya, Tanzania, Uganda & Rwanda with local guides.",
         images: ["/og-image.jpg"],
     },

@@ -27,7 +27,7 @@ export function Brand() {
 
             <div>
                 <h1 className="font-display text-lg font-semibold tracking-tight">
-                    Damuchi
+                    Kivana Trails &
                     <span className="ml-1 text-orange-500">
                         Safaris
                     </span>

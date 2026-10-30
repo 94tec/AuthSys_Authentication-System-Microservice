@@ -14,7 +14,7 @@ interface MarketingPageProps {
 export function MarketingPage({
                                   title,
                                   description,
-                                  eyebrow = "Damuchi Safaris",
+                                  eyebrow = "Kivana Trails & Safaris",
                                   children,
                               }: MarketingPageProps) {
     return (

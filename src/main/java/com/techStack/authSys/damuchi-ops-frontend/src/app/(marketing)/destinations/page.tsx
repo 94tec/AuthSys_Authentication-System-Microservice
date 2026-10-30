@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { CategoryLandingPage } from "@/components/landing/category-landing-page";
 
 export const metadata: Metadata = {
-    title: "Destinations | Damuchi Safaris",
+    title: "Destinations | Kivana Trails & Safaris",
     description:
         "Explore iconic destinations across Kenya, Tanzania, Uganda, and Rwanda.",
 };

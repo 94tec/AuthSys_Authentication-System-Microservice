@@ -25,7 +25,7 @@ export default function ContactPage() {
 
                     <div className="container relative">
                         <p className="font-mono text-xs uppercase tracking-[0.18em] text-amber-400">
-                            Contact Damuchi Safaris
+                            Contact Kivana Trails & Safaris
                         </p>
 
                         <h1 className="mt-3 max-w-4xl font-display text-4xl font-semibold tracking-tight sm:text-5xl lg:text-6xl">

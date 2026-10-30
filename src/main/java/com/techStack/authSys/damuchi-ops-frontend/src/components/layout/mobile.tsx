@@ -51,7 +51,7 @@ export function MobileNav({
             <SheetContent side="right" className="flex w-[85%] max-w-sm flex-col overflow-y-auto">
                 <SheetHeader>
                     <SheetTitle className="font-display text-lg">
-                        Damuchi <span className="text-coral">Safaris</span>
+                        Kivana Trails & <span className="text-coral">Safaris</span>
                     </SheetTitle>
                 </SheetHeader>
 

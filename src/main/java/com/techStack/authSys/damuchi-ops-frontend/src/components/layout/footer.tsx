@@ -160,7 +160,7 @@ export function Footer() {
               href="/"
               className="group inline-flex items-center font-display text-xl font-semibold tracking-tight text-white"
             >
-              Damuchi
+              Kivana Trails &
               <span className="ml-1 text-coral transition-colors group-hover:text-white">
                 Safaris
               </span>
@@ -321,7 +321,7 @@ export function Footer() {
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {/* Email */}
             <a
-              href="mailto:hello@damuchisafaris.co.ke"
+              href="mailto:info@kivanasafaris.com"
               className="group flex items-center gap-3 rounded-xl border border-white/5 bg-white/[0.025] p-3.5 transition-all duration-300 hover:border-coral/20 hover:bg-white/[0.05]"
             >
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-coral/10 text-coral">
@@ -337,7 +337,7 @@ export function Footer() {
                 </p>
 
                 <p className="mt-0.5 truncate text-sm text-white/60 transition-colors group-hover:text-white">
-                  hello@damuchisafaris.co.ke
+                  info@kivanasafaris.com
                 </p>
               </div>
             </a>
