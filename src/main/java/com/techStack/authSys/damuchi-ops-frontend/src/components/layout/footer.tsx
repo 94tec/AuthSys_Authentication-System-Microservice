@@ -395,7 +395,7 @@ export function Footer() {
         ═══════════════════════════════════════════════ */}
         <div className="flex flex-col gap-5 border-t border-white/10 py-6 text-xs md:flex-row md:items-center md:justify-between">
           <p className="text-white/30">
-            © {new Date().getFullYear()} Damuchi Safaris.
+            © {new Date().getFullYear()} Kivana Trails & Safaris.
             All rights reserved.
           </p>
 

@@ -69,7 +69,7 @@ export function Hero() {
     });
 
     window.dispatchEvent(
-      new CustomEvent("basecamp:search", {
+      new CustomEvent("kivana:search", {
         detail: {
           search: search.trim(),
           category,
@@ -96,9 +96,9 @@ export function Hero() {
           className="absolute inset-0 opacity-[0.035]"
           style={{
             backgroundImage: `
-linear-gradient(rgba(255,255,255,.5) 1px, transparent 1px),
-linear-gradient(90deg, rgba(255,255,255,.5) 1px, transparent 1px)
-`,
+                              linear-gradient(rgba(255,255,255,.5) 1px, transparent 1px),
+                              linear-gradient(90deg, rgba(255,255,255,.5) 1px, transparent 1px)
+                              `,
             backgroundSize: "72px 72px",
           }}
         />
@@ -126,7 +126,7 @@ linear-gradient(90deg, rgba(255,255,255,.5) 1px, transparent 1px)
             </span>
 
             <span className="font-mono text-[10px] font-medium uppercase tracking-[0.28em] text-amber-300 sm:text-xs">
-              DAMUCHI SAFARIS · EAST AFRICA
+              KIVANA TRAILS & SAFARIS · EAST AFRICA
             </span>
           </div>
 
