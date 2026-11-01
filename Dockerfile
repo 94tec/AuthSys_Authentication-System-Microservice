@@ -11,5 +11,5 @@ WORKDIR /app
 COPY --from=build --chown=appuser:appgroup /app/target/*.jar app.jar
 USER appuser
 EXPOSE 10000
-ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=60 -XX:MaxMetaspaceSize=192m -Xss512k -Dio.netty.maxDirectMemory=134217728"
+ENV JAVA_TOOL_OPTIONS="-XX:TieredStopAtLevel=1 -XX:MaxRAMPercentage=60 -XX:MaxMetaspaceSize=192m -Xss512k -Dio.netty.maxDirectMemory=134217728"
 ENTRYPOINT ["java","-jar","app.jar"]
