@@ -1,6 +1,7 @@
 import axios, { AxiosError, type InternalAxiosRequestConfig } from "axios";
 import type { ApiError } from "@/types/index-types";
 import { useAuthStore } from "@/store/auth-store";
+import { endSession } from "@/lib/end-session";
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8001/api";
 console.log("[api-client] base URL:", BASE_URL);
@@ -34,56 +35,70 @@ apiClient.interceptors.request.use(
 );
 
 // ── Response interceptor — normalize errors, handle 401 refresh ──────────────
+let isRefreshing = false;
+let refreshQueue: Array<(token: string | null) => void> = [];
+
+function drain(token: string | null) {
+    refreshQueue.forEach((cb) => cb(token));
+    refreshQueue = [];
+}
+
 apiClient.interceptors.response.use(
     (response) => {
-      if (process.env.NODE_ENV === "development") {
-        console.log(`[api-client] ← ${response.status} ${response.config.url}`);
-      }
-      return response;
+        if (process.env.NODE_ENV === "development") {
+            console.log(`[api-client] ← ${response.status} ${response.config.url}`);
+        }
+        return response;
     },
     async (error: AxiosError<ApiError>) => {
-      const original = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
-      const status = error.response?.status;
+        const original = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
+        const status = error.response?.status;
 
-      // 401 + not already retried + not an auth endpoint itself
-      if (
-          status === 401 &&
-          !original?._retry &&
-          !original?.url?.includes("/auth/")
-      ) {
-        original._retry = true;
-        try {
-          const refreshToken = useAuthStore.getState().refreshToken;
-          if (!refreshToken) {
-            throw new Error("No refresh token");
-          }
+        if (status === 401 && !original?._retry && !original?.url?.includes("/auth/")) {
+            original._retry = true;
 
-          const res = await axios.post(`${BASE_URL}/auth/refresh`, { refreshToken });
-          const { accessToken, refreshToken: newRefresh } = res.data.data ?? res.data;
+            const refreshToken = useAuthStore.getState().refreshToken;
+            if (!refreshToken) {
+                endSession("expired");
+                return Promise.reject(normalizeError(error));
+            }
 
-          // Write through the store's own setter — this both updates the
-          // in-memory value read by the request interceptor above AND lets
-          // Zustand's persist middleware handle the sessionStorage write
-          // (and the damuchi-has-session cookie) the same way it does on
-          // login, instead of hand-editing serialized JSON out-of-band.
-          useAuthStore.getState().setTokens({
-            accessToken,
-            refreshToken: newRefresh ?? refreshToken,
-          });
+            if (isRefreshing) {
+                return new Promise((resolve, reject) => {
+                    refreshQueue.push((newToken) => {
+                        if (newToken) {
+                            original.headers!["Authorization"] = `Bearer ${newToken}`;
+                            resolve(apiClient(original));
+                        } else {
+                            reject(normalizeError(error));
+                        }
+                    });
+                });
+            }
 
-          original.headers!["Authorization"] = `Bearer ${accessToken}`;
-          return apiClient(original);
-        } catch {
-          // Refresh failed — clear session and redirect to login
-          useAuthStore.getState().clearSession();
-          if (typeof window !== "undefined") {
-            window.location.href = "/login";
-          }
-          return Promise.reject(normalizeError(error));
+            isRefreshing = true;
+            try {
+                const res = await axios.post(`${BASE_URL}/auth/refresh`, { refreshToken });
+                const { accessToken, refreshToken: newRefresh } = res.data.data ?? res.data;
+
+                useAuthStore.getState().setTokens({
+                    accessToken,
+                    refreshToken: newRefresh ?? refreshToken,
+                });
+
+                drain(accessToken);
+                original.headers!["Authorization"] = `Bearer ${accessToken}`;
+                return apiClient(original);
+            } catch {
+                drain(null);
+                endSession("expired");
+                return Promise.reject(normalizeError(error));
+            } finally {
+                isRefreshing = false;
+            }
         }
-      }
 
-      return Promise.reject(normalizeError(error));
+        return Promise.reject(normalizeError(error));
     }
 );
 
