@@ -164,36 +164,33 @@ public class CredentialValidationService {
      * Check account status (enabled, not locked, email verified)
      */
     private Mono<User> checkAccountStatus(String email, Instant validationStart) {
-        Instant statusCheckStart = clock.instant();
+        return Mono.defer(() -> {
+            Instant statusCheckStart = clock.instant();
 
-        log.debug("Checking account status at {} for: {}",
-                statusCheckStart, HelperUtils.maskEmail(email));
+            log.debug("Checking account status at {} for: {}",
+                    statusCheckStart, HelperUtils.maskEmail(email));
 
-        return accountStatusChecker.checkAccountStatus(email)
-                .doOnSuccess(user -> {
-                    Instant statusCheckEnd = clock.instant();
-                    Duration duration = Duration.between(statusCheckStart, statusCheckEnd);
-
-                    log.info("✅ Account status check passed at {} in {} for: {} (Status: {}, Enabled: {}, Verified: {})",
-                            statusCheckEnd,
-                            duration,
-                            HelperUtils.maskEmail(email),
-                            user.getStatus(),
-                            user.isEnabled(),
-                            user.isEmailVerified());
-                })
-                .doOnError(e -> {
-                    Instant errorTime = clock.instant();
-                    Duration duration = Duration.between(statusCheckStart, errorTime);
-
-                    log.warn("❌ Account status check failed at {} after {} for {}: {}",
-                            errorTime,
-                            duration,
-                            HelperUtils.maskEmail(email),
-                            e.getMessage());
-                });
+            return accountStatusChecker.checkAccountStatus(email)
+                    .doOnSuccess(user -> {
+                        Instant statusCheckEnd = clock.instant();
+                        log.info("✅ Account status check passed at {} in {} for: {} (Status: {}, Enabled: {}, Verified: {})",
+                                statusCheckEnd,
+                                Duration.between(statusCheckStart, statusCheckEnd),
+                                HelperUtils.maskEmail(email),
+                                user.getStatus(),
+                                user.isEnabled(),
+                                user.isEmailVerified());
+                    })
+                    .doOnError(e -> {
+                        Instant errorTime = clock.instant();
+                        log.warn("❌ Account status check failed at {} after {} for {}: {}",
+                                errorTime,
+                                Duration.between(statusCheckStart, errorTime),
+                                HelperUtils.maskEmail(email),
+                                e.getMessage());
+                    });
+        });
     }
-
     /* =========================
    Step 3: Password Expiry Check
    ========================= */
@@ -210,48 +207,42 @@ public class CredentialValidationService {
      * validation and an active/enabled/verified account status check. Treat
      * those as "unknown, proceed" rather than "denied."
      */
-    private Mono<User> checkPasswordExpiry(
-            User user,
-            String password,
-            Instant validationStart) {
+    private Mono<User> checkPasswordExpiry(User user, String password, Instant validationStart) {
+        return Mono.defer(() -> {
+            Instant expiryCheckStart = clock.instant();
 
-        Instant expiryCheckStart = clock.instant();
+            log.debug("Checking password expiry at {} for user: {}",
+                    expiryCheckStart, user.getId());
 
-        log.debug("Checking password expiry at {} for user: {}",
-                expiryCheckStart, user.getId());
+            return passwordExpiryService.checkPasswordExpiry(user.getId(), password)
+                    .thenReturn(user)
+                    .doOnSuccess(u -> {
+                        Instant end = clock.instant();
+                        log.info("✅ Password expiry check passed at {} in {} for user: {}",
+                                end, Duration.between(expiryCheckStart, end), user.getId());
+                    })
+                    // Warning: the password is still valid, so let the login proceed.
+                    .onErrorResume(PasswordWarningException.class, e -> {
+                        log.info("⚠️ Password expiring soon for user {}: {}", user.getId(), e.getMessage());
+                        return Mono.just(user);
+                    })
+                    .onErrorResume(e -> {
+                        Instant errorTime = clock.instant();
+                        Duration duration = Duration.between(expiryCheckStart, errorTime);
 
-        return passwordExpiryService.checkPasswordExpiry(user.getId(), password)
-                .thenReturn(user)
-                .doOnSuccess(u -> {
-                    Instant expiryCheckEnd = clock.instant();
-                    Duration duration = Duration.between(expiryCheckStart, expiryCheckEnd);
+                        if (e instanceof PasswordExpiredException) {
+                            log.warn("❌ Password expired at {} after {} for user {}: {}",
+                                    errorTime, duration, user.getId(), e.getMessage());
+                            return Mono.error(e);
+                        }
 
-                    log.info("✅ Password expiry check passed at {} in {} for user: {}",
-                            expiryCheckEnd,
-                            duration,
-                            user.getId());
-                })
-                .onErrorResume(e -> {
-                    Instant errorTime = clock.instant();
-                    Duration duration = Duration.between(expiryCheckStart, errorTime);
-
-                    if (e instanceof PasswordExpiredException || e instanceof PasswordWarningException) {
-                        // A real, meaningful outcome about this user's credential — must propagate.
-                        log.warn("❌ Password expiry check failed at {} after {} for user {}: {}",
+                        log.warn("⚠️ Password expiry check inconclusive at {} after {} for user {} "
+                                        + "(non-blocking — allowing login): {}",
                                 errorTime, duration, user.getId(), e.getMessage());
-                        return Mono.error(e);
-                    }
-
-                    // Infrastructure/transient failure — we don't know the answer, but the
-                    // user already passed real credential + account-status checks. Don't
-                    // deny login over an inconclusive check.
-                    log.warn("⚠️ Password expiry check inconclusive at {} after {} for user {} "
-                                    + "(non-blocking — allowing login): {}",
-                            errorTime, duration, user.getId(), e.getMessage());
-                    return Mono.just(user);
-                });
+                        return Mono.just(user);
+                    });
+        });
     }
-
 
     /* =========================
        Step 4: Fetch User Details

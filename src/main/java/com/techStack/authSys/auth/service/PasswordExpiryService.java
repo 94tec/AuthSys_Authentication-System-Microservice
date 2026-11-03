@@ -375,22 +375,23 @@ public class PasswordExpiryService {
      * Handle password warning
      */
     private Mono<Void> handleWarning(User user, PasswordWarningException e) {
-        int daysRemaining = calculateDaysRemaining(user);
+        return getExpiryDate(user.getId())
+                .map(expiry -> (int) Duration.between(clock.instant(), expiry).toDays())
+                .flatMap(daysRemaining -> {
+                    if (!notificationDays.contains(daysRemaining)) {
+                        return Mono.empty();
+                    }
 
-        if (notificationDays.contains(daysRemaining)) {
-            log.info("Sending password expiry warning to {} ({} days remaining) at {}",
-                    user.getEmail(), daysRemaining, clock.instant());
+                    log.info("Sending password expiry warning to {} ({} days remaining) at {}",
+                            user.getEmail(), daysRemaining, clock.instant());
 
-            return emailService.sendPasswordExpiryWarning(
-                    user.getEmail(),
-                    daysRemaining,
-                    null
-            );
-        }
-
-        return Mono.empty();
+                    return emailService.sendPasswordExpiryWarning(
+                            user.getEmail(),
+                            daysRemaining,
+                            null
+                    );
+                });
     }
-
     /**
      * Handle password expiration
      */
