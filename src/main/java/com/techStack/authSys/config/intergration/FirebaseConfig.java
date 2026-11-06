@@ -6,6 +6,8 @@ import com.google.firebase.FirebaseApp;
 import com.google.firebase.FirebaseOptions;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.cloud.FirestoreClient;
+import com.google.api.gax.core.CredentialsProvider;
+import com.google.api.gax.core.FixedCredentialsProvider;
 import io.netty.channel.ChannelOption;
 import io.netty.handler.timeout.ReadTimeoutHandler;
 import lombok.Getter;
@@ -62,9 +64,25 @@ public class FirebaseConfig {
         return clock;
     }
 
+    // Service-account credentials, loaded once and shared.
+    @Bean
+    public GoogleCredentials firebaseGoogleCredentials() throws IOException {
+        return loadServiceAccountCredentials();
+    }
+
+    // Makes Spring Cloud GCP (FirestoreReactiveRepository) use the same
+    // credentials as the Admin SDK instead of Application Default Credentials.
+    @Bean
+    public CredentialsProvider gcpCredentialsProvider(
+            GoogleCredentials firebaseGoogleCredentials) {
+        return FixedCredentialsProvider.create(firebaseGoogleCredentials);
+    }
+
     // Firebase Admin SDK initialization.
     @Bean
-    public FirebaseApp firebaseApp(Clock clock) throws IOException {
+    public FirebaseApp firebaseApp(
+            Clock clock,
+            GoogleCredentials firebaseGoogleCredentials) {
         Instant start = clock.instant();
 
         log.info("Initializing Firebase App at {}", start);
@@ -85,10 +103,8 @@ public class FirebaseConfig {
             }
         }
 
-        GoogleCredentials credentials = loadServiceAccountCredentials();
-
         FirebaseOptions options = FirebaseOptions.builder()
-                .setCredentials(credentials)
+                .setCredentials(firebaseGoogleCredentials)
                 .setProjectId(projectId)
                 .build();
 
@@ -97,7 +113,6 @@ public class FirebaseConfig {
         log.info("Firebase app initialized for project: {}", projectId);
         return app;
     }
-
     /**
      * Loads Firebase credentials from either a filesystem path or a raw environment JSON string.
      * Prioritizes filesystem path if configured and reachable; falls back to raw env string.

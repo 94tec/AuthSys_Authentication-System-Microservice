@@ -488,20 +488,21 @@ public class PasswordExpiryService {
      * Create initial password history
      */
     private Mono<UserPasswordHistory> createInitialPasswordHistory(String userId, String plainPassword) {
-        Instant now = clock.instant();
-        String encryptedPassword = encryptionService.encrypt(plainPassword);
+        return Mono.fromCallable(() -> encryptionService.hashPassword(plainPassword))
+                .subscribeOn(Schedulers.boundedElastic())   // PBKDF2 is CPU-heavy; keep it off gRPC/Netty threads
+                .flatMap(hash -> {
+                    Instant now = clock.instant();
+                    UserPasswordHistory history = UserPasswordHistory.builder()
+                            .userId(userId)
+                            .passwordHash(hash)
+                            .createdAt(now)
+                            .build();
 
-        UserPasswordHistory history = UserPasswordHistory.builder()
-                .userId(userId)
-                .passwordHash(encryptedPassword)
-                .createdAt(now)
-                .build();
-
-        return passwordHistoryRepository.save(history)
-                .doOnSuccess(h -> log.debug("Created initial password history for user {} at {}",
-                        userId, now));
+                    return passwordHistoryRepository.save(history)
+                            .doOnSuccess(h -> log.debug(
+                                    "Created initial password history for user {} at {}", userId, now));
+                });
     }
-
     /**
      * Validate password expiry
      */
