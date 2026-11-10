@@ -1,0 +1,10 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{pdf/quotation-layout :: layout(content=~{::#quotation-content})}">
+<head><meta charset="UTF-8"/><title th:text="${subject != null ? subject : 'Safari Quotation'}">Safari Quotation</title></head>
+<body>
+<div id="quotation-content">
+    <div th:replace="~{pdf/quotation-document :: document}"></div>
+</div>
+</body>
+</html>

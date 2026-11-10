@@ -1,0 +1,96 @@
+
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<body>
+
+<div th:fragment="support"
+     style="width:100%;margin:20px 0;">
+
+    <!-- Section heading -->
+    <div style="
+        background:#EEF2EA;
+        color:#3F5D42;
+        font-family:Helvetica,Arial,sans-serif;
+        font-size:11px;
+        font-weight:bold;
+        text-transform:uppercase;
+        letter-spacing:0.6px;
+        padding:7px 10px;
+        margin-bottom:10px;
+    ">
+        Need Assistance?
+    </div>
+
+    <div style="
+        background:#F8FAF7;
+        border:1px solid #E2E8DE;
+        padding:14px 16px;
+        font-family:Helvetica,Arial,sans-serif;
+    ">
+
+        <p style="
+            margin:0 0 10px;
+            font-size:10.5px;
+            line-height:1.6;
+            color:#4A4A44;
+        ">
+            Our team is here to help with your safari
+            quotation, payment, and booking arrangements.
+        </p>
+
+        <!-- Support email -->
+        <div th:if="${supportEmail != null
+                      and !#strings.isEmpty(supportEmail)}"
+             style="
+                margin-bottom:6px;
+                font-size:10px;
+                line-height:1.6;
+            ">
+
+            <strong style="color:#3F5D42;">
+                Email:
+            </strong>
+
+            <span th:text="${supportEmail}"></span>
+
+        </div>
+
+        <!-- Support phone -->
+        <div th:if="${supportPhone != null
+                      and !#strings.isEmpty(supportPhone)}"
+             style="
+                margin-bottom:6px;
+                font-size:10px;
+                line-height:1.6;
+            ">
+
+            <strong style="color:#3F5D42;">
+                Phone:
+            </strong>
+
+            <span th:text="${supportPhone}"></span>
+
+        </div>
+
+        <!-- Business hours -->
+        <div th:if="${supportHours != null
+                      and !#strings.isEmpty(supportHours)}"
+             style="
+                font-size:10px;
+                line-height:1.6;
+            ">
+
+            <strong style="color:#3F5D42;">
+                Support hours:
+            </strong>
+
+            <span th:text="${supportHours}"></span>
+
+        </div>
+
+    </div>
+
+</div>
+
+</body>
+</html>

@@ -61,21 +61,52 @@ public class EmailServiceInstance implements EmailService {
        Core Email Sending
        ========================= */
     // Core method: send templated email
-    public Mono<Void> sendTemplatedEmail(String to, String subject, String templatePath,
-                                         Map<String, Object> variables) {
+    public Mono<Void> sendTemplatedEmail(
+            String to,
+            String subject,
+            String templatePath,
+            Map<String, Object> variables
+    ) {
         return Mono.fromCallable(() -> {
-                    Map<String, Object> model = new HashMap<>(variables);
-                    model.putIfAbsent("logoUrl", logoUrl);
+
+                    Map<String, Object> model =
+                            new HashMap<>(variables);
+
+                    model.put("logoUrl", logoUrl);
                     model.put("baseUrl", baseUrl);
                     model.put("subject", subject);
                     model.put("timestamp", clock.instant());
-                    return templateEngine.process(templatePath, new Context(Locale.ENGLISH, model));
+
+                    return templateEngine.process(
+                            templatePath,
+                            new Context(Locale.ENGLISH, model)
+                    );
+
                 })
                 .subscribeOn(emailScheduler)
-                .flatMap(html -> brevoClient.send(to, null, subject, html))
-                .doOnSuccess(id -> log.info("✅ Email '{}' sent to {} (messageId={})", subject, to, id))
-                .doOnError(e -> log.error("❌ Failed to send '{}' to {}: {}", subject, to, e.getMessage()))
-                .onErrorMap(e -> new EmailSendingException("Failed to send templated email", e))
+                .flatMap(html ->
+                        brevoClient.send(to, null, subject, html)
+                )
+                .doOnSuccess(id ->
+                        log.info(
+                                "Email '{}' sent successfully (messageId={})",
+                                subject,
+                                id
+                        )
+                )
+                .doOnError(error ->
+                        log.error(
+                                "Failed to send email '{}': {}",
+                                subject,
+                                error.getMessage()
+                        )
+                )
+                .onErrorMap(error ->
+                        new EmailSendingException(
+                                "Failed to send templated email",
+                                error
+                        )
+                )
                 .then();
     }
 

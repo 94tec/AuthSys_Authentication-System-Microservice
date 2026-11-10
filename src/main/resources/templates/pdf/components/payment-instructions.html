@@ -1,0 +1,254 @@
+
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<body>
+
+<div th:fragment="payment"
+     style="width:100%;margin:20px 0;">
+
+    <!-- Section heading -->
+    <div style="
+        background:#EEF2EA;
+        color:#3F5D42;
+        font-family:Helvetica,Arial,sans-serif;
+        font-size:11px;
+        font-weight:bold;
+        text-transform:uppercase;
+        letter-spacing:0.6px;
+        padding:7px 10px;
+        margin-bottom:10px;
+    ">
+        Payment Instructions
+    </div>
+
+    <div style="
+        border:1px solid #D8C5AD;
+        border-left:4px solid #B5652F;
+        padding:14px 16px;
+        font-family:Helvetica,Arial,sans-serif;
+    ">
+
+        <!-- M-Pesa -->
+        <div th:if="${(mpesaPaybill != null
+                       and !#strings.isEmpty(mpesaPaybill))
+                     or (mpesaAccount != null
+                       and !#strings.isEmpty(mpesaAccount)}"
+             style="margin-bottom:14px;">
+
+            <div style="
+                color:#B5652F;
+                font-size:11px;
+                font-weight:bold;
+                margin-bottom:8px;
+            ">
+                M-Pesa Paybill
+            </div>
+
+            <table width="100%"
+                   cellpadding="0"
+                   cellspacing="0"
+                   border="0">
+
+                <tr th:if="${mpesaPaybill != null
+                             and !#strings.isEmpty(mpesaPaybill)}">
+
+                    <td width="35%"
+                        style="
+                            padding:4px 0;
+                            color:#6B6B63;
+                            font-size:10px;
+                        ">
+                        Business Number
+                    </td>
+
+                    <td style="
+                        padding:4px 0;
+                        font-size:11px;
+                        font-weight:bold;
+                    "
+                        th:text="${mpesaPaybill}">
+                    </td>
+
+                </tr>
+
+                <tr th:if="${mpesaAccount != null
+                             and !#strings.isEmpty(mpesaAccount)}">
+
+                    <td width="35%"
+                        style="
+                            padding:4px 0;
+                            color:#6B6B63;
+                            font-size:10px;
+                        ">
+                        Account Number
+                    </td>
+
+                    <td style="
+                        padding:4px 0;
+                        font-size:11px;
+                        font-weight:bold;
+                    "
+                        th:text="${mpesaAccount}">
+                    </td>
+
+                </tr>
+
+            </table>
+
+        </div>
+
+        <!-- Bank transfer -->
+        <div th:if="${(bankName != null
+                       and !#strings.isEmpty(bankName))
+                     or (bankAccountNumber != null
+                       and !#strings.isEmpty(bankAccountNumber))}">
+
+            <div style="
+                color:#B5652F;
+                font-size:11px;
+                font-weight:bold;
+                margin-bottom:8px;
+            ">
+                Bank Transfer
+            </div>
+
+            <table width="100%"
+                   cellpadding="0"
+                   cellspacing="0"
+                   border="0">
+
+                <tr th:if="${bankName != null
+                             and !#strings.isEmpty(bankName)}">
+
+                    <td width="35%"
+                        style="
+                            padding:4px 0;
+                            color:#6B6B63;
+                            font-size:10px;
+                        ">
+                        Bank
+                    </td>
+
+                    <td style="
+                        padding:4px 0;
+                        font-size:11px;
+                    "
+                        th:text="${bankName}">
+                    </td>
+
+                </tr>
+
+                <tr th:if="${bankAccountName != null
+                             and !#strings.isEmpty(bankAccountName)}">
+
+                    <td width="35%"
+                        style="
+                            padding:4px 0;
+                            color:#6B6B63;
+                            font-size:10px;
+                        ">
+                        Account Name
+                    </td>
+
+                    <td style="
+                        padding:4px 0;
+                        font-size:11px;
+                    "
+                        th:text="${bankAccountName}">
+                    </td>
+
+                </tr>
+
+                <tr th:if="${bankAccountNumber != null
+                             and !#strings.isEmpty(bankAccountNumber)}">
+
+                    <td width="35%"
+                        style="
+                            padding:4px 0;
+                            color:#6B6B63;
+                            font-size:10px;
+                        ">
+                        Account Number
+                    </td>
+
+                    <td style="
+                        padding:4px 0;
+                        font-size:11px;
+                        font-weight:bold;
+                    "
+                        th:text="${bankAccountNumber}">
+                    </td>
+
+                </tr>
+
+                <tr th:if="${bankBranch != null
+                             and !#strings.isEmpty(bankBranch)}">
+
+                    <td width="35%"
+                        style="
+                            padding:4px 0;
+                            color:#6B6B63;
+                            font-size:10px;
+                        ">
+                        Branch
+                    </td>
+
+                    <td style="
+                        padding:4px 0;
+                        font-size:11px;
+                    "
+                        th:text="${bankBranch}">
+                    </td>
+
+                </tr>
+
+                <tr th:if="${bankSwift != null
+                             and !#strings.isEmpty(bankSwift)}">
+
+                    <td width="35%"
+                        style="
+                            padding:4px 0;
+                            color:#6B6B63;
+                            font-size:10px;
+                        ">
+                        SWIFT / BIC
+                    </td>
+
+                    <td style="
+                        padding:4px 0;
+                        font-size:11px;
+                    "
+                        th:text="${bankSwift}">
+                    </td>
+
+                </tr>
+
+            </table>
+
+        </div>
+
+        <!-- Reference reminder -->
+        <div style="
+            margin-top:12px;
+            padding-top:10px;
+            border-top:1px solid #E2E2DC;
+            font-size:10px;
+            line-height:1.6;
+            color:#6B6B63;
+        ">
+
+            Please use your quotation reference as the payment
+            reference wherever supported.
+
+            <strong style="color:#3F5D42;"
+                    th:text="${q.quoteId}">
+            </strong>
+
+        </div>
+
+    </div>
+
+</div>
+
+</body>
+</html>

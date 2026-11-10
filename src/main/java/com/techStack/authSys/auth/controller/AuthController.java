@@ -131,8 +131,8 @@ public class AuthController {
                                               "data": {
                                                 "id": "user-123",
                                                 "email": "user@example.com",
-                                                "firstName": "John",
-                                                "lastName": "Doe",
+                                                "firstName": "AISHA",
+                                                "lastName": "KASSIM",
                                                 "status": "PENDING_APPROVAL",
                                                 "emailVerified": false
                                               }

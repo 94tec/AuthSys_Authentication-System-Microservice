@@ -48,7 +48,7 @@ public class SecurityConfig {
     private final Environment environment;
     private final Clock clock;
 
-    @Value("${app.cors.allowed-origins:http://localhost:3000,http://localhost:3001}")
+    @Value("${app.cors.allowed-origins}")
     private String allowedOrigins;
 
     @Bean

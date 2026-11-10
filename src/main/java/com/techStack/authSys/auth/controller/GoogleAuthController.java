@@ -200,8 +200,8 @@ public class GoogleAuthController {
                                                       "data": {
                                                         "userId": "user-456",
                                                         "email": "newuser@gmail.com",
-                                                        "firstName": "Jane",
-                                                        "lastName": "Smith",
+                                                        "firstName": "Aisha",
+                                                        "lastName": "Mwangi",
                                                         "emailVerified": true,
                                                         "roles": ["USER"],
                                                         "authProvider": "GOOGLE",
@@ -370,7 +370,7 @@ public class GoogleAuthController {
                                               "data": {
                                                 "email": "user@gmail.com",
                                                 "emailVerified": true,
-                                                "name": "John Doe",
+                                                "name": "Aisha Kassim",
                                                 "picture": "https://lh3.googleusercontent.com/...",
                                                 "verifiedAt": "2024-03-15T14:22:30Z"
                                               }

@@ -85,9 +85,10 @@
     <!-- Preheader -->
     <div th:replace="~{emails/partials/preheader}"></div>
 
-
     <!-- Logo Header -->
-    <div th:replace="~{emails/partials/header}"></div>
+    <div th:replace="~{
+        emails/partials/header :: header
+    }"></div>
 
 
     <!-- Main Content -->

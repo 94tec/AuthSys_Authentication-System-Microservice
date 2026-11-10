@@ -168,7 +168,7 @@ export function EnquiryForm({
 
                                                 <Input
                                                     {...field}
-                                                    placeholder="Jane Doe"
+                                                    placeholder="Aisha Mwangi"
                                                     autoComplete="name"
                                                     className={`${inputClassName} pl-10`}
                                                 />

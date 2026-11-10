@@ -1,0 +1,76 @@
+
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<body>
+
+<div th:fragment="header"
+     style="
+        width:100%;
+        border-bottom:3px solid #3F5D42;
+        padding-bottom:16px;
+        margin-bottom:24px;
+     ">
+
+    <table width="100%"
+           cellpadding="0"
+           cellspacing="0"
+           border="0">
+
+        <tr>
+
+            <!-- Brand -->
+            <td width="55%"
+                valign="middle"
+                style="vertical-align:middle;">
+
+                <div th:replace="~{
+                    pdf/components/brand-logo :: logo
+                }"></div>
+
+            </td>
+
+            <!-- Company information -->
+            <td width="45%"
+                valign="middle"
+                align="right"
+                style="
+                    vertical-align:middle;
+                    text-align:right;
+                    font-family:Helvetica,Arial,sans-serif;
+                    font-size:10px;
+                    line-height:1.7;
+                    color:#6B6B63;
+                ">
+
+                <strong style="
+                    color:#263238;
+                    font-size:11px;
+                ">
+                    Kivana Trails &amp; Safaris
+                </strong>
+
+                <br/>
+
+                Mtwapa, Kenya
+
+                <br/>
+
+                <span th:if="${kraPin != null
+                             and !#strings.isEmpty(kraPin)}">
+
+                    KRA PIN:
+
+                    <span th:text="${kraPin}"></span>
+
+                </span>
+
+            </td>
+
+        </tr>
+
+    </table>
+
+</div>
+
+</body>
+</html>

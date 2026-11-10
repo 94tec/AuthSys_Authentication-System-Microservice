@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"><head>
+    <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title th:text="${subject != null ? subject : 'Safari Quotation'}">Safari Quotation</title>
+    <style>
+        @page { size:A4; margin:0; }
+        * { box-sizing:border-box; }
+        html,body { margin:0;padding:0; }
+        body { font-family:Helvetica,Arial,sans-serif;color:#2b2b28;font-size:11px; }
+        .page { padding:34px 40px 78px; }
+        .header { width:100%;border-bottom:3px solid #3F5D42;padding-bottom:15px;margin-bottom:22px; }
+        .header-table,.footer-table { width:100%;border-collapse:collapse; }
+        .logo-cell { width:58%;vertical-align:middle; }
+        .logo { display:block;width:auto;max-width:210px;max-height:66px;height:auto; }
+        .brand-fallback { font-size:22px;line-height:1.2;font-weight:bold;color:#3F5D42; }
+        .brand-tagline { margin-top:4px;color:#B5652F;font-size:9px;letter-spacing:1px; }
+        .company-meta { text-align:right;vertical-align:middle;font-size:9.5px;line-height:1.6;color:#6B6B63; }
+        .company-meta strong { color:#3F5D42;font-size:11px; }
+        .document-title { font-size:22px;font-weight:bold;color:#3F5D42;letter-spacing:.4px;margin:0 0 5px; }
+        .document-subtitle { color:#B5652F;font-size:10px;font-weight:bold;margin:0 0 20px; }
+        .section-title { background:#EEF2EA;color:#3F5D42;font-weight:bold;font-size:10px;text-transform:uppercase;letter-spacing:.6px;padding:7px 10px;margin:18px 0 9px;page-break-after:avoid; }
+        .meta-table { width:100%;border-collapse:collapse;margin-bottom:8px; }
+        .meta-table td { padding:4px 5px;font-size:10px;vertical-align:top; }
+        .meta-label { color:#6B6B63;width:18%; }
+        .meta-value { color:#2B2B28;width:32%;overflow-wrap:anywhere; }
+        .footer { position:fixed;bottom:17px;left:40px;right:40px;border-top:1px solid #E2E2DC;padding-top:8px;font-size:8px;color:#8A8A82; }
+        .footer-left,.footer-right { vertical-align:middle; }
+        .footer-right { text-align:right; }
+        .qr-code { width:52px;height:52px; }
+    </style></head>
+<body th:fragment="layout(content)">
+<div class="page">
+    <header class="header"><table class="header-table" role="presentation"><tr>
+        <td class="logo-cell">
+            <img th:if="${logoBase64 != null and !#strings.isEmpty(logoBase64)}" class="logo"
+                 th:src="${'data:image/png;base64,' + logoBase64}" alt="Kivana Trails and Safaris"/>
+            <div th:unless="${logoBase64 != null and !#strings.isEmpty(logoBase64)}">
+                <div class="brand-fallback">KIVANA</div><div class="brand-tagline">TRAILS &amp; SAFARIS · EXPLORE BEYOND BORDERS</div>
+            </div></td>
+        <td class="company-meta"><strong>Kivana Trails &amp; Safaris</strong><br/>
+            <span th:text="${companyAddress != null ? companyAddress : 'Mtwapa, Kenya'}">Mtwapa, Kenya</span><br/>
+            <span th:if="${kraPin != null and !#strings.isEmpty(kraPin)}" th:text="${'KRA PIN: ' + kraPin}"></span>
+            <span th:if="${companyPhone != null and !#strings.isEmpty(companyPhone)}" th:text="${companyPhone}"></span>
+        </td></tr></table></header>
+    <main><th:block th:replace="${content}"></th:block></main>
+</div>
+<footer class="footer"><table class="footer-table" role="presentation"><tr>
+    <td class="footer-left">Kivana Trails &amp; Safaris · <span th:text="${companyAddress != null ? companyAddress : 'Mtwapa, Kenya'}">Mtwapa, Kenya</span> · Electronically generated quotation; no signature required.</td>
+    <td class="footer-right"><img th:if="${qrCodeBase64 != null and !#strings.isEmpty(qrCodeBase64)}" class="qr-code" th:src="${'data:image/png;base64,' + qrCodeBase64}" alt="Quotation verification QR"/></td>
+</tr></table></footer></body></html>

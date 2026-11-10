@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"><body>
+<div th:fragment="document">
+    <p class="document-title">Safari Quotation</p>
+    <p class="document-subtitle">Quote Reference: <span th:text="${q.quoteId}">QUOTE-REFERENCE</span></p>
+    <table class="meta-table">
+        <tr><td class="meta-label">Prepared for</td><td class="meta-value" th:text="${q.customerName}">Customer</td>
+            <td class="meta-label">Valid until</td><td class="meta-value" th:text="${q.validUntil != null ? #temporals.format(q.validUntil,'dd MMM yyyy') : '—'}">Date</td></tr>
+        <tr><td class="meta-label">Email</td><td class="meta-value" th:text="${q.customerEmail != null ? q.customerEmail : '—'}">Email</td>
+            <td class="meta-label">Preferred date</td><td class="meta-value" th:text="${q.preferredDate != null ? #temporals.format(q.preferredDate,'dd MMM yyyy') : 'Flexible'}">Date</td></tr>
+    </table>
+    <div class="section-title">Trip Details</div>
+    <table class="meta-table">
+        <tr><td class="meta-label">Tour</td><td class="meta-value" th:text="${q.tourName}">Tour</td>
+            <td class="meta-label">Destination</td><td class="meta-value" th:text="${(q.destination != null ? q.destination : '') + (q.country != null ? ', ' + q.country : '')}">Destination</td></tr>
+        <tr><td class="meta-label">Duration</td><td class="meta-value" th:text="${q.durationDays + ' days / ' + q.durationNights + ' nights'}">Duration</td>
+            <td class="meta-label">Travelers</td><td class="meta-value" th:text="${q.adultCount + ' adult(s)' + (q.childCount != null and q.childCount > 0 ? ' · ' + q.childCount + ' child(ren)' : '')}">Travelers</td></tr>
+    </table>
+    <div th:replace="~{pdf/components/pricing-table :: pricing}"></div>
+    <div th:replace="~{pdf/components/payment-instructions :: payment}"></div>
+    <div th:replace="~{pdf/components/terms :: terms}"></div>
+    <div th:replace="~{pdf/components/support :: support}"></div>
+    <div th:replace="~{pdf/components/signature :: signature}"></div>
+</div>
+</body></html>

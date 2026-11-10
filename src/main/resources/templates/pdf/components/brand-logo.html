@@ -1,0 +1,56 @@
+
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<body>
+
+<div th:fragment="logo"
+     style="
+        width:100%;
+        text-align:left;
+        padding:0;
+        margin:0;
+     ">
+
+    <!-- Actual logo -->
+    <img th:if="${logoBase64 != null
+                  and !#strings.isEmpty(logoBase64)}"
+         th:src="${'data:image/png;base64,' + logoBase64}"
+         alt="Kivana Trails and Safaris"
+         style="
+            display:block;
+            width:170px;
+            height:auto;
+            max-width:100%;
+            border:0;
+            outline:none;
+         "/>
+
+    <!-- Text fallback -->
+    <div th:unless="${logoBase64 != null
+                     and !#strings.isEmpty(logoBase64)}"
+         style="
+            font-family:Helvetica,Arial,sans-serif;
+            font-size:24px;
+            font-weight:bold;
+            line-height:1.3;
+            color:#174321;
+         ">
+
+        KIVANA
+
+        <div style="
+            font-size:11px;
+            font-weight:normal;
+            letter-spacing:1px;
+            color:#A66A20;
+            margin-top:4px;
+         ">
+            Trails and Safaris
+        </div>
+
+    </div>
+
+</div>
+
+</body>
+</html>

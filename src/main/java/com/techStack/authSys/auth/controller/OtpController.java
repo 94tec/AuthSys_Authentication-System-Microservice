@@ -157,10 +157,10 @@ public class OtpController {
             @RequestParam String userId,
 
             @Parameter(description = "Email address to send the OTP to", required = true,
-                    example = "jane@example.com")
+                    example = "aisha@example.com")
             @RequestParam String email,
 
-            @Parameter(description = "Recipient name", example = "Jane Doe")
+            @Parameter(description = "Recipient name", example = "Aisha Mwangi")
             @RequestParam(required = false) String fullName) {
 
         log.info("🔐 Setup OTP request at {} for: {}", clock.instant(), HelperUtils.maskEmail(email));
@@ -431,13 +431,13 @@ public class OtpController {
             @Parameter(
                     description = "Email address to send the OTP to",
                     required = true,
-                    example = "jane@example.com"
+                    example = "aisha@example.com"
             )
             @RequestParam String email,
 
             @Parameter(
                     description = "Recipient name (optional)",
-                    example = "Jane Doe"
+                    example = "Aisha Mwangi"
             )
             @RequestParam(required = false) String fullName) {
 
