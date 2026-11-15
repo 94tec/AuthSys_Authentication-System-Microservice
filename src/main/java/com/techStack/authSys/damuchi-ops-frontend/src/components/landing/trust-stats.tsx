@@ -241,7 +241,7 @@ export function TrustStats() {
   return (
       <section
           ref={ref}
-          aria-label="Damuchi Safaris trust statistics"
+          aria-label="Kivana Trails & Safaris trust statistics"
           className="
         relative
         overflow-hidden

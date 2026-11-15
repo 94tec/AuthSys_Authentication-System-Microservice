@@ -5,7 +5,7 @@ export const PAYMENT_DETAILS = {
     mpesa: { paybill: "522522", account: "2037863" },
     bank: {
         name: "KCB Bank Kenya",
-        accountName: "Damuchi Tours",
+        accountName: "Kivana Trails & Safaris",
         accountNumber: "1091234323",
         branch: "Mtwapa",
         swift: "KCBLKENX", // ⚠️ placeholder, confirm the real SWIFT/BIC with KCB

@@ -1,38 +1,39 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { motion } from "framer-motion";
 
 export function Brand() {
     return (
-        <Link href="/" className="group relative flex items-center gap-4">
+        <Link
+            href="/"
+            aria-label="Kivana Trails and Safaris home"
+            className="group relative flex items-center gap-3"
+        >
             <motion.div
-                whileHover={{
-                    scale: 1.05,
-                    rotate: -4,
-                }}
+                whileHover={{ scale: 1.05, rotate: -4 }}
                 className="
-                    flex h-11 w-11 items-center justify-center
-                    rounded-2xl
-                    bg-gradient-to-br
-                    from-amber-500
-                    via-orange-500
-                    to-amber-600
-                    text-white
-                    shadow-lg
+                    flex h-12 w-12 shrink-0 items-center justify-center
+                    overflow-hidden rounded-2xl
+                    bg-white p-1
+                    shadow-md ring-1 ring-border/60
                 "
             >
-                D
+                <Image
+                    src="/images/kivana-logo.png"
+                    alt="Kivana Trails and Safaris logo"
+                    width={48}
+                    height={48}
+                    priority
+                    className="h-full w-full object-contain"
+                />
             </motion.div>
 
-            <div>
-                <h1 className="font-display text-lg font-semibold tracking-tight">
-                    Kivana Trails &
-                    <span className="ml-1 text-orange-500">
-                        Safaris
-                    </span>
-                </h1>
-            </div>
+            <span className="font-display text-lg font-semibold tracking-tight">
+                Kivana Trails &amp;
+                <span className="ml-1 text-orange-500">Safaris</span>
+            </span>
         </Link>
     );
 }

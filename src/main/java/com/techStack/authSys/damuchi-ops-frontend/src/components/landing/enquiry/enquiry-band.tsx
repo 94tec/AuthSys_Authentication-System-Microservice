@@ -32,7 +32,7 @@ export function EnquiryBand() {
                 setLoading(true);
                 setLoadError(false);
 
-                const data = await tourApi.getTours();
+                const data = await tourApi.getTours({ size: 100 });
 
                 if (!mounted) return;
 
@@ -265,11 +265,14 @@ export function EnquiryBand() {
                                     <EnquiryForm
                                         tourId={selectedTour.id}
                                         tourName={selectedTour.name}
+                                        pricePerPerson={selectedTour.price ?? undefined}
+                                        currency={selectedTour.currency ?? undefined}
                                         source="landing-enquiry-band"
                                         onSuccess={() =>
                                             setSelectedTour(null)
                                         }
                                     />
+
                                 </div>
                             ) : (
                                 <div>

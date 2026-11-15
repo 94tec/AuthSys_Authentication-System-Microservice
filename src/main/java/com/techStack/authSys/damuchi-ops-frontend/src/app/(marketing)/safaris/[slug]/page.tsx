@@ -18,7 +18,7 @@ export function generateMetadata({ params,}: {
     if (!config) return {};
 
     return {
-        title: `${config.title} | Damuchi Safaris`,
+        title: `${config.title} | Kivana Trails & Safaris`,
         description: config.description,
     };
 }

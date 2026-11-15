@@ -27,12 +27,12 @@ public class QuotePdfService {
     @Value("classpath:static/images/logo.png")
     private ClassPathResource logoResource;
 
-    // Damuchi Tours payment details — update if these ever change
+    // Kivana Trails & Safaris payment details — update if these ever change
     private static final String MPESA_PAYBILL = "522522";
     private static final String MPESA_ACCOUNT = "2037863";
     private static final String BANK_NAME = "KCB Bank Kenya";
     private static final String BANK_ACCOUNT_NUMBER = "1091234323";
-    private static final String BANK_ACCOUNT_NAME = "Damuchi Tours";
+    private static final String BANK_ACCOUNT_NAME = "Kivana Trails & Safaris";
     private static final String BANK_BRANCH = "Mtwapa";
     private static final String BANK_SWIFT = "KCBLKENX"; // ⚠️ placeholder — confirm real SWIFT/BIC with KCB
 

@@ -12,7 +12,7 @@ import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 
 /**
- * Payment record for a Damuchi Safaris booking.
+ * Payment record for a Kivana Trails & Safaris booking.
  *
  * One Payment is created per payment attempt.
  * A booking may have multiple Payment rows if the first attempt fails

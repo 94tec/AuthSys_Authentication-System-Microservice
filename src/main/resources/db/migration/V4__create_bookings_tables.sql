@@ -1,6 +1,6 @@
 -- ============================================================
 -- V4__create_bookings_tables.sql
--- Damuchi Safaris — Booking module
+-- Kivana Trails & Safaris — Booking module
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS bookings (
@@ -242,7 +242,7 @@ CREATE INDEX IF NOT EXISTS idx_booking_customer_slot
 -- ============================================================
 
 COMMENT ON TABLE bookings
-    IS 'Damuchi Safaris — customer enquire-button.tsx bookings';
+    IS 'Kivana Trails & Safaris — customer enquire-button.tsx bookings';
 
 COMMENT ON TABLE booking_travelers
     IS 'Traveler details per booking (lead + additional)';

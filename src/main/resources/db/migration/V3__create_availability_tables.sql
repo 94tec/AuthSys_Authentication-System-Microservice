@@ -1,6 +1,6 @@
 -- ============================================================
 -- V3__create_availability_tables.sql
--- Damuchi Safaris — Availability module
+-- Kivana Trails & Safaris — Availability module
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS tour_availability (
@@ -140,7 +140,7 @@ CREATE INDEX IF NOT EXISTS idx_availability_upcoming_open
 -- ============================================================
 
 COMMENT ON TABLE tour_availability IS
-    'Damuchi Safaris — bookable departure dates per enquire-button.tsx';
+    'Kivana Trails & Safaris — bookable departure dates per enquire-button.tsx';
 
 
 COMMENT ON COLUMN tour_availability.date IS

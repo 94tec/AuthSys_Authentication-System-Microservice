@@ -22,7 +22,7 @@ import reactor.core.publisher.Mono;
 import java.util.UUID;
 
 /**
- * Tour endpoints for Damuchi Safaris.
+ * Tour endpoints for Kivana Trails & Safaris.
  *
  * Public:
  *   GET  /api/tours               — paginated list, optional category/country/destination filters
@@ -47,7 +47,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/tours")
 @RequiredArgsConstructor
-@Tag(name = "Tours", description = "Damuchi Safaris tour management")
+@Tag(name = "Tours", description = "Kivana Trails & Safaris management")
 public class TourController {
 
     private final TourService tourService;

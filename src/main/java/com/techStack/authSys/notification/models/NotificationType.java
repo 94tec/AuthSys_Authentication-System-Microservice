@@ -52,7 +52,7 @@ public enum NotificationType {
     // Account
     ACCOUNT_APPROVED(  "Account Approved",         false),
     ACCOUNT_REJECTED(  "Account Rejected",         false),
-    WELCOME(           "Welcome to Damuchi Safaris", false),
+    WELCOME(           "Welcome to Kivana Trails & Safaris", false),
     PASSWORD_RESET(    "Password Reset",           false),
 
     // Marketing — only sent when customer has opted in

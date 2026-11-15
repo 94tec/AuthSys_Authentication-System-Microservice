@@ -15,6 +15,7 @@ import {
     ShieldCheck,
     UsersRound,
 } from "lucide-react";
+import { formatCurrency } from "@/lib/utils";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,6 +44,10 @@ interface EnquiryFormProps {
     /** Display-only tour context. */
     tourName?: string;
 
+    /** Listed per-person price of the selected tour. */
+    pricePerPerson?: number;
+    currency?: string;
+
     availabilityId?: string;
 
     /** Where the enquiry originated. */
@@ -63,6 +68,8 @@ const textareaClassName =
 export function EnquiryForm({
     tourId,
     tourName,
+    pricePerPerson,
+    currency = "KES",
     availabilityId,
     source,
     onSuccess,
@@ -81,6 +88,7 @@ export function EnquiryForm({
         },
     });
 
+    const adults = form.watch("groupSizeAdults");
     async function onSubmit(values: EnquiryFormValues) {
         try {
             const { tourId, availabilityId, ...payload } = values;
@@ -168,7 +176,7 @@ export function EnquiryForm({
 
                                                 <Input
                                                     {...field}
-                                                    placeholder="Aisha Mwangi"
+                                                    placeholder="Enter Your Full Name e.g. Aisha Mwangi"
                                                     autoComplete="name"
                                                     className={`${inputClassName} pl-10`}
                                                 />
@@ -197,7 +205,7 @@ export function EnquiryForm({
                                                 <Input
                                                     {...field}
                                                     type="email"
-                                                    placeholder="you@example.com"
+                                                    placeholder="your-email@example.com"
                                                     autoComplete="email"
                                                     className={`${inputClassName} pl-10`}
                                                 />
@@ -496,12 +504,26 @@ export function EnquiryForm({
                                         <FormControl>
                                             <Input
                                                 {...field}
-                                                placeholder="$1,500–$2,500 per person"
+                                                placeholder={`e.g. ${currency} 150,000 per person`}
                                                 className={inputClassName}
                                             />
                                         </FormControl>
 
+                                        {pricePerPerson != null && (
+                                            <p className="text-[11px] text-muted-foreground">
+                                                Listed price: {formatCurrency(pricePerPerson, currency)} per person
+                                                {adults ? (
+                                                    <>
+                                                        {" "}· about {formatCurrency(pricePerPerson * adults, currency)} for{" "}
+                                                        {adults} adult{adults === 1 ? "" : "s"}
+                                                    </>
+                                                ) : null}
+                                                . Children's rates may differ.
+                                            </p>
+                                        )}
+
                                         <FormMessage className="text-xs" />
+
                                     </FormItem>
                                 )}
                             />

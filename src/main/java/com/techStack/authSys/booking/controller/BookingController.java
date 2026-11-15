@@ -26,7 +26,7 @@ import java.time.LocalDate;
 import java.util.UUID;
 
 /**
- * Booking endpoints for Damuchi Safaris.
+ * Booking endpoints for Kivana Trails & Safaris.
  *
  * Customer (USER role):
  *   POST  /api/bookings              — create a booking
@@ -53,7 +53,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/bookings")
 @RequiredArgsConstructor
-@Tag(name = "Bookings", description = "Damuchi Safaris booking management")
+@Tag(name = "Bookings", description = "Kivana Trails & Safaris booking management")
 public class BookingController {
 
     private final BookingService bookingService;

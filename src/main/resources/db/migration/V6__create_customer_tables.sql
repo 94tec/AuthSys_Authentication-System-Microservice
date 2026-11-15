@@ -1,6 +1,6 @@
 -- ============================================================
 -- V6__create_customer_tables.sql
--- Damuchi Safaris — Customer Profile module
+-- Kivana Trails & Safaris — Customer Profile module
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS customer_profiles (
@@ -120,7 +120,7 @@ CREATE INDEX IF NOT EXISTS idx_wishlist_tour
     ON customer_wishlist(tour_id);
 
 COMMENT ON TABLE customer_profiles IS
-    'Damuchi Safaris — extended customer profile linked to Firebase auth by UID';
+    'Kivana Trails & Safaris — extended customer profile linked to Firebase auth by UID';
 
 COMMENT ON TABLE travel_documents IS
     'Saved passport/ID templates — reused across bookings to pre-fill traveler forms';

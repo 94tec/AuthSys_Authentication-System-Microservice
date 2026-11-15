@@ -18,7 +18,6 @@ import { UserMenu } from "@/components/navigation/user-menu";
 import { AuthActions } from "@/components/navigation/auth-actions";
 import { MobileTrigger } from "@/components/navigation/mobile-trigger";
 
-
 export function Navbar() {
     const router = useRouter();
 

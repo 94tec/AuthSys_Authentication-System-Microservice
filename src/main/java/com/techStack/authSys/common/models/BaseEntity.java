@@ -13,7 +13,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * JPA base entity for Damuchi Safaris modules (Tour, Booking, Availability).
+ * JPA base entity for Kivana Trails & Safaris modules (Tour, Booking, Availability).
  * Separate from AuditableEntity which is Firestore-specific.
  */
 @Getter

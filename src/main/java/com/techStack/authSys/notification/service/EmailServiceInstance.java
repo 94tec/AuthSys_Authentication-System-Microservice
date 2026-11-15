@@ -156,7 +156,7 @@ public class EmailServiceInstance implements EmailService {
         variables.put("fullName", email.split("@")[0]); // fallback name
         variables.put("loginUrl", baseUrl + "/login");
 
-        String subject = "Email Verified – Damuchi";
+        String subject = "Email Verified – Kivana Trails & Safaris";
         sendTemplatedEmail(email, subject, "emails/auth/email-verified", variables)
                 .onErrorResume(e -> Mono.empty())
                 .subscribe();
@@ -173,7 +173,7 @@ public class EmailServiceInstance implements EmailService {
         Map<String, Object> vars = new HashMap<>();
         vars.put("fullName", email.split("@")[0]);
         vars.put("dashboardUrl", baseUrl + "/dashboard");
-        return sendTemplatedEmail(email, "Welcome to Damuchi!", "emails/auth/welcome-email", vars);
+        return sendTemplatedEmail(email, "Welcome to Kivana Trails & Safaris!", "emails/auth/welcome-email", vars);
     }
 
     /* =========================

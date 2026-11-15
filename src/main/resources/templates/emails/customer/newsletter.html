@@ -1,6 +1,6 @@
 <html xmlns:th="http://www.thymeleaf.org"
       th:replace="~{emails/layouts/base-template :: body(content=~{::#content})}">
-<head><title th:text="${subject}">Damuchi Newsletter</title></head>
+<head><title th:text="${subject}">Kivana Trails & Safaris Newsletter</title></head>
 <body>
     <div id="content">
         <div th:replace="~{emails/components/hero :: hero(title=${issueTitle}, subtitle=${issueDate})}"></div>
@@ -11,7 +11,7 @@
         </div>
         <div th:replace="~{emails/components/divider}"></div>
         <p style="font-size:11px; color:#999999; text-align:center;">
-            <a th:href="${unsubscribeUrl}" style="color:#999999;">Unsubscribe</a> from Damuchi newsletters.
+            <a th:href="${unsubscribeUrl}" style="color:#999999;">Unsubscribe</a> from Kivana Trails & Safaris newsletters.
         </p>
     </div>
 </body>

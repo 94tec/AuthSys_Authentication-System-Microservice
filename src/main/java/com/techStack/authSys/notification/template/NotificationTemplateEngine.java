@@ -55,11 +55,11 @@ public class NotificationTemplateEngine {
             case PAYMENT_RECEIVED   -> "Payment received — KES " + formatAmount(ctx.getPaymentAmount());
             case PAYMENT_FAILED     -> "Payment unsuccessful — please try again";
             case PAYMENT_REFUNDED   -> "Refund processed — " + ctx.getTourName();
-            case ACCOUNT_APPROVED   -> "Your Damuchi Safaris account is ready";
+            case ACCOUNT_APPROVED   -> "Your Kivana Trails & Safaris account is ready";
             case ACCOUNT_REJECTED   -> "Update on your account application";
-            case WELCOME            -> "Welcome to Damuchi Safaris, " + ctx.getCustomerName() + "!";
-            case PASSWORD_RESET     -> "Reset your Damuchi Safaris password";
-            case PROMOTIONAL        -> "New tours just for you — Damuchi Safaris";
+            case WELCOME            -> "Welcome to Kivana Trails & Safaris, " + ctx.getCustomerName() + "!";
+            case PASSWORD_RESET     -> "Reset your Kivana Trails & Safaris password";
+            case PROMOTIONAL        -> "New tours just for you — Kivana Trails & Safaris";
             case REVIEW_REQUEST     -> "How was your " + ctx.getTourName() + " experience?";
         };
     }
@@ -99,12 +99,12 @@ public class NotificationTemplateEngine {
     private String buildFallback(NotificationType type, NotificationChannel channel, String path) {
         if (channel == NotificationChannel.EMAIL) {
             return "<p>Hello {{customerName}},</p>"
-                + "<p>This is a notification from Damuchi Safaris regarding your "
+                + "<p>This is a notification from Kivana Trails & Safaris regarding your "
                 + type.getDisplayName().toLowerCase() + ".</p>"
                 + "<p>[Template missing: " + path + "]</p>"
-                + "<p>The Damuchi Safaris Team</p>";
+                + "<p>The Kivana Trails & Safaris Team</p>";
         }
-        return "Damuchi Safaris: {{customerName}}, "
+        return "Kivana Trails & Safaris: {{customerName}}, "
             + type.getDisplayName() + ". "
             + "[Template missing: " + path + "]";
     }
@@ -142,10 +142,10 @@ public class NotificationTemplateEngine {
         vars.put("passwordResetUrl",  safe(ctx.getPasswordResetUrl()));
 
         // Branding
-        vars.put("companyName",       "Damuchi Safaris");
-        vars.put("supportEmail",      "support@damuchisafaris.co.ke");
-        vars.put("websiteUrl",        "https://damuchisafaris.co.ke");
-        vars.put("bookingPortalUrl",  "https://damuchisafaris.co.ke/my-bookings");
+        vars.put("companyName",       "Kivana Trails & Safaris");
+        vars.put("supportEmail",      "support@kivanasafaris.co.ke");
+        vars.put("websiteUrl",        "https://kivanasafaris.co.ke");
+        vars.put("bookingPortalUrl",  "https://kivanasafaris.co.ke/my-bookings");
 
         return vars;
     }

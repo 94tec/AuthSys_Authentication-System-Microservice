@@ -1,6 +1,6 @@
 -- ============================================================
 -- V5__create_payments_tables.sql
--- Damuchi Safaris — Payment module
+-- Kivana Trails & Safaris — Payment module
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS payments (
@@ -74,7 +74,7 @@ CREATE INDEX IF NOT EXISTS idx_payment_success_amount
     WHERE status = 'SUCCESS';
 
 COMMENT ON TABLE payments IS
-    'Damuchi Safaris — one row per payment attempt. '
+    'Kivana Trails & Safaris — one row per payment attempt. '
     'Multiple rows may exist per booking if earlier attempts failed.';
 
 COMMENT ON COLUMN payments.checkout_request_id IS

@@ -82,7 +82,7 @@ public class EnquiryNotificationServiceImpl implements EnquiryNotificationServic
 
         return emailService.sendTemplatedEmail(
                         enquiry.getEmail(),
-                        "We've received your request - Damuchi Safaris",
+                        "We've received your request - Kivana Trails & Safaris",
                         "emails/enquiries/auto-reply",
                         vars
                 )
@@ -174,7 +174,7 @@ public class EnquiryNotificationServiceImpl implements EnquiryNotificationServic
 
         return emailService.sendTemplatedEmail(
                         enquiry.getEmail(),
-                        String.format("Thank you for traveling with Damuchi Safaris - %s", tourName),
+                        String.format("Thank you for traveling with Kivana Trails & Safaris - %s", tourName),
                         "emails/enquiries/appreciation-note",
                         vars
                 )

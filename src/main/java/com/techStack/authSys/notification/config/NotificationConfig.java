@@ -15,7 +15,7 @@ import org.springframework.context.annotation.Configuration;
  *     enabled:       ${BREVO_ENABLED:true}   # false = log emails instead of sending (local dev)
  *     api-key:       ${BREVO_API_KEY}
  *     sender-email:  noreply@damuchisafaris.co.ke   # must be a verified sender/domain in Brevo
- *     sender-name:   Damuchi Safaris
+ *     sender-name:   Kivana Trails & Safaris
  *   retry:
  *     max-attempts:  3
  *     window-hours:  24
@@ -34,7 +34,7 @@ public class NotificationConfig {
         private boolean enabled = true;
         private String apiKey;
         private String senderEmail = "noreply@damuchisafaris.co.ke";
-        private String senderName  = "Damuchi Safaris";
+        private String senderName  = "Kivana Trails & Safaris";
         /** Brevo transactional email API endpoint */
         private String apiUrl      = "https://api.brevo.com/v3/smtp/email";
     }

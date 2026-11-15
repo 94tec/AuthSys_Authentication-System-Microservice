@@ -80,16 +80,9 @@ export function UserMenu({
                 <DropdownMenuSeparator />
 
                 <DropdownMenuItem asChild className="gap-2 py-2">
-                    <Link href="/dashboard">
+                    <Link href="/me/enquiries">
                         <LayoutDashboard className="h-4 w-4" />
-                        Dashboard
-                    </Link>
-                </DropdownMenuItem>
-
-                <DropdownMenuItem asChild className="gap-2 py-2">
-                    <Link href="/profile">
-                        <User className="h-4 w-4" />
-                        Profile
+                        My Enquiries
                     </Link>
                 </DropdownMenuItem>
 
@@ -101,9 +94,9 @@ export function UserMenu({
                 </DropdownMenuItem>
 
                 <DropdownMenuItem asChild className="gap-2 py-2">
-                    <Link href="/settings">
-                        <Settings className="h-4 w-4" />
-                        Settings
+                    <Link href="/me/profile">
+                        <User className="h-4 w-4" />
+                        Profile
                     </Link>
                 </DropdownMenuItem>
 

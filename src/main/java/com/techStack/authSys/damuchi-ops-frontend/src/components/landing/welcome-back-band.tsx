@@ -24,45 +24,52 @@ function ActionCard({
 }) {
     return (
         <motion.div
-            whileHover={{
-                y: -4,
-                scale: 1.02,
-            }}
-            whileTap={{
-                scale: 0.98,
+            whileHover={{ y: -4, scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            transition={{
+                type: "spring",
+                stiffness: 350,
+                damping: 25,
             }}
         >
             <Link
                 href={href}
+                aria-label={`${title}: ${subtitle}`}
                 className="
-                    flex min-w-[170px]
+                    group flex min-w-[170px]
                     items-center gap-3
-                    rounded-2xl
-                    border
+                    rounded-2xl border border-border/60
                     bg-background/80
-                    px-4
-                    py-3
+                    px-4 py-3
                     backdrop-blur-xl
-                    transition-all
-                    hover:shadow-lg
+                    transition-all duration-300
+                    hover:border-amber-500/40
+                    hover:bg-amber-500/[0.03]
+                    hover:shadow-lg hover:shadow-amber-500/5
+                    focus-visible:outline-none
+                    focus-visible:ring-2
+                    focus-visible:ring-amber-500
+                    focus-visible:ring-offset-2
                 "
             >
                 <div
                     className="
-                        flex h-10 w-10
+                        flex h-10 w-10 shrink-0
                         items-center justify-center
                         rounded-xl
                         bg-gradient-to-br
-                        from-amber-500
-                        to-orange-500
+                        from-amber-500 to-orange-500
                         text-white
+                        shadow-sm
+                        transition-transform duration-300
+                        group-hover:scale-110
                     "
                 >
                     <Icon className="h-5 w-5" />
                 </div>
 
-                <div>
-                    <p className="text-sm font-semibold">
+                <div className="min-w-0">
+                    <p className="text-sm font-semibold text-foreground">
                         {title}
                     </p>
 
@@ -181,16 +188,16 @@ export function WelcomeBackBand() {
                             "
                         >
                             <ActionCard
-                                href="/enquiries-overview"
+                                href="/me/enquiries"
                                 title="My Enquiries"
-                                subtitle="Track requests"
+                                subtitle="Track your safari requests and quotations"
                                 icon={MessagesSquare}
                             />
 
                             <ActionCard
-                                href="/wishlist"
+                                href="/me/wishlist"
                                 title="Saved Tours"
-                                subtitle="Your wishlist"
+                                subtitle="View and manage your favourite tours"
                                 icon={Heart}
                             />
 

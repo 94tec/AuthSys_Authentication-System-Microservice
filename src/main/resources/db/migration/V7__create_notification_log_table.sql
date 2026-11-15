@@ -1,6 +1,6 @@
 -- ============================================================
 -- V7__create_notification_log_table.sql
--- Damuchi Safaris — Notification module
+-- Kivana Trails & Safaris — Notification module
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS notification_log (

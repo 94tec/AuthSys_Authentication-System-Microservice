@@ -61,11 +61,11 @@ export function EnquiryModal({
     const [error, setError] = useState(false);
     const [search, setSearch] = useState("");
 
-    const [picked, setPicked] = useState<EnquiryTarget | null>(null);
+    //const [picked, setPicked] = useState<EnquiryTarget | null>(null);
+    const [picked, setPicked] = useState<TourSummary | null>(null);
     const preset: EnquiryTarget | null = tour ?? tourSummary ?? null;
     const hasPreset = preset !== null;
     const selectedTour = picked ?? preset;
-
 
     /**
      * Fetch the tour picker list only when:
@@ -93,42 +93,6 @@ export function EnquiryModal({
         }
     }, [open, hasPreset, tours.length, error, loadTours]);
 
-    useEffect(() => {
-        if (!open || tour || tourSummary || tours.length > 0) {
-            return;
-        }
-
-        let cancelled = false;
-
-        async function fetchTours() {
-            setLoadingTours(true);
-            setError(false);
-
-            try {
-                const data = await tourApi.getTours();
-
-                if (!cancelled) {
-                    setTours(data.content);
-                }
-            } catch {
-                if (!cancelled) {
-                    setTours([]);
-                    setError(true);
-                }
-            } finally {
-                if (!cancelled) {
-                    setLoadingTours(false);
-                }
-            }
-        }
-
-        void fetchTours();
-
-        return () => {
-            cancelled = true;
-        };
-    }, [open, tour, tourSummary, tours.length]);
-
     function handleOpenChange(next: boolean) {
         setOpen(next);
         if (!next) {
@@ -143,6 +107,11 @@ export function EnquiryModal({
 
     function handleSelectTour(next: TourSummary) {
         setPicked(next);
+    }
+    type EnquiryTarget = TourSummary | TourPublic;
+
+    function priceOf(t: EnquiryTarget) {
+        return "pricePerPerson" in t ? t.pricePerPerson : (t.price ?? undefined);
     }
 
     const isSelectingTour = selectedTour === null;
@@ -545,10 +514,10 @@ export function EnquiryModal({
                                 <EnquiryForm
                                     tourId={selectedTour.id}
                                     tourName={selectedTour.name}
+                                    pricePerPerson={priceOf(selectedTour)}
+                                    currency={selectedTour.currency ?? undefined}
                                     source={source}
-                                    onSuccess={() =>
-                                        handleOpenChange(false)
-                                    }
+                                    onSuccess={() => handleOpenChange(false)}
                                 />
                             </motion.div>
                         ) : error ? (
