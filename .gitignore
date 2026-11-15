@@ -53,3 +53,4 @@ secrets/
 
 src/main/java/com/techStack/authSys/authsys-frontend/
 src/main/java/com/techStack/authSys/damuchi-ops-frontend/
+.neon
