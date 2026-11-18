@@ -24,7 +24,7 @@ public class QuotePdfService {
 
     private final TemplateEngine templateEngine;
 
-    @Value("classpath:static/images/logo.png")
+    @Value("classpath:static/images/kivana-logo.png")
     private ClassPathResource logoResource;
 
     // Kivana Trails & Safaris payment details — update if these ever change
