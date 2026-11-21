@@ -35,6 +35,9 @@ public interface TourRepository extends JpaRepository<Tour, UUID> {
     """)
     Optional<Tour> findDetailedByIdAndDeletedFalse(@Param("id") UUID id);
 
+
+    Optional<Tour> findBySlugAndDeletedFalseAndActiveTrue(String slug);
+
     Page<Tour> findAllByDeletedFalseAndActiveTrue(Pageable pageable);
 
     Page<Tour> findAllByDeletedFalseAndActiveTrueAndCategory(

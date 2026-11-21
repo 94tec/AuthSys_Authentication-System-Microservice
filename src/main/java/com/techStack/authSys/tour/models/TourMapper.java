@@ -85,16 +85,62 @@ public class TourMapper {
         if (r.featured() != null) tour.setFeatured(r.featured());
     }
 
-    public TourResponse toResponse(Tour t) {
-        return new TourResponse(
-                t.getId(), t.getName(), t.getSlug(), t.getShortDescription(), t.getDescription(), t.getCategory(),
-                t.getDestination(), t.getCountry(), t.getRegion(), t.getMeetingPoint(),
-                t.getDurationDays(), t.getDurationNights(), t.getDifficulty(), t.getMinimumAge(), t.getMaxGroupSize(), t.getBestSeason(),
-                t.getPrice(), t.getCurrency(), t.getPriceType(), t.getDepositPercentage(),
-                t.getHighlights(), t.getItinerary(), t.getInclusions(), t.getExclusions(), t.getRequirements(), t.getImportantInformation(),
-                t.getCoverImage(), t.getGalleryImages(), t.getVideoUrl(),                t.getAverageRating(), t.getReviewCount(),
-                t.getActive(), t.getFeatured(),                t.getCreatedDate(), t.getLastModifiedDate()        );
+
+    private <T> List<T> safeCopy(List<T> source) {
+        return source == null
+                ? List.of()
+                : List.copyOf(source);
     }
+
+    public TourResponse toResponse(Tour t) {
+
+        return new TourResponse(
+                t.getId(),
+                t.getName(),
+                t.getSlug(),
+                t.getShortDescription(),
+                t.getDescription(),
+                t.getCategory(),
+
+                t.getDestination(),
+                t.getCountry(),
+                t.getRegion(),
+                t.getMeetingPoint(),
+
+                t.getDurationDays(),
+                t.getDurationNights(),
+                t.getDifficulty(),
+                t.getMinimumAge(),
+                t.getMaxGroupSize(),
+                t.getBestSeason(),
+
+                t.getPrice(),
+                t.getCurrency(),
+                t.getPriceType(),
+                t.getDepositPercentage(),
+
+                safeCopy(t.getHighlights()),
+                safeCopy(t.getItinerary()),
+                safeCopy(t.getInclusions()),
+                safeCopy(t.getExclusions()),
+                safeCopy(t.getRequirements()),
+                t.getImportantInformation(),
+
+                t.getCoverImage(),
+                safeCopy(t.getGalleryImages()),
+                t.getVideoUrl(),
+
+                t.getAverageRating(),
+                t.getReviewCount(),
+
+                t.getActive(),
+                t.getFeatured(),
+
+                t.getCreatedDate(),
+                t.getLastModifiedDate()
+        );
+    }
+
 
     public TourResponse to_Response(Tour t) {
         return new TourResponse(

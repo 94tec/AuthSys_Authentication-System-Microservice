@@ -27,6 +27,7 @@ import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 import java.text.Normalizer;
+import java.util.Locale;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
@@ -93,11 +94,53 @@ public class TourService {
     }
 
     public Mono<TourResponse> getTourBySlug(String slug) {
-        return Mono.fromCallable(() ->
-                tourRepository.findBySlugAndDeletedFalse(slug)
-                        .map(tourMapper::toResponse)
-                        .orElseThrow(() -> new ResourceNotFoundException(HttpStatus.NOT_FOUND, "Tour not found: " + slug))
-        ).subscribeOn(Schedulers.boundedElastic());
+
+        return Mono.fromCallable(() -> {
+
+                    if (slug == null || slug.isBlank()) {
+                        throw new IllegalArgumentException(
+                                "Tour slug cannot be empty"
+                        );
+                    }
+
+                    String normalizedSlug =
+                            slug.trim().toLowerCase(Locale.ROOT);
+
+                    return transactionTemplate.execute(status -> {
+
+                        Tour tour = tourRepository
+                                .findBySlugAndDeletedFalseAndActiveTrue(
+                                        normalizedSlug
+                                )
+                                .orElseThrow(() ->
+                                        new ResourceNotFoundException(
+                                                HttpStatus.NOT_FOUND,
+                                                "Tour not found: " + normalizedSlug
+                                        )
+                                );
+
+                        // Map inside the transaction.
+                        // This initializes all lazy element collections safely.
+                        return tourMapper.toResponse(tour);
+                    });
+
+                })
+                .subscribeOn(Schedulers.boundedElastic())
+                .doOnSuccess(response -> {
+                    if (response != null) {
+                        log.debug(
+                                "Successfully retrieved tour by slug: {}",
+                                slug
+                        );
+                    }
+                })
+                .doOnError(error ->
+                        log.error(
+                                "Failed to retrieve tour by slug: {}",
+                                slug,
+                                error
+                        )
+                );
     }
 
     /**

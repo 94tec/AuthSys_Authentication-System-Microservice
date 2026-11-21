@@ -243,6 +243,26 @@ public class GlobalExceptionHandler {
         return cause;
     }
 
+    @ExceptionHandler(ResourceNotFoundException.class)
+    public Mono<ResponseEntity<Map<String, Object>>> handleResourceNotFound(
+            ResourceNotFoundException ex
+    ) {
+        Instant now = clock.instant();
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("success", false);
+        response.put("status", HttpStatus.NOT_FOUND.value());
+        response.put("errorCode", "RESOURCE_NOT_FOUND");
+        response.put("message", ex.getMessage());
+        response.put("timestamp", now.toString());
+        response.put("timestampMillis", now.toEpochMilli());
+
+        return Mono.just(
+                ResponseEntity.status(HttpStatus.NOT_FOUND).body(response)
+        );
+    }
+
+
     /* =========================
        Rate Limit Exceptions
        ========================= */
