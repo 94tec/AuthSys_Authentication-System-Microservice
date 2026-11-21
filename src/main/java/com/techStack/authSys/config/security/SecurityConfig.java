@@ -147,7 +147,7 @@ public class SecurityConfig {
                         .pathMatchers("/api/admin/disaster-recovery/**").hasRole("SUPER_ADMIN")
 
                         .pathMatchers(HttpMethod.GET, "/api/tours/admin/**").hasAnyRole("SUPER_ADMIN", "ADMIN", "MANAGER")
-                        .pathMatchers(HttpMethod.GET, "/api/tours/**").permitAll()
+                        .pathMatchers(HttpMethod.GET, "/api/tours", "/api/tours/**").permitAll()
                         .pathMatchers(HttpMethod.POST, "/api/tours").hasAnyRole("SUPER_ADMIN", "ADMIN", "MANAGER")
                         .pathMatchers(HttpMethod.PUT, "/api/tours/**").hasAnyRole("SUPER_ADMIN", "ADMIN", "MANAGER")
                         .pathMatchers(HttpMethod.DELETE, "/api/tours/**").hasAnyRole("SUPER_ADMIN", "ADMIN")
