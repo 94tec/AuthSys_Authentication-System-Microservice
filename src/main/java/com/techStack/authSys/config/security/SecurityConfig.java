@@ -92,7 +92,12 @@ public class SecurityConfig {
                         ).permitAll()
 
                         // ✅ Health and actuator
-                        .pathMatchers("/actuator/**", "/health/**").permitAll()
+                        .pathMatchers(
+                                "/actuator/**",
+                                "/health/**",
+                                "/actuator/health",
+                                "/actuator/health/**"
+                        ).permitAll()
 
                         // ✅ Static resources
                         .pathMatchers(
