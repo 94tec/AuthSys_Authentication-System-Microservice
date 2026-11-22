@@ -83,88 +83,48 @@ public class SecurityConfig {
                 .httpBasic(ServerHttpSecurity.HttpBasicSpec::disable)
                 .formLogin(ServerHttpSecurity.FormLoginSpec::disable)
                 .authorizeExchange(exchange -> exchange
-                        // ✅ Swagger UI (order matters - most specific first)
-                        .pathMatchers(
-                                "/swagger-ui.html",
-                                "/swagger-ui/**",
-                                "/v3/api-docs/**",
-                                "/webjars/**"
-                        ).permitAll()
-
-                        // ✅ Health and actuator
-                        .pathMatchers(
-                                "/actuator/**",
-                                "/health/**",
-                                "/actuator/health",
-                                "/actuator/health/**"
-                        ).permitAll()
-
-                        // ✅ Static resources
-                        .pathMatchers(
-                                "/favicon.ico",
-                                "/static/**",
-                                "/css/**",
-                                "/js/**",
-                                "/images/**"
-                        ).permitAll()
-
-                        // ✅ Public authentication endpoints
-                        .pathMatchers(
-                                "/api/auth/login",
-                                "/api/auth/register",
-                                "/api/auth/verify-email",
-                                "/api/auth/resend-verification",
-                                "/api/auth/check-email",
-                                "/api/auth/logout",
-                                "/api/auth/refresh",
-                                "/api/auth/first-time-setup/**",
-                                "/api/auth/login-otp/**",
-                                "/api/otp/**",
-                                "/api/password-reset/**",
-
-                                "/api/auth/sso/handoff-code",
-                                "/api/auth/sso/redeem"
-
-                        ).permitAll()
-
                         .pathMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                        .pathMatchers("/favicon.ico").permitAll()
-                        // ✅ Super Admin bootstrap (public)
-                        .pathMatchers("/api/super-admin/register", "/api/super-admin/login").permitAll()
-                        // SSO: redeem is public (code is the credential); creating a code needs a logged-in user
+
+                        // health only (Render and uptime checks); the rest of actuator is locked
+                        .pathMatchers("/actuator/health", "/actuator/health/**").permitAll()
+                        .pathMatchers("/actuator/**").hasRole("SUPER_ADMIN")
+
+                        .pathMatchers("/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**", "/webjars/**").permitAll() // consider removing in prod
+                        .pathMatchers("/favicon.ico", "/static/**", "/css/**", "/js/**", "/images/**").permitAll()
+
+                        // public auth
+                        .pathMatchers(
+                                "/api/auth/login", "/api/auth/register", "/api/auth/verify-email",
+                                "/api/auth/resend-verification", "/api/auth/check-email", "/api/auth/logout",
+                                "/api/auth/refresh", "/api/auth/first-time-setup/**", "/api/auth/login-otp/**",
+                                "/api/otp/**", "/api/password-reset/**", "/api/auth/sso/redeem",
+                                "/api/super-admin/register", "/api/super-admin/login"
+                        ).permitAll()
                         .pathMatchers(HttpMethod.POST, "/api/auth/sso/handoff-code").authenticated()
 
-                        // ✅ Role-based access (order matters - most restrictive first)
-                        .pathMatchers("/api/super-admin/**").hasRole("SUPER_ADMIN")
-                        .pathMatchers("/api/admin/bootstrap/**").hasAnyRole("SUPER_ADMIN", "ADMIN")
-                        .pathMatchers("/api/admin/system/**").hasAnyRole("SUPER_ADMIN", "ADMIN")
-                        .pathMatchers("/api/admin/database/**").hasAnyRole("SUPER_ADMIN", "ADMIN")
-                        .pathMatchers("/api/admin/audit-logs/**").hasAnyRole("SUPER_ADMIN", "ADMIN")
-                        .pathMatchers("/api/admin/access/**").hasAnyRole("SUPER_ADMIN", "ADMIN")
-                        .pathMatchers("/api/admin/security/**").hasRole("SUPER_ADMIN")
-                        .pathMatchers("/api/admin/database/**").hasRole("SUPER_ADMIN")
-                        .pathMatchers("/api/admin/disaster-recovery/**").hasRole("SUPER_ADMIN")
+                        // most restrictive first
+                        .pathMatchers("/api/super-admin/**", "/api/admin/security/**",
+                                "/api/admin/database/**", "/api/admin/disaster-recovery/**").hasRole("SUPER_ADMIN")
+                        .pathMatchers("/api/admin/bootstrap/**", "/api/admin/system/**",
+                                "/api/admin/audit-logs/**", "/api/admin/access/**").hasAnyRole("SUPER_ADMIN", "ADMIN")
 
-                        .pathMatchers(HttpMethod.GET, "/api/tours/admin/**").hasAnyRole("SUPER_ADMIN", "ADMIN", "MANAGER")
+                        .pathMatchers(HttpMethod.GET, "/api/tours/admin/**").hasAnyRole("SUPER_ADMIN", "ADMIN", "MANAGER", "OPERATOR")
                         .pathMatchers(HttpMethod.GET, "/api/tours", "/api/tours/**").permitAll()
                         .pathMatchers(HttpMethod.POST, "/api/tours").hasAnyRole("SUPER_ADMIN", "ADMIN", "MANAGER")
                         .pathMatchers(HttpMethod.PUT, "/api/tours/**").hasAnyRole("SUPER_ADMIN", "ADMIN", "MANAGER")
                         .pathMatchers(HttpMethod.DELETE, "/api/tours/**").hasAnyRole("SUPER_ADMIN", "ADMIN")
 
-                        .pathMatchers("/api/tokens/**", "/api/logs/**").hasAnyRole("SUPER_ADMIN", "ADMIN")
-                        .pathMatchers("/api/admin/**").hasAnyRole("SUPER_ADMIN", "ADMIN")
+                        .pathMatchers("/api/tokens/**", "/api/logs/**", "/api/admin/**",
+                                "/api/payments/**", "/api/revenue/**").hasAnyRole("SUPER_ADMIN", "ADMIN")
                         .pathMatchers("/api/manager/**").hasAnyRole("SUPER_ADMIN", "ADMIN", "MANAGER")
-                        .pathMatchers("/api/users/**").hasAnyRole("SUPER_ADMIN", "ADMIN", "USER")
-                        .pathMatchers("/api/user/profile/**").hasAnyRole("SUPER_ADMIN", "ADMIN", "USER")
-                        .pathMatchers("/api/payments/**", "/api/revenue/**").hasAnyRole("SUPER_ADMIN","ADMIN")
-                        // customer-facing (explicit allow-list)
-                        .pathMatchers("/api/users/**", "/api/user/profile/**").hasAnyRole("SUPER_ADMIN","ADMIN","MANAGER","OPERATOR","USER")
-                        .pathMatchers(HttpMethod.POST, "/api/enquiries", "/api/bookings/my/**").hasRole("USER")
-                        // everything else = staff only
-                        .anyExchange().hasAnyRole("SUPER_ADMIN", "ADMIN", "MANAGER", "OPERATOR")
 
-                        // ✅ All other endpoints require authentication
-                        .anyExchange().authenticated()
+                        // customer-facing
+                        .pathMatchers("/api/users/**", "/api/user/profile/**")
+                        .hasAnyRole("SUPER_ADMIN", "ADMIN", "MANAGER", "OPERATOR", "USER")
+                        .pathMatchers(HttpMethod.POST, "/api/enquiries", "/api/bookings/my/**").hasRole("USER")
+
+                        // everything else: staff only
+                        .anyExchange().hasAnyRole("SUPER_ADMIN", "ADMIN", "MANAGER", "OPERATOR")
                 )
                 .exceptionHandling(handling -> handling
                         .authenticationEntryPoint(authenticationEntryPoint)
