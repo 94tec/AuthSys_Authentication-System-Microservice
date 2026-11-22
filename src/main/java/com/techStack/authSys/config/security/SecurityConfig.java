@@ -109,6 +109,7 @@ public class SecurityConfig {
                                 "/api/admin/audit-logs/**", "/api/admin/access/**").hasAnyRole("SUPER_ADMIN", "ADMIN")
 
                         .pathMatchers(HttpMethod.GET, "/api/tours/admin/**").hasAnyRole("SUPER_ADMIN", "ADMIN", "MANAGER", "OPERATOR")
+                        .pathMatchers(HttpMethod.GET, "/api/tours/*/enquiries").hasAnyRole("SUPER_ADMIN", "ADMIN", "MANAGER", "OPERATOR")
                         .pathMatchers(HttpMethod.GET, "/api/tours", "/api/tours/**").permitAll()
                         .pathMatchers(HttpMethod.POST, "/api/tours").hasAnyRole("SUPER_ADMIN", "ADMIN", "MANAGER")
                         .pathMatchers(HttpMethod.PUT, "/api/tours/**").hasAnyRole("SUPER_ADMIN", "ADMIN", "MANAGER")
@@ -119,9 +120,10 @@ public class SecurityConfig {
                         .pathMatchers("/api/manager/**").hasAnyRole("SUPER_ADMIN", "ADMIN", "MANAGER")
 
                         // customer-facing
-                        .pathMatchers("/api/users/**", "/api/user/profile/**")
-                        .hasAnyRole("SUPER_ADMIN", "ADMIN", "MANAGER", "OPERATOR", "USER")
+                        .pathMatchers("/api/users/**", "/api/user/profile/**").hasAnyRole("SUPER_ADMIN", "ADMIN", "MANAGER", "OPERATOR", "USER")
                         .pathMatchers(HttpMethod.POST, "/api/enquiries", "/api/bookings/my/**").hasRole("USER")
+                        .pathMatchers("/api/me/**").authenticated()
+                        .pathMatchers(HttpMethod.POST, "/api/tours/*/enquiries").authenticated()
 
                         // everything else: staff only
                         .anyExchange().hasAnyRole("SUPER_ADMIN", "ADMIN", "MANAGER", "OPERATOR")
