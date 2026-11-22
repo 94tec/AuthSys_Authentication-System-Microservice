@@ -122,7 +122,7 @@ public class SecurityConfig {
                                 "/api/otp/**",
                                 "/api/password-reset/**",
 
-                                "/api/auth/sso/handoff-code", // still needs auth — this is fine as-is
+                                "/api/auth/sso/handoff-code",
                                 "/api/auth/sso/redeem"
 
                         ).permitAll()
@@ -130,10 +130,9 @@ public class SecurityConfig {
                         .pathMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .pathMatchers("/favicon.ico").permitAll()
                         // ✅ Super Admin bootstrap (public)
-                        .pathMatchers(
-                                "/api/super-admin/register",
-                                "/api/super-admin/login"
-                        ).permitAll()
+                        .pathMatchers("/api/super-admin/register", "/api/super-admin/login").permitAll()
+                        // SSO: redeem is public (code is the credential); creating a code needs a logged-in user
+                        .pathMatchers(HttpMethod.POST, "/api/auth/sso/handoff-code").authenticated()
 
                         // ✅ Role-based access (order matters - most restrictive first)
                         .pathMatchers("/api/super-admin/**").hasRole("SUPER_ADMIN")
@@ -152,16 +151,17 @@ public class SecurityConfig {
                         .pathMatchers(HttpMethod.PUT, "/api/tours/**").hasAnyRole("SUPER_ADMIN", "ADMIN", "MANAGER")
                         .pathMatchers(HttpMethod.DELETE, "/api/tours/**").hasAnyRole("SUPER_ADMIN", "ADMIN")
 
-                        .pathMatchers("/api/tokens/**", "/api/logs/**")
-                        .hasAnyRole("SUPER_ADMIN", "ADMIN")
-                        .pathMatchers("/api/admin/**")
-                        .hasAnyRole("SUPER_ADMIN", "ADMIN")
-                        .pathMatchers("/api/manager/**")
-                        .hasAnyRole("SUPER_ADMIN", "ADMIN", "MANAGER")
-                        .pathMatchers("/api/users/**")
-                        .hasAnyRole("SUPER_ADMIN", "ADMIN", "USER")
-                        .pathMatchers("/api/user/profile/**")
-                        .hasAnyRole("SUPER_ADMIN", "ADMIN", "USER")
+                        .pathMatchers("/api/tokens/**", "/api/logs/**").hasAnyRole("SUPER_ADMIN", "ADMIN")
+                        .pathMatchers("/api/admin/**").hasAnyRole("SUPER_ADMIN", "ADMIN")
+                        .pathMatchers("/api/manager/**").hasAnyRole("SUPER_ADMIN", "ADMIN", "MANAGER")
+                        .pathMatchers("/api/users/**").hasAnyRole("SUPER_ADMIN", "ADMIN", "USER")
+                        .pathMatchers("/api/user/profile/**").hasAnyRole("SUPER_ADMIN", "ADMIN", "USER")
+                        .pathMatchers("/api/payments/**", "/api/revenue/**").hasAnyRole("SUPER_ADMIN","ADMIN")
+                        // customer-facing (explicit allow-list)
+                        .pathMatchers("/api/users/**", "/api/user/profile/**").hasAnyRole("SUPER_ADMIN","ADMIN","MANAGER","OPERATOR","USER")
+                        .pathMatchers(HttpMethod.POST, "/api/enquiries", "/api/bookings/my/**").hasRole("USER")
+                        // everything else = staff only
+                        .anyExchange().hasAnyRole("SUPER_ADMIN", "ADMIN", "MANAGER", "OPERATOR")
 
                         // ✅ All other endpoints require authentication
                         .anyExchange().authenticated()
